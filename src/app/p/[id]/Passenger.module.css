@@ -1,0 +1,355 @@
+.container {
+  min-height: 100vh;
+  background-color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+  font-family: 'Outfit', sans-serif;
+}
+
+.brandHeader {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.logoWrapper {
+  margin-bottom: 16px;
+  animation: logoFloat 3s ease-in-out infinite;
+}
+
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.brandTitle {
+  font-size: 24px;
+  font-weight: 800;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+
+.brandSubtitle {
+  font-size: 16px;
+  color: #64748b;
+}
+
+.formCard {
+  background-color: white;
+  width: 100%;
+  max-width: 500px;
+  border-radius: 32px;
+  padding: 40px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.starRating {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.starBtn {
+  color: #e2e8f0;
+  transition: all 0.2s;
+}
+
+.starFilled {
+  color: #fbbf24;
+  transform: scale(1.1);
+}
+
+.hint {
+  text-align: center;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.categoryGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.categoryBtn {
+  padding: 12px;
+  background-color: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+  transition: all 0.2s;
+}
+
+.categoryActive {
+  background-color: var(--brand-green-light);
+  border-color: var(--brand-green);
+  color: var(--brand-green);
+}
+
+.textarea {
+  width: 100%;
+  height: 120px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 16px;
+  font-size: 15px;
+  color: #1e293b;
+  margin-bottom: 24px;
+  resize: none;
+  outline: none;
+}
+
+.textarea:focus {
+  border-color: var(--brand-green);
+  background-color: white;
+}
+
+.submitBtn {
+  width: 100%;
+  background-color: var(--brand-green);
+  color: white;
+  padding: 16px;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: all 0.2s;
+}
+
+.submitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.animateIn {
+  animation: slideUp 0.4s ease-out;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.successCard {
+  text-align: center;
+  padding: 40px;
+  background-color: white;
+  border-radius: 32px;
+  max-width: 400px;
+}
+
+.successIcon {
+  color: #10b981;
+  margin-bottom: 24px;
+}
+
+.successTitle {
+  font-size: 28px;
+  font-weight: 800;
+  color: #1e293b;
+  margin-bottom: 12px;
+}
+
+.successText {
+  color: #64748b;
+  line-height: 1.6;
+  margin-bottom: 32px;
+}
+
+.doneBtn {
+  background-color: #1e293b;
+  color: white;
+  padding: 12px 32px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.dynamicForm {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.required {
+  color: #ef4444;
+  margin-left: 2px;
+}
+
+.input {
+  width: 100%;
+  background-color: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 15px;
+  color: #1e293b;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.input:focus {
+  border-color: var(--brand-green);
+  background-color: white;
+  box-shadow: 0 0 0 4px rgba(21, 115, 71, 0.1);
+}
+
+.fileUpload {
+  border: 2px dashed #e2e8f0;
+  border-radius: 16px;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #64748b;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.fileUpload:hover {
+  background-color: #f8fafc;
+  border-color: var(--brand-green);
+  color: var(--brand-green);
+}
+
+.hiddenFile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.contactSection {
+  margin-top: 16px;
+  padding-top: 32px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.contactHeader {
+  margin-bottom: 24px;
+}
+
+.contactTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 6px;
+}
+
+.trustLabel {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.contactGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.contactGridRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.contactField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.contactLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.contactInput {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  color: #1e293b;
+  outline: none;
+}
+
+.contactInput:focus {
+  border-color: var(--brand-green);
+  background-color: white;
+}
+
+.finalTrustMsg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 24px;
+}
+
+.refInfo {
+  margin-top: 24px;
+  padding: 12px;
+  background-color: #f8fafc;
+  border-radius: 12px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.footer {
+  margin-top: auto;
+  padding-top: 40px;
+  text-align: center;
+}
+
+.footer p {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.footerTerms {
+  font-size: 11px;
+  color: #64748b;
+}
