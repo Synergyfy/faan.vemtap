@@ -68,7 +68,7 @@ const MENU_ITEMS: MenuItem[] = [
     icon: MousePointer2, 
     label: "Touchpoints", 
     href: "/dashboard/touchpoints",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
+    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]
   },
   { 
     icon: Inbox, 
@@ -98,7 +98,7 @@ const MENU_ITEMS: MenuItem[] = [
     icon: Settings, 
     label: "Settings", 
     href: "/dashboard/settings",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]
+    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
   },
 ];
 

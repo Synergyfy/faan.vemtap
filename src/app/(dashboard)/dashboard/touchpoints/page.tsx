@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import styles from "../../Dashboard.module.css";
+import { useRole } from "@/context/RoleContext";
 
 // Mock Data
 const MOCK_LOCATIONS = [
@@ -65,6 +66,7 @@ const MOCK_SUBMISSIONS: any = {
 };
 
 export default function TouchpointsPage() {
+  const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const [touchpoints, setTouchpoints] = useState(INITIAL_TOUCHPOINTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
@@ -158,7 +160,15 @@ export default function TouchpointsPage() {
           <h2 className={styles.pageTitle}>Touchpoints Management</h2>
           <p className={styles.pageSubtitle}>Monitor and manage all QR & NFC passenger engagement points.</p>
         </div>
-        <button className={styles.createButton} onClick={() => setShowLocationPicker(true)}>
+        <button className={styles.createButton} onClick={() => {
+          if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
+            setSelectedLocation(roleLocationName || currentLocation);
+            setIsModalOpen(true);
+            setWizardStep(1);
+          } else {
+            setShowLocationPicker(true);
+          }
+        }}>
           <Plus size={18} />
           <span>Create New Touchpoint</span>
         </button>
