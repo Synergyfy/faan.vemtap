@@ -28,6 +28,7 @@ import {
   Cell
 } from "recharts";
 import styles from "../../Dashboard.module.css";
+import { useRole } from "@/context/RoleContext";
 
 // MOCK DATA for analytics
 const satisfactionData = [
@@ -66,6 +67,7 @@ const deptPerformanceData = [
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function AnalyticsPage() {
+  const { currentRole, currentDepartment, departmentName } = useRole();
   const [timeRange, setTimeRange] = useState("Last 7 Days");
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -90,8 +92,15 @@ export default function AnalyticsPage() {
       {/* Header & Export Tools */}
       <div className={styles.pageHeader}>
         <div>
-          <h2 className={styles.pageTitle}>Advanced Analytics</h2>
-          <p className={styles.pageSubtitle}>Deep insights into terminal operations and passenger satisfaction.</p>
+          <h2 className={styles.pageTitle}>
+            {currentRole === 'DEPARTMENT_ADMIN' ? `${departmentName || currentDepartment} Performance` : 'Advanced Analytics'}
+          </h2>
+          <p className={styles.pageSubtitle}>
+            {currentRole === 'DEPARTMENT_ADMIN' 
+              ? 'Track your department\'s response time and issue resolution metrics.'
+              : "Deep insights into terminal operations and passenger satisfaction."
+            }
+          </p>
         </div>
         <div className={styles.headerActions}>
            <div className={styles.filterDropdown}>
@@ -167,8 +176,47 @@ export default function AnalyticsPage() {
                <h3 className={styles.kpiValue}>1h 45m</h3>
                <span className={styles.kpiTrendUp}>-30m this week</span>
             </div>
+</div>
+       </div>
+
+       {/* Department Admin Simplified View */}
+       {currentRole === 'DEPARTMENT_ADMIN' && (
+         <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '12px', marginBottom: '20px' }}>
+           <h3 style={{ marginBottom: '16px', color: '#1e293b' }}>Your Performance Summary</h3>
+           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+              <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                       <Users size={20} color="#3b82f6" />
+                    </div>
+                    <span style={{ color: '#64748b', fontSize: '14px' }}>Issues Handled</span>
+                 </div>
+                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>156</span>
+                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>+12 this week</span>
+              </div>
+              <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                       <Clock size={20} color="#f59e0b" />
+                    </div>
+                    <span style={{ color: '#64748b', fontSize: '14px' }}>Avg Response Time</span>
+                 </div>
+                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>45m</span>
+                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>-15% faster</span>
+              </div>
+              <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                       <TrendingUp size={20} color="#22c55e" />
+                    </div>
+                    <span style={{ color: '#64748b', fontSize: '14px' }}>Resolution Rate</span>
+                 </div>
+                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>94%</span>
+                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>+5% improvement</span>
+              </div>
+           </div>
          </div>
-      </div>
+       )}
 
       {/* Main Charts Area */}
       <div className={styles.chartsGrid}>

@@ -17,6 +17,15 @@ import {
   MoreVertical
 } from "lucide-react";
 import styles from "../../Dashboard.module.css";
+import { useRole } from "@/context/RoleContext";
+
+const MOCK_LOCATIONS = [
+  { id: "abuja", name: "Abuja International Airport" },
+  { id: "lagos", name: "Lagos Murtala Muhammed" },
+  { id: "kano", name: "Kano Mallam Aminu" },
+  { id: "port-harcourt", name: "Port Harcourt Intl" },
+  { id: "enugu", name: "Enugu Airport" },
+];
 
 // Industry Standard Mock Data for Issues
 const INITIAL_ISSUES = [
@@ -67,10 +76,14 @@ const INITIAL_ISSUES = [
 ];
 
 export default function IssueManagementPage() {
+  const { currentRole, currentDepartment } = useRole();
   const [issues, setIssues] = useState(INITIAL_ISSUES);
   const [selectedIssue, setSelectedIssue] = useState<any>(null);
   const [draggedIssueId, setDraggedIssueId] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState("");
+  const [tempLocation, setTempLocation] = useState("");
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
@@ -78,6 +91,9 @@ export default function IssueManagementPage() {
     department: "Security",
     location: ""
   });
+
+  const [issueComments, setIssueComments] = useState<{ [key: string]: string[] }>({});
+  const [newComment, setNewComment] = useState("");
 
   const onDragStart = (id: string) => {
     setDraggedIssueId(id);
@@ -112,6 +128,15 @@ export default function IssueManagementPage() {
     setIssues([created, ...issues]);
     setIsCreateModalOpen(false);
     setNewTask({ title: "", description: "", priority: "medium", department: "Security", location: "" });
+  };
+
+  const handleAddComment = () => {
+    if (!newComment.trim() || !selectedIssue) return;
+    setIssueComments({
+      ...issueComments,
+      [selectedIssue.id]: [...(issueComments[selectedIssue.id] || []), newComment]
+    });
+    setNewComment("");
   };
 
   const getStatusIssues = (status: string) => issues.filter(i => i.status === status);
@@ -175,10 +200,17 @@ export default function IssueManagementPage() {
               <Search size={18} />
               <input type="text" placeholder="Search issues..." />
            </div>
-           <button className={styles.createButton} onClick={() => setIsCreateModalOpen(true)}>
-             <Plus size={18} />
-             <span>New Task</span>
-           </button>
+<button className={styles.createButton} onClick={() => {
+              if (currentRole === 'DEPARTMENT_ADMIN') {
+                setSelectedLocation(currentDepartment || "Security");
+                setIsCreateModalOpen(true);
+              } else {
+                setShowLocationPicker(true);
+              }
+            }}>
+              <Plus size={18} />
+              <span>New Task</span>
+            </button>
         </div>
       </div>
 
@@ -198,6 +230,28 @@ export default function IssueManagementPage() {
              </div>
              <form onSubmit={handleCreateIssue}>
               <div className={styles.modalBody}>
+                <div style={{ 
+                  background: "#f0fdf4", 
+                  border: "1px solid #bbf7d0", 
+                  borderRadius: "8px", 
+                  padding: "12px 16px", 
+                  marginBottom: "20px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px"
+                }}>
+                  {currentRole === 'DEPARTMENT_ADMIN' ? (
+                    <>
+                      <Shield size={16} style={{ color: "#16a34a" }} />
+                      <span style={{ color: "#166534", fontWeight: 500 }}>Creating task for department: {currentDepartment || "Security"}</span>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin size={16} style={{ color: "#16a34a" }} />
+                      <span style={{ color: "#166534", fontWeight: 500 }}>Creating task for: {selectedLocation}</span>
+                    </>
+                  )}
+                </div>
                 <div className={styles.modalForm}>
                    <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
@@ -249,21 +303,32 @@ export default function IssueManagementPage() {
                           </select>
                         </div>
                       </div>
-                      <div className={styles.formGroup}>
-                        <label className={styles.formLabel}>Handling Department</label>
-                        <div className={styles.modalInputWrapper}>
-                          <Shield size={18} />
-                          <select 
-                            value={newTask.department}
-                            onChange={(e) => setNewTask({...newTask, department: e.target.value})}
-                          >
-                            <option value="Security">Aviation Security</option>
-                            <option value="Facilities">Facilities & Assets</option>
-                            <option value="Operations">Operations Control</option>
-                            <option value="Janitorial">Janitorial Services</option>
-                          </select>
-                        </div>
-                      </div>
+<div className={styles.formGroup}>
+                         <label className={styles.formLabel}>
+                           {currentRole === 'DEPARTMENT_ADMIN' ? 'Department (Auto-assigned)' : 'Handling Department'}
+                         </label>
+                         <div className={styles.modalInputWrapper}>
+                           <Shield size={18} />
+                           {currentRole === 'DEPARTMENT_ADMIN' ? (
+                             <input 
+                               type="text" 
+                               value={currentDepartment || "Security"} 
+                               disabled 
+                               style={{ background: "#f1f5f9", cursor: "not-allowed" }}
+                             />
+                           ) : (
+                             <select 
+                               value={newTask.department}
+                               onChange={(e) => setNewTask({...newTask, department: e.target.value})}
+                             >
+                               <option value="Security">Aviation Security</option>
+                               <option value="Facilities">Facilities & Assets</option>
+                               <option value="Operations">Operations Control</option>
+                               <option value="Janitorial">Janitorial Services</option>
+                             </select>
+                           )}
+                         </div>
+                       </div>
                    </div>
 
                    <div className={styles.formGroup}>
@@ -330,20 +395,72 @@ export default function IssueManagementPage() {
                          </div>
                       </div>
 
-                      <section className={styles.internalNotes}>
-                         <h4 className={styles.detailLabel}>Internal Updates</h4>
-                         <div className={styles.notesList}>
-                            <div className={styles.noteItem}>
-                               <span className={styles.noteAuthor}>System</span>
-                               <p>Issue flagged from touchpoint submission.</p>
-                               <span className={styles.noteTime}>Just now</span>
-                            </div>
-                         </div>
-                         <div className={styles.noteInputArea}>
-                            <textarea placeholder="Add a status update..." />
-                            <button className={styles.noteSendBtn}><Send size={16} /></button>
-                         </div>
-                      </section>
+<section className={styles.internalNotes}>
+                          <h4 className={styles.detailLabel}>Internal Updates</h4>
+                          <div className={styles.notesList}>
+                             <div className={styles.noteItem}>
+                                <span className={styles.noteAuthor}>System</span>
+                                <p>Issue flagged from touchpoint submission.</p>
+                                <span className={styles.noteTime}>Just now</span>
+                             </div>
+                             {(issueComments[selectedIssue.id] || []).map((comment, idx) => (
+                               <div key={idx} className={styles.noteItem}>
+                                  <span className={styles.noteAuthor}>You</span>
+                                  <p>{comment}</p>
+                                  <span className={styles.noteTime}>Just now</span>
+                               </div>
+                             ))}
+                          </div>
+                          {currentRole === 'DEPARTMENT_ADMIN' && (
+                          <div className={styles.noteInputArea}>
+                             <textarea 
+                               placeholder="Add a comment..." 
+                               value={newComment}
+                               onChange={(e) => setNewComment(e.target.value)}
+                             />
+                             <button className={styles.noteSendBtn} onClick={handleAddComment}><Send size={16} /></button>
+                          </div>
+                          )}
+
+                          {currentRole === 'DEPARTMENT_ADMIN' && (
+                          <section className={styles.internalNotes} style={{ marginTop: '20px' }}>
+                             <h4 className={styles.detailLabel}>Attach Proof (Optional)</h4>
+                             <div style={{ 
+                               border: '2px dashed #e2e8f0', 
+                               borderRadius: '8px', 
+                               padding: '20px', 
+                               textAlign: 'center',
+                               cursor: 'pointer',
+                               background: '#f8fafc'
+                             }}>
+                               <p style={{ color: '#64748b', fontSize: '14px' }}>
+                                 Click to upload image proof or drag and drop
+                               </p>
+                               <input 
+                                 type="file" 
+                                 accept="image/*" 
+                                 style={{ display: 'none' }}
+                                 id="proof-upload"
+                               />
+                               <label 
+                                 htmlFor="proof-upload" 
+                                 style={{ 
+                                   display: 'inline-block', 
+                                   marginTop: '10px',
+                                   padding: '8px 16px', 
+                                   background: '#2563eb', 
+                                   color: 'white', 
+                                   borderRadius: '6px',
+                                   cursor: 'pointer',
+                                   fontSize: '13px'
+                                 }}
+                               >
+                                 Choose File
+                               </label>
+                             </div>
+                          </section>
+                          )}
+                       </section>
                    </div>
 
                    <div className={styles.detailSidebar}>
@@ -379,16 +496,80 @@ export default function IssueManagementPage() {
                 </div>
              </div>
 
-             <div className={styles.modalActions}>
-                <button className={styles.cancelBtn} onClick={() => setSelectedIssue(null)}>Close</button>
-                <button className={styles.createButton}>
-                   <CheckCircle2 size={18} />
-                   Resolve Issue
-                </button>
+<div className={styles.modalActions}>
+                 <button className={styles.cancelBtn} onClick={() => setSelectedIssue(null)}>Close</button>
+                 <button className={styles.createButton} onClick={() => {
+                    setIssues(issues.map(i => i.id === selectedIssue.id ? { ...i, status: selectedIssue.status } : i));
+                    setSelectedIssue(null);
+                 }}>
+                    <CheckCircle2 size={18} />
+                    Save
+                 </button>
+              </div>
+           </div>
+         </div>
+       )}
+
+       {/* LOCATION PICKER MODAL */}
+       {showLocationPicker && (
+         <div className={styles.modalOverlay} onClick={() => setShowLocationPicker(false)}>
+           <div className={styles.previewCard} onClick={(e) => e.stopPropagation()}>
+             <div className={styles.previewHeader}>
+               <h3 className={styles.previewTitle}>Select Location</h3>
+               <button className={styles.closeBtn} onClick={() => setShowLocationPicker(false)}><X size={20} /></button>
              </div>
-          </div>
-        </div>
-      )}
+             <div style={{ padding: "20px" }}>
+               <p style={{ marginBottom: "16px", color: "#64748b", fontSize: "14px" }}>
+                 Choose the airport location for this task.
+               </p>
+               <div style={{ marginBottom: "20px" }}>
+                 <label style={{ display: "block", marginBottom: "8px", fontWeight: 500, color: "#374151" }}>
+                   Airport Location
+                 </label>
+                 <select
+                   value={tempLocation}
+                   onChange={(e) => setTempLocation(e.target.value)}
+                   style={{
+                     width: "100%",
+                     padding: "12px 16px",
+                     border: "1px solid #e2e8f0",
+                     borderRadius: "8px",
+                     fontSize: "15px",
+                     background: "white",
+                     color: "#1e293b",
+                   }}
+                 >
+                   <option value="">Select an airport</option>
+                   {MOCK_LOCATIONS.map((loc) => (
+                     <option key={loc.id} value={loc.name}>{loc.name}</option>
+                   ))}
+                 </select>
+               </div>
+               <button
+                 onClick={() => {
+                   setSelectedLocation(tempLocation);
+                   setShowLocationPicker(false);
+                   setIsCreateModalOpen(true);
+                 }}
+                 disabled={!tempLocation}
+                 style={{
+                   width: "100%",
+                   padding: "12px",
+                   background: tempLocation ? "#2563eb" : "#94a3b8",
+                   color: "white",
+                   border: "none",
+                   borderRadius: "8px",
+                   fontSize: "15px",
+                   fontWeight: 600,
+                   cursor: tempLocation ? "pointer" : "not-allowed",
+                 }}
+               >
+                 Confirm
+               </button>
+             </div>
+           </div>
+         </div>
+       )}
     </div>
   );
 }

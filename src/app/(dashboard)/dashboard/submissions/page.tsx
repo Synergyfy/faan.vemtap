@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { 
   Search, 
   Filter, 
@@ -20,16 +20,36 @@ import {
   Star
 } from "lucide-react";
 import styles from "../../Dashboard.module.css";
+import { useRole } from "@/context/RoleContext";
+import { UserRole } from "@/types/rbac";
+
+interface Submission {
+  id: string;
+  type: string;
+  location: string;
+  locationId?: string;
+  datetime: string;
+  status: string;
+  department: string;
+  departmentId?: string;
+  passenger: string;
+  message: string;
+  rating: number | null;
+  priority: string;
+  formData: Record<string, unknown>;
+}
 
 // Mock Data for Submissions
-const INITIAL_SUBMISSIONS = [
+const ALL_SUBMISSIONS: Submission[] = [
   { 
     id: "SUB-8812", 
     type: "Complaint", 
-    location: "Abuja T1 - Gate 4", 
+    location: "Abuja T1 - Gate 4",
+    locationId: "abuja",
     datetime: "2024-04-14 09:20 AM", 
     status: "Open", 
     department: "Security",
+    departmentId: "security",
     passenger: "Anonymous",
     message: "Extremely long wait time at security check. Only 2 lanes open during peak hours.",
     rating: 2,
@@ -44,10 +64,12 @@ const INITIAL_SUBMISSIONS = [
   { 
     id: "SUB-8815", 
     type: "Feedback", 
-    location: "Lagos - International Lounge", 
+    location: "Lagos - International Lounge",
+    locationId: "lagos",
     datetime: "2024-04-14 10:45 AM", 
     status: "Resolved", 
     department: "Facilities",
+    departmentId: "facilities-lagos",
     passenger: "Emeka Obi",
     message: "The new coffee machine in the wing-B lounge is fantastic! Great improvement.",
     rating: 5,
@@ -61,10 +83,12 @@ const INITIAL_SUBMISSIONS = [
   { 
     id: "SUB-8819", 
     type: "Incident", 
-    location: "Abuja T2 - Baggage Claim", 
+    location: "Abuja T2 - Baggage Claim",
+    locationId: "abuja",
     datetime: "2024-04-14 11:15 AM", 
     status: "In Progress", 
     department: "Operations",
+    departmentId: "operations",
     passenger: "Aisha Yusuf",
     message: "Spilled liquid near Carousel 3. It's a slip hazard and needs immediate cleaning.",
     rating: null,
@@ -81,20 +105,35 @@ const DEPARTMENTS = ["Security", "Facilities", "Operations", "Janitorial", "IT",
 const STATUSES = ["Open", "In Progress", "Resolved", "Archived"];
 
 export default function SubmissionsPage() {
-  const [submissions, setSubmissions] = useState(INITIAL_SUBMISSIONS);
-  const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
+  const { currentRole, currentLocation, currentDepartment, hasAccessToLocation, hasAccessToDepartment } = useRole();
+  const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [note, setNote] = useState("");
 
+  const filteredSubmissions = useMemo(() => {
+    return ALL_SUBMISSIONS.filter(sub => {
+      if (currentRole === UserRole.SUPER_ADMIN) return true;
+      if (currentRole === UserRole.LOCATION_ADMIN && sub.locationId) {
+        return hasAccessToLocation(sub.locationId);
+      }
+      if (currentRole === UserRole.DEPARTMENT_ADMIN) {
+        return hasAccessToDepartment(sub.departmentId || sub.department);
+      }
+      return true;
+    });
+  }, [currentRole, currentLocation, currentDepartment, hasAccessToLocation, hasAccessToDepartment]);
+
+  const [submissions, setSubmissions] = useState<Submission[]>(filteredSubmissions);
+
   const handleUpdateStatus = (id: string, newStatus: string) => {
-    setSubmissions(submissions.map(s => s.id === id ? { ...s, status: newStatus } : s));
+    setSubmissions(submissions.map((s: Submission) => s.id === id ? { ...s, status: newStatus } : s));
     if (selectedSubmission?.id === id) {
       setSelectedSubmission({ ...selectedSubmission, status: newStatus });
     }
   };
 
   const handleAssignDept = (id: string, dept: string) => {
-    setSubmissions(submissions.map(s => s.id === id ? { ...s, department: dept } : s));
+    setSubmissions(submissions.map((s: Submission) => s.id === id ? { ...s, department: dept } : s));
     if (selectedSubmission?.id === id) {
       setSelectedSubmission({ ...selectedSubmission, department: dept });
     }
@@ -137,26 +176,24 @@ export default function SubmissionsPage() {
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>ID & Source</th>
+              <th>ID</th>
               <th>Type</th>
+              <th>Location Area</th>
+              {currentRole !== 'DEPARTMENT_ADMIN' && <th>Department</th>}
               <th>Status</th>
-              <th>Department</th>
-              <th>Time</th>
+              <th>Date</th>
               <th className={styles.textRight}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {submissions.filter(s => 
+            {submissions.filter((s: Submission) => 
               s.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
               s.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
               s.message.toLowerCase().includes(searchTerm.toLowerCase())
             ).map((sub) => (
               <tr key={sub.id} className={styles.clickableRow} onClick={() => setSelectedSubmission(sub)}>
                 <td>
-                  <div className={styles.nameCell}>
-                    <span className={styles.tpName}>{sub.id}</span>
-                    <span className={styles.tpId}>{sub.location}</span>
-                  </div>
+                  <span className={styles.tpName}>{sub.id}</span>
                 </td>
                 <td>
                   <span className={`${styles.typeTag} ${styles[sub.type.toLowerCase()]}`}>
@@ -164,15 +201,23 @@ export default function SubmissionsPage() {
                   </span>
                 </td>
                 <td>
-                  <span className={`${styles.statusBadge} ${styles[sub.status.toLowerCase().replace(" ", "")]}`}>
-                    {sub.status}
-                  </span>
+                  <div className={styles.deptCell}>
+                    <MapPin size={14} className={styles.deptIcon} />
+                    <span>{sub.location}</span>
+                  </div>
                 </td>
+                {currentRole !== 'DEPARTMENT_ADMIN' && (
                 <td>
                   <div className={styles.deptCell}>
                     <Shield size={14} className={styles.deptIcon} />
                     <span>{sub.department}</span>
                   </div>
+                </td>
+                )}
+                <td>
+                  <span className={`${styles.statusBadge} ${styles[sub.status.toLowerCase().replace(" ", "")]}`}>
+                    {sub.status}
+                  </span>
                 </td>
                 <td>
                   <div className={styles.timeCell}>
@@ -302,18 +347,20 @@ export default function SubmissionsPage() {
                             >
                                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
-                         </div>
+</div>
 
-                         <div className={styles.controlItem}>
-                            <label>Assign Department</label>
-                            <select 
-                              value={selectedSubmission.department}
-                              onChange={(e) => handleAssignDept(selectedSubmission.id, e.target.value)}
-                            >
-                               {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                            </select>
-                         </div>
-                      </div>
+                          {currentRole !== 'DEPARTMENT_ADMIN' && (
+                          <div className={styles.controlItem}>
+                             <label>Assign Department</label>
+                             <select 
+                               value={selectedSubmission.department}
+                               onChange={(e) => handleAssignDept(selectedSubmission.id, e.target.value)}
+                             >
+                                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                             </select>
+                          </div>
+                          )}
+                       </div>
 
                       <div className={styles.dangerZone}>
                         <button className={styles.archiveBtn}>
