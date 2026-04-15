@@ -25,14 +25,32 @@ import {
   Legend 
 } from "recharts";
 import styles from "../Dashboard.module.css";
+import { useRole } from "@/context/RoleContext";
+import { UserRole } from "@/types/rbac";
 
-const KPI_DATA = [
-  { label: "Total Interactions Today", value: "2,450", change: "+12.5%", trendingUp: true, icon: Users, color: "#157347" },
+const SUPER_ADMIN_KPIS = [
+  { label: "Total Interactions (All Airports)", value: "2,450", change: "+12.5%", trendingUp: true, icon: Users, color: "#157347" },
   { label: "Total Feedback Received", value: "1,280", change: "+8.2%", trendingUp: true, icon: MessageSquare, color: "#2563eb" },
   { label: "Open Issues", value: "42", change: "-4.3%", trendingUp: false, icon: AlertCircle, color: "#f59e0b" },
   { label: "Resolved Issues", value: "156", change: "+21.0%", trendingUp: true, icon: CheckCircle2, color: "#10b981" },
   { label: "Average Satisfaction Score", value: "4.8", change: "+0.2", trendingUp: true, icon: Star, color: "#8b5cf6" },
   { label: "Average Response Time", value: "12m", change: "-2m", trendingUp: false, icon: Clock, color: "#6366f1" },
+];
+
+const LOCATION_ADMIN_KPIS = [
+  { label: "Interactions (This Airport)", value: "892", change: "+9.3%", trendingUp: true, icon: Users, color: "#157347" },
+  { label: "Feedback Received", value: "445", change: "+6.1%", trendingUp: true, icon: MessageSquare, color: "#2563eb" },
+  { label: "Open Issues", value: "18", change: "-2.1%", trendingUp: false, icon: AlertCircle, color: "#f59e0b" },
+  { label: "Resolved Issues", value: "67", change: "+15.2%", trendingUp: true, icon: CheckCircle2, color: "#10b981" },
+  { label: "Airport Satisfaction", value: "4.6", change: "+0.1", trendingUp: true, icon: Star, color: "#8b5cf6" },
+  { label: "Avg Response Time", value: "10m", change: "-3m", trendingUp: false, icon: Clock, color: "#6366f1" },
+];
+
+const DEPARTMENT_ADMIN_KPIS = [
+  { label: "My Dept Issues", value: "12", change: "+3", trendingUp: true, icon: AlertCircle, color: "#f59e0b" },
+  { label: "Pending Items", value: "8", change: "-2", trendingUp: false, icon: Clock, color: "#6366f1" },
+  { label: "Resolved Today", value: "4", change: "+1", trendingUp: true, icon: CheckCircle2, color: "#10b981" },
+  { label: "Dept Satisfaction", value: "4.5", change: "+0.2", trendingUp: true, icon: Star, color: "#8b5cf6" },
 ];
 
 const FEEDBACK_TREND = [
@@ -60,12 +78,34 @@ const ACTIVITIES = [
 ];
 
 export default function DashboardPage() {
+  const { currentRole, roleLabel, locationName, departmentName } = useRole();
+  
+  const getKPIs = () => {
+    if (currentRole === UserRole.SUPER_ADMIN) return SUPER_ADMIN_KPIS;
+    if (currentRole === UserRole.LOCATION_ADMIN) return LOCATION_ADMIN_KPIS;
+    return DEPARTMENT_ADMIN_KPIS;
+  };
+  
+  const getPageTitle = () => {
+    if (currentRole === UserRole.SUPER_ADMIN) return "HQ Dashboard Overview";
+    if (currentRole === UserRole.LOCATION_ADMIN) return `${locationName} Dashboard`;
+    return `${departmentName} Dashboard`;
+  };
+  
+  const getPageSubtitle = () => {
+    if (currentRole === UserRole.SUPER_ADMIN) return "Real-time metrics across all FAAN airports.";
+    if (currentRole === UserRole.LOCATION_ADMIN) return `Real-time metrics for ${locationName}.`;
+    return `Real-time metrics for ${departmentName} department.`;
+  };
+  
+  const kpis = getKPIs();
+  
   return (
     <div className={styles.dashboard}>
       <div className={styles.pageHeader}>
         <div>
-          <h2 className={styles.pageTitle}>Dashboard Overview</h2>
-          <p className={styles.pageSubtitle}>Real-time airport engagement metrics and activity.</p>
+          <h2 className={styles.pageTitle}>{getPageTitle()}</h2>
+          <p className={styles.pageSubtitle}>{getPageSubtitle()}</p>
         </div>
         <div className={styles.datePicker}>
           <span>Last 7 Days</span>
@@ -74,7 +114,7 @@ export default function DashboardPage() {
 
       {/* KPI Section */}
       <div className={styles.kpiGrid}>
-        {KPI_DATA.map((kpi) => {
+        {kpis.map((kpi) => {
           const Icon = kpi.icon;
           return (
             <div key={kpi.label} className={styles.kpiCard}>
