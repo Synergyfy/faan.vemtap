@@ -12,15 +12,45 @@ import {
   AlertCircle,
   MessageSquare,
   Search,
-  Filter
+  Filter,
+  Plus,
+  X,
+  Trash2,
+  Edit
 } from "lucide-react";
 import styles from "../../Dashboard.module.css";
+import RoleGuard from "@/components/auth/RoleGuard";
+import { UserRole } from "@/types/rbac";
+import { useRole } from "@/context/RoleContext";
 
-// Mock Data
-const LOCATIONS_DATA = [
+interface Terminal {
+  id: string;
+  name: string;
+  zones: { id: string; name: string; status: string; interactions?: number; satisfaction?: number; issues?: number; topComplaint?: string; }[];
+}
+
+interface Admin {
+  name: string;
+  email: string;
+  role: UserRole;
+}
+
+interface LocationData {
+  id: string;
+  name: string;
+  type: string;
+  address: string;
+  terminals: Terminal[];
+  admins?: Admin[];
+}
+
+const INITIAL_LOCATIONS: LocationData[] = [
   {
     id: "abuja",
     name: "Abuja International Airport",
+    type: "International",
+    address: "Abuja, Nigeria",
+    admins: [],
     terminals: [
       {
         id: "abv-t1",
@@ -43,6 +73,9 @@ const LOCATIONS_DATA = [
   {
     id: "lagos",
     name: "Lagos Murtala Muhammed",
+    type: "International",
+    address: "Lagos, Nigeria",
+    admins: [],
     terminals: [
       {
         id: "los-intl",
@@ -57,9 +90,28 @@ const LOCATIONS_DATA = [
 ];
 
 export default function LocationsPage() {
+  const { currentRole, currentLocation, hasAccessToLocation } = useRole();
+  const [locations, setLocations] = useState<LocationData[]>(INITIAL_LOCATIONS);
   const [expanded, setExpanded] = useState<string[]>(["abuja", "abv-t1"]);
-  const [selectedZone, setSelectedZone] = useState(LOCATIONS_DATA[0].terminals[0].zones[0]);
+  const [selectedZone, setSelectedZone] = useState<Terminal["zones"][0] | null>(locations[0].terminals[0].zones[0]);
+  const [selectedLocation, setSelectedLocation] = useState<LocationData | null>(locations[0]);
   const [activeTooltip, setActiveTooltip] = useState<number | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+
+  
+  const [newAdmin, setNewAdmin] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: UserRole.LOCATION_ADMIN,
+  });
+
+  const [newLocation, setNewLocation] = useState({
+    name: '',
+    type: 'International',
+    address: '',
+  });
 
   const toggleExpand = (id: string) => {
     setExpanded(prev => 
@@ -71,179 +123,386 @@ export default function LocationsPage() {
     setActiveTooltip(activeTooltip === id ? null : id);
   };
 
-  return (
-    <div className={styles.locationsLayout} onClick={() => setActiveTooltip(null)}>
-      {/* LEFT PANEL - TREE VIEW */}
-      <aside className={styles.treePanel} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.panelHeader}>
-          <h3 className={styles.panelTitle}>Locations Tree</h3>
-          <div className={styles.panelSearch}>
-            <Search size={16} />
-            <input type="text" placeholder="Search locations..." />
-          </div>
-        </div>
+  const handleAddAdmin = () => {
+    if (!selectedLocation) return;
+    
+    const updatedLocations = locations.map(loc => {
+      if (loc.id === selectedLocation.id) {
+        return {
+          ...loc,
+          admins: [...(loc.admins || []), { 
+            name: newAdmin.name, 
+            email: newAdmin.email, 
+            role: newAdmin.role as UserRole 
+          }]
+        };
+      }
+      return loc;
+    });
+    
+    setLocations(updatedLocations);
+    setIsAdminModalOpen(false);
+    setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
+  };
 
-        <div className={styles.treeView}>
-          {LOCATIONS_DATA.map((airport) => (
-            <div key={airport.id} className={styles.treeItem}>
-              <div 
-                className={styles.treeHeader} 
-                onClick={() => toggleExpand(airport.id)}
-              >
-                {expanded.includes(airport.id) ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                <Plane size={18} className={styles.airportIcon} />
-                <span>{airport.name}</span>
+  const handleCreateLocation = () => {
+    const location: LocationData = {
+      id: newLocation.name.toLowerCase().replace(/\s+/g, '-'),
+      name: newLocation.name,
+      type: newLocation.type,
+      address: newLocation.address,
+      admins: [],
+      terminals: [
+        { id: `${newLocation.name.toLowerCase().replace(/\s+/g, '-')}-t1`, name: 'Terminal 1', zones: [] }
+      ]
+    };
+    setLocations([...locations, location]);
+    setIsCreateModalOpen(false);
+    setNewLocation({ name: '', type: 'International', address: '' });
+  };
+
+  const handleDeleteLocation = (id: string) => {
+    setLocations(locations.filter(l => l.id !== id));
+    if (selectedLocation?.id === id) setSelectedLocation(null);
+  };
+
+  const filteredLocations = currentRole === UserRole.SUPER_ADMIN 
+    ? locations 
+    : locations.filter((loc: LocationData) => hasAccessToLocation(loc.id));
+
+  return (
+    <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN]}>
+      <div className={styles.locationsLayout} onClick={() => setActiveTooltip(null)}>
+        {/* LEFT PANEL - TREE VIEW */}
+        <aside className={styles.treePanel} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.panelHeader}>
+            <h3 className={styles.panelTitle}>Locations Tree</h3>
+            <div className={styles.panelSearch}>
+              <Search size={16} />
+              <input type="text" placeholder="Search locations..." />
+            </div>
+          </div>
+
+          <div className={styles.treeView}>
+            {filteredLocations.map((airport) => (
+              <div key={airport.id} className={styles.treeItem}>
+                <div 
+                  className={`${styles.treeHeader} ${selectedLocation?.id === airport.id ? styles.selected : ""}`} 
+                  onClick={() => {
+                    toggleExpand(airport.id);
+                    setSelectedLocation(airport);
+                    setSelectedZone(null);
+                  }}
+                >
+                  {expanded.includes(airport.id) ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  <Plane size={18} className={styles.airportIcon} />
+                  <span>{airport.name}</span>
+                </div>
+
+                {expanded.includes(airport.id) && (
+                  <div className={styles.treeSubItems}>
+                    {airport.terminals.map((terminal) => (
+                      <div key={terminal.id} className={styles.treeItem}>
+                        <div 
+                          className={styles.treeHeader}
+                          onClick={() => toggleExpand(terminal.id)}
+                        >
+                          {expanded.includes(terminal.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                          <Building2 size={16} className={styles.terminalIcon} />
+                          <span>{terminal.name}</span>
+                        </div>
+
+                        {expanded.includes(terminal.id) && (
+                          <div className={styles.treeSubItems}>
+                            {terminal.zones.map((zone) => (
+                              <div 
+                                key={zone.id} 
+                                className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone?.id === zone.id ? styles.selected : ""}`}
+                                onClick={() => {
+                                  setSelectedZone(zone);
+                                  setSelectedLocation(airport);
+                                }}
+                              >
+                                <MapPin size={14} className={styles.zoneIcon} />
+                                <span>{zone.name}</span>
+                                <div className={`${styles.statusDot} ${styles[zone.status]}`} />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* MAIN VIEW */}
+        <main className={styles.locationMain} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.mainHeader}>
+            <div>
+              <h2 className={styles.locationTitle}>
+                {selectedLocation ? selectedLocation.name : "Locations Management"}
+              </h2>
+              <p className={styles.locationPath}>FAA System / Locations {selectedLocation && `/ ${selectedLocation.name}`}</p>
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              {selectedLocation && (
+                <button className={styles.createButton} onClick={() => setIsAdminModalOpen(true)}>
+                  <Plus size={18} />
+                  <span>Add Admin</span>
+                </button>
+              )}
+              <button className={styles.filterButton} onClick={() => setIsCreateModalOpen(true)}>
+                <Plus size={18} />
+                <span>Create New Location</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Stats Grid */}
+          {selectedZone && (
+            <div className={styles.statsGrid}>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: "#dcfce7", color: "#15803d" }}>
+                  <Users size={24} />
+                </div>
+                <div className={styles.statInfo}>
+                  <span className={styles.statLabel}>Total Interactions</span>
+                  <h3 className={styles.statValue}>{selectedZone?.interactions || 0}</h3>
+                </div>
               </div>
 
-              {expanded.includes(airport.id) && (
-                <div className={styles.treeSubItems}>
-                  {airport.terminals.map((terminal) => (
-                    <div key={terminal.id} className={styles.treeItem}>
-                      <div 
-                        className={styles.treeHeader}
-                        onClick={() => toggleExpand(terminal.id)}
-                      >
-                        {expanded.includes(terminal.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                        <Building2 size={16} className={styles.terminalIcon} />
-                        <span>{terminal.name}</span>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: "#fef9c3", color: "#a16207" }}>
+                  <Star size={24} />
+                </div>
+                <div className={styles.statInfo}>
+                  <span className={styles.statLabel}>Satisfaction Score</span>
+                  <h3 className={styles.statValue}>{selectedZone?.satisfaction || 0}/5.0</h3>
+                </div>
+              </div>
+
+              <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: "#fee2e2", color: "#b91c1c" }}>
+                  <AlertCircle size={24} />
+                </div>
+                <div className={styles.statInfo}>
+                  <span className={styles.statLabel}>Open Issues</span>
+                  <h3 className={styles.statValue}>{selectedZone?.issues || 0}</h3>
+                </div>
+              </div>
+
+              <div className={styles.statCard}>
+                <div className={styles.statIcon} style={{ background: "#dbeafe", color: "#1e40af" }}>
+                  <MessageSquare size={24} />
+                </div>
+                <div className={styles.statInfo}>
+                  <span className={styles.statLabel}>Top Complaint</span>
+                  <h3 className={styles.statValue}>{selectedZone?.topComplaint || "None"}</h3>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* HEATMAP / VISUALIZATION */}
+          <section className={styles.heatmapSection}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <h3 className={styles.sectionTitle}>Zone Status Heatmap</h3>
+                <p className={styles.sectionSubtitle}>Detailed health overview of all operational zones.</p>
+              </div>
+              <div className={styles.legend}>
+                <div className={styles.legendItem}><span className={styles.green} /> Good</div>
+                <div className={styles.legendItem}><span className={styles.yellow} /> Warning</div>
+                <div className={styles.legendItem}><span className={styles.red} /> Critical</div>
+              </div>
+            </div>
+            
+            <div className={styles.heatmapGrid}>
+              {[
+                { id: 1, label: "Cleaning Level", value: 94, status: "green", desc: "Maintenance staff actively present. No pending tasks." },
+                { id: 2, label: "Staff Presence", value: 88, status: "green", desc: "Full team rotation on-site. Average response time: 4m." },
+                { id: 3, label: "Equipment Health", value: 42, status: "red", desc: "Elevator B-14 reported offline. Service technician dispatched." },
+                { id: 4, label: "Wait Time", value: 65, status: "yellow", desc: "Higher than average peak. 12m wait time currently." },
+                { id: 5, label: "Complaint Rate", value: 12, status: "green", desc: "Negligible complaint volume in the last 2 hours." },
+                { id: 6, label: "Passenger Flow", value: 92, status: "green", desc: "Smooth transitions. No congestion reported." },
+                { id: 7, label: "Security Status", value: 35, status: "red", desc: "Screening point 4 jammed. Redirecting passengers." },
+                { id: 8, label: "Lighting", value: 98, status: "green", desc: "Optimal illumination level. No fixtures require repair." },
+                { id: 9, label: "Feedback Loop", value: 75, status: "yellow", desc: "Interaction rate falling. Check engagement kiosks." },
+                { id: 10, label: "HVAC System", value: 91, status: "green", desc: "Ambient temperature at 22.5°C. System performing well." },
+                { id: 11, label: "Internet Access", value: 68, status: "yellow", desc: "Minor interference in Gate 12 area. IT investigating." },
+                { id: 12, label: "Power Supply", value: 100, status: "green", desc: "Consistent power flow. Backup generators on standby." }
+              ].map((block) => (
+                <div 
+                  key={block.id} 
+                  className={`${styles.heatmapBlock} ${styles[block.status]} ${activeTooltip === block.id ? styles.activeBlock : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleTooltip(block.id);
+                  }}
+                >
+                  <div className={styles.blockContent}>
+                    <span className={styles.blockLabel}>{block.label}</span>
+                    <span className={styles.blockValue}>{block.value}%</span>
+                  </div>
+                  <div className={`${styles.heatmapTooltip} ${activeTooltip === block.id ? styles.activeTooltip : ""}`}>
+                    <h4 className={styles.tooltipTitle}>{block.label}</h4>
+                    <p className={styles.tooltipDesc}>{block.desc}</p>
+                    <div className={styles.tooltipStatus}>
+                      <div className={`${styles.statusBadge} ${styles[block.status]}`}>
+                        Status: {block.status.toUpperCase()}
                       </div>
-
-                      {expanded.includes(terminal.id) && (
-                        <div className={styles.treeSubItems}>
-                          {terminal.zones.map((zone) => (
-                            <div 
-                              key={zone.id} 
-                              className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone.id === zone.id ? styles.selected : ""}`}
-                              onClick={() => setSelectedZone(zone)}
-                            >
-                              <MapPin size={14} className={styles.zoneIcon} />
-                              <span>{zone.name}</span>
-                              <div className={`${styles.statusDot} ${styles[zone.status]}`} />
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
-      </aside>
+          </section>
+        </main>
+      </div>
 
-      {/* MAIN VIEW */}
-      <main className={styles.locationMain} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.mainHeader}>
-          <div>
-            <h2 className={styles.locationTitle}>{selectedZone.name}</h2>
-            <p className={styles.locationPath}>FAA System / Locations / {selectedZone.name}</p>
-          </div>
-          <button className={styles.exportButton}>
-            <Filter size={18} />
-            <span>Filter Data</span>
-          </button>
-        </div>
+      {/* CREATE LOCATION MODAL */}
+      {isCreateModalOpen && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <h3 className={styles.modalTitle}>Create New Location</h3>
+              <button className={styles.closeBtn} onClick={() => setIsCreateModalOpen(false)}><X size={20} /></button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handleCreateLocation(); }}>
+              <div className={styles.modalBody}>
+                <div className={styles.modalForm}>
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Location Name</label>
+                    <div className={styles.modalInputWrapper}>
+                      <Plane size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Lagos Airport"
+                        value={newLocation.name}
+                        onChange={(e) => setNewLocation({...newLocation, name: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
 
-        {/* Stats Grid */}
-        <div className={styles.statsGrid}>
-          <div className={styles.statCard}>
-            <div className={styles.statIcon} style={{ background: "#dcfce7", color: "#15803d" }}>
-              <Users size={24} />
-            </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statLabel}>Total Interactions</span>
-              <h3 className={styles.statValue}>{selectedZone.interactions}</h3>
-            </div>
-          </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Type</label>
+                    <div className={styles.modalInputWrapper}>
+                      <Building2 size={18} />
+                      <select 
+                        value={newLocation.type}
+                        onChange={(e) => setNewLocation({...newLocation, type: e.target.value})}
+                      >
+                        <option value="International">International Airport</option>
+                        <option value="Domestic">Domestic Airport</option>
+                        <option value="Seaport">Seaport</option>
+                      </select>
+                    </div>
+                  </div>
 
-          <div className={styles.statCard}>
-            <div className={styles.statIcon} style={{ background: "#fef9c3", color: "#a16207" }}>
-              <Star size={24} />
-            </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statLabel}>Satisfaction Score</span>
-              <h3 className={styles.statValue}>{selectedZone.satisfaction}/5.0</h3>
-            </div>
-          </div>
-
-          <div className={styles.statCard}>
-            <div className={styles.statIcon} style={{ background: "#fee2e2", color: "#b91c1c" }}>
-              <AlertCircle size={24} />
-            </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statLabel}>Open Issues</span>
-              <h3 className={styles.statValue}>{selectedZone.issues}</h3>
-            </div>
-          </div>
-
-          <div className={styles.statCard}>
-            <div className={styles.statIcon} style={{ background: "#dbeafe", color: "#1e40af" }}>
-              <MessageSquare size={24} />
-            </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statLabel}>Top Complaint</span>
-              <h3 className={styles.statValue}>{selectedZone.topComplaint}</h3>
-            </div>
-          </div>
-        </div>
-
-        {/* HEATMAP / VISUALIZATION */}
-        <section className={styles.heatmapSection}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <h3 className={styles.sectionTitle}>Zone Status Heatmap</h3>
-              <p className={styles.sectionSubtitle}>Detailed health overview of all operational zones.</p>
-            </div>
-            <div className={styles.legend}>
-              <div className={styles.legendItem}><span className={styles.green} /> Good</div>
-              <div className={styles.legendItem}><span className={styles.yellow} /> Warning</div>
-              <div className={styles.legendItem}><span className={styles.red} /> Critical</div>
-            </div>
-          </div>
-          
-          <div className={styles.heatmapGrid}>
-            {[
-              { id: 1, label: "Cleaning Level", value: 94, status: "green", desc: "Maintenance staff actively present. No pending tasks." },
-              { id: 2, label: "Staff Presence", value: 88, status: "green", desc: "Full team rotation on-site. Average response time: 4m." },
-              { id: 3, label: "Equipment Health", value: 42, status: "red", desc: "Elevator B-14 reported offline. Service technician dispatched." },
-              { id: 4, label: "Wait Time", value: 65, status: "yellow", desc: "Higher than average peak. 12m wait time currently." },
-              { id: 5, label: "Complaint Rate", value: 12, status: "green", desc: "Negligible complaint volume in the last 2 hours." },
-              { id: 6, label: "Passenger Flow", value: 92, status: "green", desc: "Smooth transitions. No congestion reported." },
-              { id: 7, label: "Security Status", value: 35, status: "red", desc: "Screening point 4 jammed. Redirecting passengers." },
-              { id: 8, label: "Lighting", value: 98, status: "green", desc: "Optimal illumination level. No fixtures require repair." },
-              { id: 9, label: "Feedback Loop", value: 75, status: "yellow", desc: "Interaction rate falling. Check engagement kiosks." },
-              { id: 10, label: "HVAC System", value: 91, status: "green", desc: "Ambient temperature at 22.5°C. System performing well." },
-              { id: 11, label: "Internet Access", value: 68, status: "yellow", desc: "Minor interference in Gate 12 area. IT investigating." },
-              { id: 12, label: "Power Supply", value: 100, status: "green", desc: "Consistent power flow. Backup generators on standby." }
-            ].map((block) => (
-              <div 
-                key={block.id} 
-                className={`${styles.heatmapBlock} ${styles[block.status]} ${activeTooltip === block.id ? styles.activeBlock : ""}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleTooltip(block.id);
-                }}
-              >
-                <div className={styles.blockContent}>
-                  <span className={styles.blockLabel}>{block.label}</span>
-                  <span className={styles.blockValue}>{block.value}%</span>
-                </div>
-                {/* Tooltip */}
-                <div className={`${styles.heatmapTooltip} ${activeTooltip === block.id ? styles.activeTooltip : ""}`}>
-                  <h4 className={styles.tooltipTitle}>{block.label}</h4>
-                  <p className={styles.tooltipDesc}>{block.desc}</p>
-                  <div className={styles.tooltipStatus}>
-                    <div className={`${styles.statusBadge} ${styles[block.status]}`}>
-                      Status: {block.status.toUpperCase()}
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Address</label>
+                    <div className={styles.modalInputWrapper}>
+                      <MapPin size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Lagos, Nigeria"
+                        value={newLocation.address}
+                        onChange={(e) => setNewLocation({...newLocation, address: e.target.value})}
+                        required
+                      />
                     </div>
                   </div>
                 </div>
               </div>
-            ))}
+              <div className={styles.modalActions}>
+                <button type="button" className={styles.cancelBtn} onClick={() => setIsCreateModalOpen(false)}>Cancel</button>
+                <button type="submit" className={styles.createButton}>Save Location</button>
+              </div>
+            </form>
           </div>
-        </section>
-      </main>
-    </div>
+        </div>
+      )}
+
+      {/* ADD ADMIN MODAL */}
+      {isAdminModalOpen && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <h3 className={styles.modalTitle}>Add Admin to {selectedLocation?.name}</h3>
+              <button className={styles.closeBtn} onClick={() => setIsAdminModalOpen(false)}><X size={20} /></button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handleAddAdmin(); }}>
+              <div className={styles.modalBody}>
+                <div className={styles.modalForm}>
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Name</label>
+                    <div className={styles.modalInputWrapper}>
+                      <Users size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="Admin Name"
+                        value={newAdmin.name}
+                        onChange={(e) => setNewAdmin({...newAdmin, name: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Email</label>
+                    <div className={styles.modalInputWrapper}>
+                      <Search size={18} />
+                      <input 
+                        type="email" 
+                        placeholder="admin@email.com"
+                        value={newAdmin.email}
+                        onChange={(e) => setNewAdmin({...newAdmin, email: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Password</label>
+                    <div className={styles.modalInputWrapper}>
+                      <Filter size={18} />
+                      <input 
+                        type="password" 
+                        placeholder="••••••••"
+                        value={newAdmin.password}
+                        onChange={(e) => setNewAdmin({...newAdmin, password: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Role</label>
+                    <div className={styles.modalInputWrapper}>
+                      <Star size={18} />
+                      <select 
+                        value={newAdmin.role}
+                        onChange={(e) => setNewAdmin({...newAdmin, role: e.target.value as UserRole})}
+                      >
+                        <option value={UserRole.LOCATION_ADMIN}>Location Admin</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className={styles.modalActions}>
+                <button type="button" className={styles.cancelBtn} onClick={() => setIsAdminModalOpen(false)}>Cancel</button>
+                <button type="submit" className={styles.createButton}>Save Admin</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </RoleGuard>
   );
 }

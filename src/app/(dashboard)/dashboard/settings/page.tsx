@@ -18,8 +18,10 @@ import {
 } from "lucide-react";
 import styles from "../../Dashboard.module.css";
 import Image from "next/image";
+import { useRole } from "@/context/RoleContext";
 
 export default function SettingsPage() {
+  const { currentRole, currentLocation, locationName, departmentName, currentDepartment } = useRole();
   const [activeTab, setActiveTab] = useState("general");
   const [showApiKey, setShowApiKey] = useState(false);
   
@@ -29,29 +31,65 @@ export default function SettingsPage() {
   const [smsAlerts, setSmsAlerts] = useState(false);
   const [retentionPeriod, setRetentionPeriod] = useState("365");
 
+  // Location Admin settings
+  const [locationInfo, setLocationInfo] = useState({
+    name: locationName || "Lagos Murtala Muhammed",
+    code: currentLocation || "lagos",
+    timezone: "West Africa (GMT+1)",
+    email: "lagos.admin@faan.gov.ng",
+    phone: "+234 800 FAAN NG"
+  });
+
+  const [notifSettings, setNotifSettings] = useState({
+    newSubmission: true,
+    dailyDigest: false,
+    issueAlerts: true,
+    weeklyReport: true
+  });
+
   return (
     <div className={styles.touchpointsLayout}>
       <div className={styles.pageHeader}>
         <div>
-          <h2 className={styles.pageTitle}>System Configuration</h2>
-          <p className={styles.pageSubtitle}>Manage your organization's core settings, notifications, and integrations.</p>
+          <h2 className={styles.pageTitle}>
+            {currentRole === 'LOCATION_ADMIN' ? 'Location Settings' : currentRole === 'DEPARTMENT_ADMIN' ? 'Profile & Settings' : 'System Configuration'}
+          </h2>
+          <p className={styles.pageSubtitle}>
+            {currentRole === 'LOCATION_ADMIN' 
+              ? `Manage settings for ${locationName || 'your airport'}.`
+              : currentRole === 'DEPARTMENT_ADMIN'
+              ? 'Update your profile and notification preferences.'
+              : "Manage your organization's core settings, notifications, and integrations."
+            }
+          </p>
         </div>
         <button className={styles.createButton}>
           <Save size={18} />
-          <span>Save Configuration</span>
+          <span>Save Changes</span>
         </button>
       </div>
 
       <div className={styles.settingsLayout}>
         {/* Settings Sidebar */}
         <div className={styles.settingsSidebar}>
-           <button 
-             className={`${styles.settingsTab} ${activeTab === "general" ? styles.settingsTabActive : ""}`}
-             onClick={() => setActiveTab("general")}
-           >
-             <Building2 size={18} />
-             <span>General & Branding</span>
-           </button>
+           {currentRole === 'DEPARTMENT_ADMIN' && (
+             <button 
+               className={`${styles.settingsTab} ${activeTab === "profile" ? styles.settingsTabActive : ""}`}
+               onClick={() => setActiveTab("profile")}
+             >
+               <Building2 size={18} />
+               <span>My Profile</span>
+             </button>
+           )}
+           {currentRole !== 'LOCATION_ADMIN' && (
+             <button 
+               className={`${styles.settingsTab} ${activeTab === "general" ? styles.settingsTabActive : ""}`}
+               onClick={() => setActiveTab("general")}
+             >
+               <Building2 size={18} />
+               <span>General & Branding</span>
+             </button>
+           )}
            <button 
              className={`${styles.settingsTab} ${activeTab === "notifications" ? styles.settingsTabActive : ""}`}
              onClick={() => setActiveTab("notifications")}
@@ -59,20 +97,33 @@ export default function SettingsPage() {
              <BellRing size={18} />
              <span>Notification Rules</span>
            </button>
-           <button 
-             className={`${styles.settingsTab} ${activeTab === "data" ? styles.settingsTabActive : ""}`}
-             onClick={() => setActiveTab("data")}
-           >
-             <Database size={18} />
-             <span>Data Retention & Privacy</span>
-           </button>
-           <button 
-             className={`${styles.settingsTab} ${activeTab === "api" ? styles.settingsTabActive : ""}`}
-             onClick={() => setActiveTab("api")}
-           >
-             <Code2 size={18} />
-             <span>API Integrations</span>
-           </button>
+           {currentRole !== 'LOCATION_ADMIN' && currentRole !== 'DEPARTMENT_ADMIN' && (
+             <>
+               <button 
+                 className={`${styles.settingsTab} ${activeTab === "data" ? styles.settingsTabActive : ""}`}
+                 onClick={() => setActiveTab("data")}
+               >
+                 <Database size={18} />
+                 <span>Data Retention & Privacy</span>
+               </button>
+               <button 
+                 className={`${styles.settingsTab} ${activeTab === "api" ? styles.settingsTabActive : ""}`}
+                 onClick={() => setActiveTab("api")}
+               >
+                 <Code2 size={18} />
+                 <span>API Integrations</span>
+               </button>
+             </>
+           )}
+           {currentRole === 'LOCATION_ADMIN' && (
+             <button 
+               className={`${styles.settingsTab} ${activeTab === "location" ? styles.settingsTabActive : ""}`}
+               onClick={() => setActiveTab("location")}
+             >
+               <Building2 size={18} />
+               <span>Location Settings</span>
+             </button>
+           )}
         </div>
 
         {/* Settings Content Area */}
@@ -236,9 +287,135 @@ export default function SettingsPage() {
                      <input type="text" placeholder="https://api.yoursystem.com/webhook" className={styles.modalInput} />
                      <p className={styles.fieldDesc} style={{ marginTop: "8px" }}>We'll send POST requests here when new issues are generated.</p>
                   </div>
-               </div>
-            </div>
-          )}
+</div>
+             </div>
+           )}
+
+           {/* LOCATION SETTINGS (For Location Admin) */}
+           {currentRole === 'LOCATION_ADMIN' && activeTab === "location" && (
+             <div className={styles.settingsSection}>
+                <div className={styles.settingsHeader}>
+                   <h3>Airport Information</h3>
+                   <p>Update your airport's basic information and contact details.</p>
+                </div>
+                
+                <div className={styles.settingsForm}>
+                   <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Airport Name</label>
+                      <input 
+                        type="text" 
+                        value={locationInfo.name}
+                        onChange={e => setLocationInfo({...locationInfo, name: e.target.value})}
+                        className={styles.modalInput}
+                      />
+                   </div>
+
+                   <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Airport Code</label>
+                      <input 
+                        type="text" 
+                        value={locationInfo.code}
+                        onChange={e => setLocationInfo({...locationInfo, code: e.target.value})}
+                        className={styles.modalInput}
+                        disabled
+                        style={{ background: '#f1f5f9', cursor: 'not-allowed' }}
+                      />
+                      <p className={styles.fieldDesc}>Airport code cannot be changed.</p>
+                   </div>
+
+                   <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Timezone</label>
+                      <input 
+                        type="text" 
+                        value={locationInfo.timezone}
+                        onChange={e => setLocationInfo({...locationInfo, timezone: e.target.value})}
+                        className={styles.modalInput}
+                      />
+                   </div>
+
+                   <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Contact Email</label>
+                      <input 
+                        type="email" 
+                        value={locationInfo.email}
+                        onChange={e => setLocationInfo({...locationInfo, email: e.target.value})}
+                        className={styles.modalInput}
+                      />
+                   </div>
+
+                   <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Contact Phone</label>
+                      <input 
+                        type="text" 
+                        value={locationInfo.phone}
+                        onChange={e => setLocationInfo({...locationInfo, phone: e.target.value})}
+                        className={styles.modalInput}
+                      />
+                   </div>
+</div>
+              </div>
+            )}
+
+            {/* PROFILE SETTINGS (For Department Admin) */}
+            {currentRole === 'DEPARTMENT_ADMIN' && activeTab === "profile" && (
+              <div className={styles.settingsSection}>
+                 <div className={styles.settingsHeader}>
+                    <h3>My Profile</h3>
+                    <p>Update your personal information and department details.</p>
+                 </div>
+                 
+                 <div className={styles.settingsForm}>
+                    <div className={styles.formGroup}>
+                       <label className={styles.formLabel}>Full Name</label>
+                       <input 
+                         type="text" 
+                         value="Department Manager"
+                         className={styles.modalInput}
+                       />
+                    </div>
+
+                    <div className={styles.formGroup}>
+                       <label className={styles.formLabel}>Email Address</label>
+                       <input 
+                         type="email" 
+                         value="dept.admin@faan.gov.ng"
+                         className={styles.modalInput}
+                       />
+                    </div>
+
+                    <div className={styles.formGroup}>
+                       <label className={styles.formLabel}>Phone Number</label>
+                       <input 
+                         type="text" 
+                         value="+234 800 000 0000"
+                         className={styles.modalInput}
+                       />
+                    </div>
+
+                    <div className={styles.formGroup}>
+                       <label className={styles.formLabel}>Department</label>
+                       <input 
+                         type="text" 
+                         value={departmentName || currentDepartment || "Security"}
+                         className={styles.modalInput}
+                         disabled
+                         style={{ background: '#f1f5f9', cursor: 'not-allowed' }}
+                       />
+                    </div>
+
+                    <div className={styles.formGroup}>
+                       <label className={styles.formLabel}>Role</label>
+                       <input 
+                         type="text" 
+                         value="Department Admin"
+                         className={styles.modalInput}
+                         disabled
+                         style={{ background: '#f1f5f9', cursor: 'not-allowed' }}
+                       />
+                    </div>
+                 </div>
+              </div>
+            )}
 
         </div>
       </div>
