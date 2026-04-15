@@ -16,16 +16,27 @@ import {
   Briefcase,
   Layers,
   FileText,
-  Info,
-  Star,
-  Users,
-  HelpCircle
+  Wifi
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import styles from "../../Dashboard.module.css";
-import Image from "next/image";
 
 // Mock Data
+const MOCK_LOCATIONS = [
+  { id: "abuja", name: "Abuja International Airport" },
+  { id: "lagos", name: "Lagos Murtala Muhammed" },
+  { id: "kano", name: "Kano Mallam Aminu" },
+  { id: "port-harcourt", name: "Port Harcourt Intl" },
+  { id: "enugu", name: "Enugu Airport" },
+];
+
+const INITIAL_FORMS = [
+  { id: "form-001", name: "Passenger Feedback", type: "Feedback" },
+  { id: "form-002", name: "Airport Cleanliness Survey", type: "Feedback" },
+  { id: "form-003", name: "Security Complaint Form", type: "Complaint" },
+  { id: "form-004", name: "Baggage Incident Report", type: "Incident" },
+];
+
 const INITIAL_TOUCHPOINTS = [
   { id: "tp-071dau", name: "Restroom Feedback - T1", location: "Abuja International Airport", type: "Feedback", status: "Active", interactions: 1250 },
   { id: 2, name: "Security Complaint - Gate 4", location: "Lagos Murtala Muhammed", type: "Complaint", status: "Inactive", interactions: 450 },
@@ -61,6 +72,9 @@ export default function TouchpointsPage() {
   const [origin, setOrigin] = useState("");
   const [showQrPreview, setShowQrPreview] = useState(false);
   const [currentTouchpoint, setCurrentTouchpoint] = useState<any>(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState("");
+  const [tempLocation, setTempLocation] = useState("");
 
   // Submission State
   const [showResponses, setShowResponses] = useState(false);
@@ -144,7 +158,7 @@ export default function TouchpointsPage() {
           <h2 className={styles.pageTitle}>Touchpoints Management</h2>
           <p className={styles.pageSubtitle}>Monitor and manage all QR & NFC passenger engagement points.</p>
         </div>
-        <button className={styles.createButton} onClick={() => { setIsModalOpen(true); setWizardStep(1); }}>
+        <button className={styles.createButton} onClick={() => setShowLocationPicker(true)}>
           <Plus size={18} />
           <span>Create New Touchpoint</span>
         </button>
@@ -226,14 +240,13 @@ export default function TouchpointsPage() {
       {/* CREATE WIZARD MODAL */}
       {isModalOpen && (
         <div className={styles.modalOverlay}>
-          <div className={`${styles.modalContent} ${wizardStep === 2 ? styles.wideModal : ""}`}>
+          <div className={`${styles.modalContent}`}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
-                <div className={styles.wizardBadge}>Step {wizardStep} of 3</div>
+                <div className={styles.wizardBadge}>Step {wizardStep} of 2</div>
                 <h3 className={styles.modalTitle}>
-                  {wizardStep === 1 && "Basic Configuration"}
-                  {wizardStep === 2 && "Form Builder"}
-                  {wizardStep === 3 && "Review & Generate"}
+                  {wizardStep === 1 && "Create Touchpoint"}
+                  {wizardStep === 2 && "Review & Generate"}
                 </h3>
               </div>
               <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)}><X size={20} /></button>
@@ -242,13 +255,25 @@ export default function TouchpointsPage() {
             <div className={styles.wizardProgress}>
               <div className={`${styles.progressStep} ${wizardStep >= 1 ? styles.active : ""}`} />
               <div className={`${styles.progressStep} ${wizardStep >= 2 ? styles.active : ""}`} />
-              <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ""}`} />
             </div>
             
             <div className={styles.modalBody}>
               {/* STEP 1: BASICS */}
               {wizardStep === 1 && (
                 <div className={styles.modalForm}>
+                  <div style={{ 
+                    background: "#f0fdf4", 
+                    border: "1px solid #bbf7d0", 
+                    borderRadius: "8px", 
+                    padding: "12px 16px", 
+                    marginBottom: "20px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px"
+                  }}>
+                    <MapPin size={16} style={{ color: "#16a34a" }} />
+                    <span style={{ color: "#166534", fontWeight: 500 }}>Creating touchpoint for: {selectedLocation}</span>
+                  </div>
                   <div className={styles.formGrid}>
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
@@ -269,14 +294,14 @@ export default function TouchpointsPage() {
 
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Physical Location</label>
-                        <span className={styles.fieldDesc}>The exact area where the QR code will be placed.</span>
+                        <label className={styles.formLabel}>Touchpoint Location</label>
+                        <span className={styles.fieldDesc}>The specific area within the {selectedLocation}.</span>
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <MapPin size={18} />
                         <input 
                           type="text" 
-                          placeholder="e.g. Abuja - T1" 
+                          placeholder="e.g. Gate A - Restroom" 
                           required 
                           value={newTouchpoint.location}
                           onChange={(e) => setNewTouchpoint({...newTouchpoint, location: e.target.value})}
@@ -299,31 +324,29 @@ export default function TouchpointsPage() {
                           <option value="Operations">Operations</option>
                           <option value="Security">Security</option>
                           <option value="Maintenance">Maintenance</option>
+                          <option value="Facilities">Facilities</option>
                         </select>
                       </div>
                     </div>
 
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Interaction Type</label>
-                        <span className={styles.fieldDesc}>Determines the focus of the engagement.</span>
+                        <label className={styles.formLabel}>Select Form</label>
+                        <span className={styles.fieldDesc}>Choose a pre-built form for this touchpoint.</span>
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <Layers size={18} />
                         <select 
                           value={newTouchpoint.type}
                           onChange={(e) => {
-                            const type = e.target.value;
-                            setNewTouchpoint({...newTouchpoint, type: type});
-                            // Auto-set default fields based on type
-                            if (type === "Complaint") setFormFields([{ id: 1, type: "text", label: "Complaint Category", required: true }, { id: 2, type: "textarea", label: "Description", required: true }]);
-                            if (type === "Incident") setFormFields([{ id: 1, type: "text", label: "Incident Subject", required: true }, { id: 2, type: "file", label: "Evidence/Photo", required: false }]);
-                            if (type === "Feedback") setFormFields([{ id: 1, type: "rating", label: "Overall Experience", required: true }]);
+                            const form = INITIAL_FORMS.find(f => f.id === e.target.value);
+                            setNewTouchpoint({...newTouchpoint, type: form?.type || "Feedback"});
                           }}
                         >
-                          <option value="Feedback">Feedback</option>
-                          <option value="Complaint">Complaint</option>
-                          <option value="Incident">Incident</option>
+                          <option value="">Select a Form</option>
+                          {INITIAL_FORMS.map(form => (
+                            <option key={form.id} value={form.id}>{form.name} ({form.type})</option>
+                          ))}
                         </select>
                       </div>
                     </div>
@@ -331,98 +354,8 @@ export default function TouchpointsPage() {
                 </div>
               )}
 
-              {/* STEP 2: FORM BUILDER */}
+              {/* STEP 2: REVIEW */}
               {wizardStep === 2 && (
-                <div className={styles.builderArea}>
-                  <div className={styles.builderSidebar}>
-                    <h4 className={styles.builderLabel}>Add Form Elements</h4>
-                    <div className={styles.elementButtons}>
-                      <button onClick={() => addField("rating")} className={styles.elementBtn}><Star size={14} /> 5-Star Rating</button>
-                      <button onClick={() => addField("text")} className={styles.elementBtn}><FileText size={14} /> Short Text</button>
-                      <button onClick={() => addField("textarea")} className={styles.elementBtn}><Layers size={14} /> Long Answer</button>
-                      <button onClick={() => addField("select")} className={styles.elementBtn}><Filter size={14} /> Dropdown Menu</button>
-                      <button onClick={() => addField("number")} className={styles.elementBtn}><Plus size={14} /> Number Input</button>
-                      <button onClick={() => addField("email")} className={styles.elementBtn}><Plus size={14} /> Email Input</button>
-                      <button onClick={() => addField("date")} className={styles.elementBtn}><Plus size={14} /> Date Picker</button>
-                    </div>
-                    
-                    <div className={styles.builderSettings} style={{ marginTop: "40px" }}>
-                       <h4 className={styles.builderLabel}>Advanced Tools</h4>
-                       <button onClick={() => addField("file")} className={styles.elementBtn} style={{ background: "#f8fafc" }}><Plus size={14} /> Attachment Field</button>
-                    </div>
-                  </div>
-
-                  <div className={styles.builderStage}>
-                    {/* ... (existing field stage code) */}
-                    <h4 className={styles.builderLabel}>Passenger View Flow</h4>
-                    <div className={styles.fieldList}>
-                      {formFields.map((field, index) => (
-                        <div key={field.id} className={styles.fieldCard}>
-                          <div className={styles.fieldCardHeader}>
-                            <span className={styles.fieldIndex}>#{index + 1}</span>
-                            <span className={styles.fieldTypeBadge}>{field.type}</span>
-                            <button onClick={() => removeField(field.id)} className={styles.fieldRemove}><X size={14} /></button>
-                          </div>
-                          <input 
-                            className={styles.fieldLabelInput} 
-                            value={field.label} 
-                            onChange={(e) => updateField(field.id, { label: e.target.value })}
-                            placeholder="Enter question label..."
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className={styles.mobilePreviewContainer}>
-                    <div className={styles.iphoneMockup}>
-                       <div className={styles.iphoneNotch} />
-                       <div className={styles.iphoneScreen}>
-                          <div className={styles.previewHeaderMini}>
-                             <div style={{ transform: "scale(0.5)", marginBottom: "-15px" }}>
-                                <Image src="/Faan.logo_.png" alt="Logo" width={60} height={60} />
-                             </div>
-                             <h5 className={styles.previewTitleMini}>{newTouchpoint.type} Form</h5>
-                          </div>
-                          
-                          {formFields.map(field => (
-                            <div key={field.id} className={styles.previewField}>
-                               <span className={styles.previewLabel}>{field.label}</span>
-                               {field.type === "rating" ? (
-                                 <div className={styles.previewRating}>
-                                    <Star size={10} fill="currentColor" />
-                                    <Star size={10} fill="currentColor" />
-                                    <Star size={10} fill="currentColor" />
-                                    <Star size={10} fill="none" />
-                                    <Star size={10} fill="none" />
-                                 </div>
-                               ) : (
-                                 <div className={styles.previewInputPlaceholder}>
-                                    {field.type === "number" && "123..."}
-                                    {field.type === "email" && "example@..."}
-                                    {field.type === "date" && "YYYY-MM-DD"}
-                                 </div>
-                               )}
-                            </div>
-                          ))}
-
-                          <div className={styles.previewContactMini} style={{ borderTop: "1px solid #f1f5f9", paddingTop: "10px", marginTop: "10px" }}>
-                             <span className={styles.previewLabel} style={{ fontSize: "9px", opacity: 0.7 }}>Optional Contact Details</span>
-                             <div className={styles.previewInputPlaceholder} style={{ height: "20px", marginBottom: "5px" }} />
-                             <div className={styles.previewInputPlaceholder} style={{ height: "20px" }} />
-                          </div>
-
-                          <div className={styles.previewSubmitMini}>
-                             Submit {newTouchpoint.type}
-                          </div>
-                       </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 3: REVIEW */}
-              {wizardStep === 3 && (
                 <div className={styles.modalForm}>
                   <div className={styles.generatedSection}>
                     <div className={styles.sectionHeaderGroup}>
@@ -430,9 +363,10 @@ export default function TouchpointsPage() {
                       <p className={styles.sectionDesc}>Confirm details and generated assets.</p>
                     </div>
                     <div className={styles.reviewSummary}>
-                      <div className={styles.summaryItem}><strong>Target:</strong> {newTouchpoint.title}</div>
-                      <div className={styles.summaryItem}><strong>Type:</strong> {newTouchpoint.type}</div>
-                      <div className={styles.summaryItem}><strong>Questions:</strong> {formFields.length} active fields</div>
+                      <div className={styles.summaryItem}><strong>Name:</strong> {newTouchpoint.title}</div>
+                      <div className={styles.summaryItem}><strong>Location:</strong> {newTouchpoint.location}</div>
+                      <div className={styles.summaryItem}><strong>Department:</strong> {newTouchpoint.department}</div>
+                      <div className={styles.summaryItem}><strong>Form:</strong> {INITIAL_FORMS.find(f => f.id === newTouchpoint.type)?.name || newTouchpoint.type}</div>
                     </div>
                     <div className={styles.previewGrid}>
                       <div className={styles.previewItem}>
@@ -443,9 +377,16 @@ export default function TouchpointsPage() {
                         </a>
                       </div>
                       <div className={styles.previewItem}>
-                        <span className={styles.previewLabel}>QR Code Preview</span>
+                        <span className={styles.previewLabel}>QR Code</span>
                         <div className={styles.previewQr} onClick={() => setShowQrPreview(true)}>
                           <QRCodeSVG value={dynamicLink} size={40} />
+                        </div>
+                      </div>
+                      <div className={styles.previewItem}>
+                        <span className={styles.previewLabel}>NFC Link</span>
+                        <div className={styles.nfcLink}>
+                          <Wifi size={14} />
+                          <span>{dynamicLink}</span>
                         </div>
                       </div>
                     </div>
@@ -458,14 +399,14 @@ export default function TouchpointsPage() {
               {wizardStep > 1 && (
                 <button type="button" className={styles.cancelBtn} onClick={() => setWizardStep(wizardStep - 1)}>Back</button>
               )}
-              {wizardStep < 3 ? (
+              {wizardStep < 2 ? (
                 <button 
                   type="button" 
                   className={styles.submitBtn} 
                   onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={!newTouchpoint.title || !newTouchpoint.location}
+                  disabled={!newTouchpoint.title || !newTouchpoint.location || !newTouchpoint.department || !newTouchpoint.type}
                 >
-                  Continue to {wizardStep === 1 ? "Builder" : "Review"}
+                  Continue to Review
                 </button>
               ) : (
                 <button type="button" className={styles.submitBtn} onClick={handleCreate}>
@@ -477,11 +418,70 @@ export default function TouchpointsPage() {
         </div>
       )}
 
-      {/* ... prev QR PREVIEW MODAL ... */}
+      {/* LOCATION PICKER MODAL */}
+      {showLocationPicker && (
+        <div className={styles.modalOverlay} onClick={() => setShowLocationPicker(false)}>
+          <div className={styles.previewCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.previewHeader}>
+              <h3 className={styles.previewTitle}>Select Location</h3>
+              <button className={styles.closeBtn} onClick={() => setShowLocationPicker(false)}><X size={20} /></button>
+            </div>
+            <div style={{ padding: "20px" }}>
+              <p style={{ marginBottom: "16px", color: "#64748b", fontSize: "14px" }}>
+                Choose the airport location where you want to create a touchpoint.
+              </p>
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ display: "block", marginBottom: "8px", fontWeight: 500, color: "#374151" }}>
+                  Airport Location
+                </label>
+                <select
+                  value={tempLocation}
+                  onChange={(e) => setTempLocation(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "12px 16px",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                    fontSize: "15px",
+                    background: "white",
+                    color: "#1e293b",
+                  }}
+                >
+                  <option value="">Select an airport</option>
+                  {MOCK_LOCATIONS.map((loc) => (
+                    <option key={loc.id} value={loc.name}>{loc.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedLocation(tempLocation);
+                  setShowLocationPicker(false);
+                  setIsModalOpen(true);
+                  setWizardStep(1);
+                }}
+                disabled={!tempLocation}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  background: tempLocation ? "#2563eb" : "#94a3b8",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "15px",
+                  fontWeight: 600,
+                  cursor: tempLocation ? "pointer" : "not-allowed",
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showQrPreview && (
         <div className={styles.modalOverlay} onClick={() => setShowQrPreview(false)}>
           <div className={styles.previewCard} onClick={(e) => e.stopPropagation()}>
-            {/* ... prev qr preview code ... */}
             <div className={styles.previewHeader}>
               <h3 className={styles.previewTitle}>QR Code Preview</h3>
               <button className={styles.closeBtn} onClick={() => setShowQrPreview(false)}><X size={20} /></button>

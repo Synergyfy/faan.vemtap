@@ -18,6 +18,14 @@ import {
 } from "lucide-react";
 import styles from "../../Dashboard.module.css";
 
+const MOCK_LOCATIONS = [
+  { id: "abuja", name: "Abuja International Airport" },
+  { id: "lagos", name: "Lagos Murtala Muhammed" },
+  { id: "kano", name: "Kano Mallam Aminu" },
+  { id: "port-harcourt", name: "Port Harcourt Intl" },
+  { id: "enugu", name: "Enugu Airport" },
+];
+
 // Industry Standard Mock Data for Issues
 const INITIAL_ISSUES = [
   { 
@@ -71,6 +79,9 @@ export default function IssueManagementPage() {
   const [selectedIssue, setSelectedIssue] = useState<any>(null);
   const [draggedIssueId, setDraggedIssueId] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState("");
+  const [tempLocation, setTempLocation] = useState("");
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
@@ -175,10 +186,10 @@ export default function IssueManagementPage() {
               <Search size={18} />
               <input type="text" placeholder="Search issues..." />
            </div>
-           <button className={styles.createButton} onClick={() => setIsCreateModalOpen(true)}>
-             <Plus size={18} />
-             <span>New Task</span>
-           </button>
+<button className={styles.createButton} onClick={() => setShowLocationPicker(true)}>
+              <Plus size={18} />
+              <span>New Task</span>
+            </button>
         </div>
       </div>
 
@@ -198,6 +209,19 @@ export default function IssueManagementPage() {
              </div>
              <form onSubmit={handleCreateIssue}>
               <div className={styles.modalBody}>
+                <div style={{ 
+                  background: "#f0fdf4", 
+                  border: "1px solid #bbf7d0", 
+                  borderRadius: "8px", 
+                  padding: "12px 16px", 
+                  marginBottom: "20px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px"
+                }}>
+                  <MapPin size={16} style={{ color: "#16a34a" }} />
+                  <span style={{ color: "#166534", fontWeight: 500 }}>Creating task for: {selectedLocation}</span>
+                </div>
                 <div className={styles.modalForm}>
                    <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
@@ -379,16 +403,80 @@ export default function IssueManagementPage() {
                 </div>
              </div>
 
-             <div className={styles.modalActions}>
-                <button className={styles.cancelBtn} onClick={() => setSelectedIssue(null)}>Close</button>
-                <button className={styles.createButton}>
-                   <CheckCircle2 size={18} />
-                   Resolve Issue
-                </button>
+<div className={styles.modalActions}>
+                 <button className={styles.cancelBtn} onClick={() => setSelectedIssue(null)}>Close</button>
+                 <button className={styles.createButton} onClick={() => {
+                    setIssues(issues.map(i => i.id === selectedIssue.id ? { ...i, status: selectedIssue.status } : i));
+                    setSelectedIssue(null);
+                 }}>
+                    <CheckCircle2 size={18} />
+                    Save
+                 </button>
+              </div>
+           </div>
+         </div>
+       )}
+
+       {/* LOCATION PICKER MODAL */}
+       {showLocationPicker && (
+         <div className={styles.modalOverlay} onClick={() => setShowLocationPicker(false)}>
+           <div className={styles.previewCard} onClick={(e) => e.stopPropagation()}>
+             <div className={styles.previewHeader}>
+               <h3 className={styles.previewTitle}>Select Location</h3>
+               <button className={styles.closeBtn} onClick={() => setShowLocationPicker(false)}><X size={20} /></button>
              </div>
-          </div>
-        </div>
-      )}
+             <div style={{ padding: "20px" }}>
+               <p style={{ marginBottom: "16px", color: "#64748b", fontSize: "14px" }}>
+                 Choose the airport location for this task.
+               </p>
+               <div style={{ marginBottom: "20px" }}>
+                 <label style={{ display: "block", marginBottom: "8px", fontWeight: 500, color: "#374151" }}>
+                   Airport Location
+                 </label>
+                 <select
+                   value={tempLocation}
+                   onChange={(e) => setTempLocation(e.target.value)}
+                   style={{
+                     width: "100%",
+                     padding: "12px 16px",
+                     border: "1px solid #e2e8f0",
+                     borderRadius: "8px",
+                     fontSize: "15px",
+                     background: "white",
+                     color: "#1e293b",
+                   }}
+                 >
+                   <option value="">Select an airport</option>
+                   {MOCK_LOCATIONS.map((loc) => (
+                     <option key={loc.id} value={loc.name}>{loc.name}</option>
+                   ))}
+                 </select>
+               </div>
+               <button
+                 onClick={() => {
+                   setSelectedLocation(tempLocation);
+                   setShowLocationPicker(false);
+                   setIsCreateModalOpen(true);
+                 }}
+                 disabled={!tempLocation}
+                 style={{
+                   width: "100%",
+                   padding: "12px",
+                   background: tempLocation ? "#2563eb" : "#94a3b8",
+                   color: "white",
+                   border: "none",
+                   borderRadius: "8px",
+                   fontSize: "15px",
+                   fontWeight: 600,
+                   cursor: tempLocation ? "pointer" : "not-allowed",
+                 }}
+               >
+                 Confirm
+               </button>
+             </div>
+           </div>
+         </div>
+       )}
     </div>
   );
 }
