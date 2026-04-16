@@ -83,8 +83,8 @@ api.interceptors.response.use(
       const refreshToken = getRefreshToken();
       if (!refreshToken) {
         clearTokens();
-        // Redirect to login if in browser
-        if (typeof window !== 'undefined') {
+        // Redirect to login if in browser and not already on the login page
+        if (typeof window !== 'undefined' && window.location.pathname !== '/') {
           window.location.href = '/';
         }
         return Promise.reject(error);
@@ -105,7 +105,7 @@ api.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError as any, null);
         clearTokens();
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && window.location.pathname !== '/') {
           window.location.href = '/';
         }
         return Promise.reject(refreshError);

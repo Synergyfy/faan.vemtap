@@ -17,7 +17,7 @@ export default function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    
+
     loginMutation.mutate({ email, password }, {
       onSuccess: () => {
         router.push("/dashboard");
