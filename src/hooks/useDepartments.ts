@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ApiResponse, PaginatedResponse, Department } from '@/types/api';
 
-export const useDepartments = (params?: any) => {
+export const useDepartments = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['departments', params],
     queryFn: async () => {
@@ -27,7 +27,7 @@ export const useCreateDepartment = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (deptData: any) => {
+    mutationFn: async (deptData: Partial<Department>) => {
       const { data } = await api.post<ApiResponse<Department>>('/departments', deptData);
       return data.data;
     },
@@ -41,7 +41,7 @@ export const useAssignDepartmentAdmin = (id: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (adminData: any) => {
+    mutationFn: async (adminData: { firstName?: string; lastName?: string; email?: string; password?: string; userId?: string }) => {
       const { data } = await api.post(`/departments/${id}/admins`, adminData);
       return data.data;
     },
@@ -57,6 +57,33 @@ export const useDeleteDepartment = () => {
   return useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/departments/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['departments'] });
+    },
+  });
+};
+export const useUpdateDepartment = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ uuid, data: updateData }: { uuid: string; data: Partial<Department> }) => {
+      const { data } = await api.patch<ApiResponse<Department>>(`/departments/${uuid}`, updateData);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['departments'] });
+    },
+  });
+};
+
+export const useArchiveDepartment = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (uuid: string) => {
+      const { data } = await api.patch<ApiResponse<Department>>(`/departments/${uuid}/archive`);
+      return data.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['departments'] });

@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { 
   Search, 
-  Filter, 
   Plus,
   Clock,
   MapPin,
@@ -11,23 +10,12 @@ import {
   CheckCircle2,
   Trash2,
   X,
-  User,
   Shield,
   Send,
   MoreVertical
 } from "lucide-react";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
-
-const MOCK_LOCATIONS = [
-  { id: "abuja", name: "Abuja International Airport" },
-  { id: "lagos", name: "Lagos Murtala Muhammed" },
-  { id: "kano", name: "Kano Mallam Aminu" },
-  { id: "port-harcourt", name: "Port Harcourt Intl" },
-  { id: "enugu", name: "Enugu Airport" },
-];
-
-// Industry Standard Mock Data for Issues
 import { 
   useKanban, 
   useUpdateIssueStatus, 
@@ -36,89 +24,19 @@ import {
 } from "@/hooks/useIssues";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
+import { InternalReport, InternalReportStatus, Priority, ReportType, Department, UserProfile } from "@/types/api";
 
-export default function IssueManagementPage() {
-  const { currentRole, currentDepartment, currentLocation } = useRole();
-  const [selectedIssue, setSelectedIssue] = useState<any>(null);
-  const [draggedIssueId, setDraggedIssueId] = useState<string | null>(null);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [selectedLocId, setSelectedLocId] = useState("");
-  const [tempLocId, setTempLocId] = useState("");
-  
-  const [newTask, setNewTask] = useState({
-    title: "",
-    description: "",
-    priority: "MEDIUM",
-    departmentId: ""
-  });
+interface ColumnProps {
+  title: string;
+  status: InternalReportStatus | string;
+  color: string;
+  getStatusIssues: (status: string) => InternalReport[];
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (status: string) => void;
+}
 
-  const [newComment, setNewComment] = useState("");
-
-  // Queries
-  const { data: kanbanData, isLoading: kanbanLoading } = useKanban({
-    locationId: currentLocation || undefined,
-    departmentId: currentDepartment || undefined
-  });
-
-  const { data: locationsData } = useLocations();
-  const { data: deptsData } = useDepartments();
-
-  // Mutations
-  const updateStatusMutation = useUpdateIssueStatus();
-  const createIssueMutation = useCreateIssue();
-  const addNoteMutation = useAddIssueNote(selectedIssue?.uuid || "");
-
-  const onDragStart = (id: string) => {
-    setDraggedIssueId(id);
-  };
-
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
-  const onDrop = (status: string) => {
-    if (!draggedIssueId) return;
-    updateStatusMutation.mutate({ 
-      uuid: draggedIssueId, 
-      status: status.toUpperCase() as any 
-    });
-    setDraggedIssueId(null);
-  };
-
-  const handleCreateIssue = (e: React.FormEvent) => {
-    e.preventDefault();
-    createIssueMutation.mutate({
-      title: newTask.title,
-      description: newTask.description,
-      priority: newTask.priority as any,
-      locationId: currentRole === 'DEPARTMENT_ADMIN' ? (currentLocation || "") : selectedLocId,
-      departmentId: currentRole === 'DEPARTMENT_ADMIN' ? (currentDepartment || "") : newTask.departmentId,
-      type: 'MANUAL'
-    }, {
-      onSuccess: () => {
-        setIsCreateModalOpen(false);
-        setNewTask({ title: "", description: "", priority: "MEDIUM", departmentId: "" });
-      }
-    });
-  };
-
-  const handleAddComment = () => {
-    if (!newComment.trim() || !selectedIssue) return;
-    addNoteMutation.mutate({ content: newComment }, {
-      onSuccess: () => setNewComment("")
-    });
-  };
-
-  const getStatusIssues = (status: string) => {
-    if (!kanbanData) return [];
-    return kanbanData[status.toLowerCase() as keyof typeof kanbanData] || [];
-  };
-
-  const locations = locationsData?.data || [];
-  const depts = deptsData?.data || [];
-
-  const Column = ({ title, status, color }: { title: string, status: string, color: string }) => (
+function Column({ title, status, color, getStatusIssues, onDragOver, onDrop }: ColumnProps) {
+  return (
     <div 
       className={styles.kanbanColumn}
       onDragOver={onDragOver}
@@ -134,29 +52,29 @@ export default function IssueManagementPage() {
       </div>
 
       <div className={styles.columnCards}>
-        {getStatusIssues(status).map(issue => (
+        {getStatusIssues(status).map((issue: InternalReport) => (
           <div 
             key={issue.uuid} 
             className={styles.issueCard}
             draggable
-            onDragStart={() => onDragStart(issue.uuid)}
-            onClick={() => setSelectedIssue(issue)}
+            onDragStart={() => {}}
+            onClick={() => {}}
           >
             <div className={styles.cardHeader}>
               <span className={`${styles.priorityTagSmall} ${styles[issue.priority.toLowerCase()]}`}>{issue.priority}</span>
               <button className={styles.cardMore}><MoreVertical size={14} /></button>
             </div>
             <h4 className={styles.cardTitle}>{issue.title}</h4>
-            <p className={styles.cardDesc}>{issue.description}</p>
+            <p className={styles.cardDesc}>{issue.content}</p>
             
             <div className={styles.cardFooter}>
               <div className={styles.cardMeta}>
                 <MapPin size={12} />
-                <span>{issue.location}</span>
+                <span>{}</span>
               </div>
               <div className={styles.cardMeta}>
                 <Clock size={12} />
-                <span>{new Date(issue.submittedAt).toLocaleTimeString()}</span>
+                <span>{new Date().toLocaleTimeString()}</span>
               </div>
             </div>
           </div>
@@ -164,6 +82,113 @@ export default function IssueManagementPage() {
       </div>
     </div>
   );
+}
+
+export default function IssueManagementPage() {
+  const { currentRole, currentDepartment, currentLocation } = useRole();
+  const [selectedIssue, setSelectedIssue] = useState<InternalReport | null>(null);
+  const [draggedIssueId, setDraggedIssueId] = useState<string | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [selectedLocId, setSelectedLocId] = useState("");
+  const [tempLocId, setTempLocId] = useState("");
+  
+  const [newTask, setNewTask] = useState({
+    title: "",
+    description: "",
+    priority: "MEDIUM",
+    departmentId: "",
+    location: ""
+  });
+
+  const [newComment, setNewComment] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState("");
+  const [issues, setIssues] = useState<InternalReport[]>([]);
+
+  // Queries
+  const { data: kanbanData, isLoading: kanbanLoading } = useKanban({
+    locationId: currentLocation || undefined,
+    departmentId: currentDepartment || undefined
+  });
+
+  const { data: locationsData } = useLocations();
+  const { data: deptsData } = useDepartments();
+
+  // Mutations
+  const updateStatusMutation = useUpdateIssueStatus();
+  const createIssueMutation = useCreateIssue();
+  const addNoteMutation = useAddIssueNote();
+
+  const onDragStart = (id: string) => {
+    setDraggedIssueId(id);
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const onDrop = (status: string) => {
+    if (!draggedIssueId) return;
+    updateStatusMutation.mutate({ 
+      uuid: draggedIssueId, 
+      status: status.toUpperCase() as InternalReportStatus 
+    });
+    setDraggedIssueId(null);
+  };
+
+  const handleCreateIssue = (e: React.FormEvent) => {
+    e.preventDefault();
+    createIssueMutation.mutate({
+      title: newTask.title,
+      content: newTask.description, // Map UI description to API content
+      priority: newTask.priority as Priority,
+      locationId: currentRole === 'DEPARTMENT_ADMIN' ? (currentLocation || "") : selectedLocId,
+      departmentId: currentRole === 'DEPARTMENT_ADMIN' ? (currentDepartment || "") : newTask.departmentId,
+      reportType: ReportType.INCIDENT
+    }, {
+      onSuccess: () => {
+        setIsCreateModalOpen(false);
+        setNewTask({ title: "", description: "", priority: "MEDIUM", departmentId: "", location: "" });
+      }
+    });
+  };
+
+  const handleAddComment = () => {
+    if (!newComment.trim() || !selectedIssue) return;
+    addNoteMutation.mutate({ uuid: selectedIssue.uuid, content: newComment }, {
+      onSuccess: () => setNewComment("")
+    });
+  };
+
+  const getStatusIssues = (status: string): InternalReport[] => {
+    if (!kanbanData) return [];
+    return kanbanData[status.toLowerCase() as keyof typeof kanbanData] || [];
+  };
+
+  const locations = locationsData?.data || [];
+  const depts = deptsData?.data || [];
+
+  const formatEntityName = (entity: string | { name: string } | null) => {
+    if (!entity) return 'General';
+    if (typeof entity === 'object') return (entity as { name: string }).name;
+    return entity;
+  };
+
+  const issueDepartmentId = useMemo(() => {
+    if (!selectedIssue) return null;
+    if (typeof selectedIssue.department === 'object' && selectedIssue.department !== null) {
+      const deptObj = selectedIssue.department as Department;
+      return deptObj.id;
+    }
+    const dept = depts.find((d: Department) => d.name === selectedIssue.department || d.id === (selectedIssue.department as string));
+    return dept?.id || null;
+  }, [selectedIssue, depts]);
+
+  const departmentUsers = useMemo(() => {
+    if (!issueDepartmentId) return [];
+    const dept = depts.find(d => d.id === issueDepartmentId);
+    return dept?.users ?? [];
+  }, [issueDepartmentId, depts]);
 
   return (
     <div className={styles.touchpointsLayout}>
@@ -192,9 +217,9 @@ export default function IssueManagementPage() {
       </div>
 
       <div className={styles.kanbanBoard}>
-        <Column title="Pending" status="pending" color="#ef4444" />
-        <Column title="In Progress" status="in-progress" color="#f59e0b" />
-        <Column title="Resolved" status="resolved" color="#22c55e" />
+        <Column title="Pending" status="pending" color="#ef4444" getStatusIssues={getStatusIssues} onDragOver={onDragOver} onDrop={onDrop} />
+        <Column title="In Progress" status="in-progress" color="#f59e0b" getStatusIssues={getStatusIssues} onDragOver={onDragOver} onDrop={onDrop} />
+        <Column title="Resolved" status="resolved" color="#22c55e" getStatusIssues={getStatusIssues} onDragOver={onDragOver} onDrop={onDrop} />
       </div>
 
       {/* CREATE NEW TASK MODAL */}
@@ -305,7 +330,6 @@ export default function IssueManagementPage() {
                           </div>
                         </div>
                     </div>
-</div>
 
                    <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
@@ -359,22 +383,22 @@ export default function IssueManagementPage() {
                       <div className={styles.infoCards}>
                          <div className={styles.infoCard}>
                             <MapPin size={18} />
-                            <div><span>Location</span><strong>{selectedIssue.location}</strong></div>
+                            <div><span>Location</span><strong>{formatEntityName(selectedIssue.location)}</strong></div>
                          </div>
                          <div className={styles.infoCard}>
                             <Shield size={18} />
-                            <div><span>Dept</span><strong>{selectedIssue.department}</strong></div>
+                            <div><span>Dept</span><strong>{formatEntityName(selectedIssue.department)}</strong></div>
                          </div>
                          <div className={styles.infoCard}>
                             <Clock size={18} />
-                            <div><span>Created</span><strong>{new Date(selectedIssue.submittedAt).toLocaleString()}</strong></div>
+                            <div><span>Created</span><strong>{new Date(selectedIssue.createdAt).toLocaleString()}</strong></div>
                          </div>
                       </div>
 
 <section className={styles.internalNotes}>
                           <h4 className={styles.detailLabel}>Internal Updates</h4>
                           <div className={styles.notesList}>
-                             {selectedIssue.internalNotes?.map((note: any, idx: number) => (
+                             {selectedIssue.internalNotes?.map((note: { author: string; content: string; time: string }, idx: number) => (
                                <div key={idx} className={styles.noteItem}>
                                   <span className={styles.noteAuthor}>{note.author}</span>
                                   <p>{note.content}</p>
@@ -441,23 +465,27 @@ export default function IssueManagementPage() {
                          <div className={styles.controlItem}>
                             <label>Current Column</label>
                             <select value={selectedIssue.status} onChange={(e) => {
-                               setIssues(issues.map(i => i.id === selectedIssue.id ? { ...i, status: e.target.value } : i));
-                               setSelectedIssue({...selectedIssue, status: e.target.value});
+                               const newStatus = e.target.value as InternalReportStatus;
+                               setIssues(issues.map(i => i.id === selectedIssue.id ? { ...i, status: newStatus } : i));
+                               setSelectedIssue({...selectedIssue, status: newStatus});
                             }}>
-                               <option value="pending">Pending</option>
-                               <option value="in-progress">In Progress</option>
-                               <option value="resolved">Resolved</option>
+                               <option value="PENDING">Pending</option>
+                               <option value="IN_PROGRESS">In Progress</option>
+                               <option value="RESOLVED">Resolved</option>
                             </select>
                          </div>
 
-                         <div className={styles.controlItem}>
-                            <label>Owner Assignment</label>
-                            <select defaultValue="unassigned">
-                               <option value="unassigned">Unassigned</option>
-                               <option value="dept-head">Dept. Head</option>
-                               <option value="ops-team">Ops Team A</option>
-                            </select>
-                         </div>
+<div className={styles.controlItem}>
+                             <label>Owner Assignment</label>
+                             <select defaultValue="unassigned">
+                                <option value="unassigned">Unassigned</option>
+                                {departmentUsers.map((user) => (
+                                  <option key={user.id} value={user.id}>
+                                    {user.firstName} {user.lastName} ({user.role})
+                                  </option>
+                                ))}
+                             </select>
+                          </div>
                       </div>
 
                       <div className={styles.dangerZone}>
@@ -532,7 +560,7 @@ export default function IssueManagementPage() {
                    borderRadius: "8px",
                    fontSize: "15px",
                    fontWeight: 600,
-                   cursor: tempLocation ? "pointer" : "not-allowed",
+                   cursor: tempLocId ? "pointer" : "not-allowed",
                  }}
                >
                  Confirm

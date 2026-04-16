@@ -243,7 +243,7 @@ export interface Department {
 
 export interface FormField {
   id: number;
-  type: string; // 'text' | 'textarea' | 'rating' | 'select' | 'checkbox'
+  type: 'text' | 'dropdown' | 'file' | 'date' | 'rating' | 'textarea' | 'email' | 'number';
   label: string;
   name?: string;
   required?: boolean;
@@ -253,6 +253,7 @@ export interface FormField {
 
 export interface Touchpoint {
   id: string;
+  uuid: string;
   locationId: string;
   departmentId: string;
   createdById: string;
@@ -281,6 +282,8 @@ export interface Submission {
   id: string; // Submission Code e.g. "SUB-8812"
   uuid: string; // The actual UUID
   touchpointId: string;
+  locationId: string;
+  departmentId: string | null;
   userId: string | null;
   status: SubmissionStatus;
   priority: Priority;
@@ -315,14 +318,30 @@ export interface InternalReport {
   uuid: string;
   title: string;
   content: string;
+  description?: string;
   status: InternalReportStatus;
   priority: Priority;
   reportType: ReportType;
+  locationId: string;
+  locationName?: string;
+  departmentId: string;
+  departmentName?: string;
+  templateId?: string;
+  templateName?: string;
+  reportedBy?: string;
+  date?: string;
+  fieldValues?: Record<string, any>;
   location: string | { id: string; name: string; airportCode: string; city: string; };
   department: string | null | { id: string; name: string; code: string; };
   author: string | { id: string; firstName: string; lastName: string; email: string; };
   assignee: string | null | { id: string; firstName: string; lastName: string; email: string; };
   createdAt: string;
+  internalNotes?: Array<{
+    author: string;
+    content: string;
+    time: string;
+    isSystem: boolean;
+  }>;
   notes?: Array<{
     id: string;
     author: string;
@@ -330,6 +349,29 @@ export interface InternalReport {
     createdAt: string;
     isSystem: boolean;
   }>;
+}
+
+export interface ReportTemplate {
+  id: string;
+  uuid: string;
+  name: string;
+  description: string | null;
+  locationId: string;
+  locationName?: string;
+  departmentId: string;
+  departmentName?: string;
+  fields: ReportTemplateField[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReportTemplateField {
+  id: string;
+  type: 'text' | 'number' | 'date' | 'dropdown' | 'textarea';
+  label: string;
+  required: boolean;
+  options?: string[];
 }
 
 // --- Module: Analytics ---

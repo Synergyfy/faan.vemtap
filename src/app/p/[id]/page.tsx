@@ -1,12 +1,15 @@
+"use client";
+
 import React, { useState, use } from "react";
 import { Star, Send, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import styles from "./Passenger.module.css";
 import Image from "next/image";
 import { useTouchpointBySlug } from "@/hooks/useTouchpoints";
 import { useCreateSubmission } from "@/hooks/useSubmissions";
+import { FormField, Submission } from "@/types/api";
 
 // Normalized Backend Enum Mapping
-const TYPE_THEMES: Record<string, any> = {
+const TYPE_THEMES: Record<string, { title: string; subtitle: string; color: string }> = {
   FEEDBACK: { title: "Passenger Feedback", subtitle: "How was your experience today?", color: "#157347" },
   COMPLAINT: { title: "Lodge a Complaint", subtitle: "We're sorry to hear about your issue.", color: "#dc2626" },
   INCIDENT: { title: "Report an Incident", subtitle: "Help us keep our airport safe and secure.", color: "#92400e" },
@@ -53,7 +56,7 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
   const theme = TYPE_THEMES[touchpoint.type] || TYPE_THEMES.FEEDBACK;
   const fields = touchpoint.formConfig || [];
 
-  const handleInputChange = (fieldId: string, value: any) => {
+  const handleInputChange = (fieldId: string | number, value: string | number) => {
     setFormData({ ...formData, [fieldId]: value });
   };
 
@@ -75,7 +78,7 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
     };
 
     createSubmission.mutate(payload, {
-      onSuccess: (data: any) => {
+      onSuccess: (data: Submission) => {
         setSubmissionRef(data.uuid || data.id);
         setSubmitted(true);
       }
@@ -117,7 +120,7 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
 
       <div className={styles.formCard}>
         <form onSubmit={handleSubmit} className={styles.dynamicForm}>
-          {fields.map((field: any) => (
+          {fields.map((field: FormField) => (
             <div key={field.id} className={styles.fieldGroup}>
               <label className={styles.label}>
                 {field.label} {field.required && <span className={styles.required}>*</span>}

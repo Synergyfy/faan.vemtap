@@ -22,7 +22,7 @@ import { useRole } from "@/context/RoleContext";
 import { 
   useOrganization, 
   useUpdateOrganization 
-} from "@/hooks/useOrganization";
+} from "@/hooks/useOrganizations";
 import { useApiKey } from "@/hooks/useSettings";
 import { useProfile } from "@/hooks/useAuth";
 import { useEffect } from "react";
@@ -33,15 +33,26 @@ export default function SettingsPage() {
   const [showApiKey, setShowApiKey] = useState(false);
   
   // Queries
-  const { data: organization } = useOrganization();
-  const { data: apiKeyData } = useApiKey();
   const { data: profile } = useProfile();
+  const organizationId = profile?.department?.location?.organization?.id;
+  const { data: organization } = useOrganization(organizationId || "");
+  const { data: apiKeyData } = useApiKey();
   
   // Mutations
   const updateOrgMutation = useUpdateOrganization();
 
   // Settings State
   const [orgName, setOrgName] = useState("");
+  const [emailAlerts, setEmailAlerts] = useState(true);
+  const [smsAlerts, setSmsAlerts] = useState(false);
+  const [retentionPeriod, setRetentionPeriod] = useState("365");
+  const [locationInfo, setLocationInfo] = useState({
+    name: "Abuja International Airport",
+    code: "ABV",
+    timezone: "UTC+1",
+    email: "abuja@faan.gov.ng",
+    phone: "+234 123 456 7890"
+  });
   
   useEffect(() => {
     if (organization) {
@@ -399,7 +410,7 @@ export default function SettingsPage() {
                         <label className={styles.formLabel}>Phone Number</label>
                         <input 
                           type="text" 
-                          value={profile?.phoneNumber || "Not set"}
+                          value={profile?.phone || "Not set"}
                           className={styles.modalInput}
                           readOnly
                         />

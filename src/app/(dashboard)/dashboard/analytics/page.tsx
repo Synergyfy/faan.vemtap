@@ -8,8 +8,7 @@ import {
   Users, 
   Clock, 
   AlertOctagon,
-  Calendar,
-  Filter
+  Calendar
 } from "lucide-react";
 import { 
   AreaChart, 
@@ -23,8 +22,6 @@ import {
   Bar,
   LineChart,
   Line,
-  PieChart,
-  Pie,
   Cell
 } from "recharts";
 import styles from "../../Dashboard.module.css";
@@ -34,10 +31,36 @@ import {
   useSatisfactionTrend, 
   usePeakActivity, 
   useHotspots, 
-  useDeptPerformanceChart 
+  useDeptPerformanceChart,
+  ChartDataPoint
 } from "@/hooks/useAnalytics";
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+type TooltipPayloadItem = { name: string; value: number; color?: string };
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+  label?: string;
+}
+
+function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
+  if (active && payload && payload.length) {
+    return (
+      <div className={styles.chartTooltip}>
+        <p className={styles.tooltipLabel}>{label}</p>
+        {payload.map((entry, index) => (
+          <div key={index} className={styles.tooltipRow}>
+            <div className={styles.tooltipDot} style={{ backgroundColor: entry.color }}></div>
+            <span className={styles.tooltipValue}>{entry.name}: {entry.value}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+}
 
 export default function AnalyticsPage() {
   const { currentRole, currentDepartment, departmentName, currentLocation } = useRole();
@@ -49,23 +72,6 @@ export default function AnalyticsPage() {
   const { data: peakTimesData } = usePeakActivity({ locationId: currentLocation, departmentId: currentDepartment });
   const { data: locationData } = useHotspots({ locationId: currentLocation });
   const { data: deptPerformanceData } = useDeptPerformanceChart({ locationId: currentLocation });
-
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className={styles.chartTooltip}>
-          <p className={styles.tooltipLabel}>{label}</p>
-          {payload.map((entry: any, index: number) => (
-            <div key={index} className={styles.tooltipRow}>
-              <div className={styles.tooltipDot} style={{ backgroundColor: entry.color }}></div>
-              <span className={styles.tooltipValue}>{entry.name}: {entry.value}</span>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div className={styles.analyticsLayout}>
@@ -280,9 +286,9 @@ export default function AnalyticsPage() {
                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 12}} width={100} />
                    <Tooltip content={<CustomTooltip />} cursor={{fill: '#f8fafc'}} />
                    <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24}>
-                     {locationData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                     ))}
+{locationData?.map((entry: ChartDataPoint, index: number) => (
+                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
                    </Bar>
                  </BarChart>
                </ResponsiveContainer>

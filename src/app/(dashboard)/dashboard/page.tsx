@@ -30,6 +30,30 @@ import { UserRole } from "@/types/rbac";
 import { useAnalyticsSummary } from "@/hooks/useAnalytics";
 import { useMemo } from "react";
 
+const FEEDBACK_TREND = [
+  { day: "Mon", feedback: 40 },
+  { day: "Tue", feedback: 30 },
+  { day: "Wed", feedback: 60 },
+  { day: "Thu", feedback: 50 },
+  { day: "Fri", feedback: 80 },
+  { day: "Sat", feedback: 50 },
+  { day: "Sun", feedback: 70 },
+];
+
+const ISSUE_CATEGORIES = [
+  { name: "Safety", value: 400, color: "#ef4444" },
+  { name: "Cleanliness", value: 300, color: "#3b82f6" },
+  { name: "Maintenance", value: 300, color: "#f59e0b" },
+  { name: "Customer Service", value: 200, color: "#10b981" },
+];
+
+const ACTIVITIES = [
+  { id: 1, text: "New feedback from Terminal 1: 'Great service at check-in'", time: "2 mins ago", status: "Resolved" },
+  { id: 2, text: "Escalator failure reported at Gate 12", time: "15 mins ago", status: "In Progress" },
+  { id: 3, text: "Low rating received for Restroom cleanliness", time: "1 hour ago", status: "Pending" },
+  { id: 4, text: "New staff member registered: Sarah Jones", time: "3 hours ago", status: "Success" },
+];
+
 export default function DashboardPage() {
   const { currentRole, locationName, departmentName, currentLocation, currentDepartment } = useRole();
   

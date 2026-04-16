@@ -5,17 +5,11 @@ import {
   FileStack, 
   Plus, 
   Search, 
-  Filter,
-  Download,
   Trash2,
   Edit,
   Copy,
-  Eye,
-  ToggleLeft,
-  ToggleRight,
   X,
   CheckCircle2,
-  Link2,
   FileText,
   Type,
   List,
@@ -23,76 +17,18 @@ import {
   Calendar,
   ChevronRight,
   ChevronLeft,
-  Star,
-  Phone
+  Star
 } from "lucide-react";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
-import { UserRole } from "@/types/rbac";
-import { MOCK_LOCATIONS } from "@/data/mockLocations";
-import { MOCK_DEPARTMENTS, getDepartmentsByLocation } from "@/data/mockDepartments";
-
-interface FormField {
-  id: string;
-  type: 'text' | 'dropdown' | 'file' | 'date' | 'rating' | 'textarea';
-  label: string;
-  required: boolean;
-  options?: string[];
-}
-
-interface Form {
-  id: string;
-  name: string;
-  type: 'passenger';
-  locationId: string;
-  locationName: string;
-  departmentId: string;
-  departmentName: string;
-  fields: FormField[];
-  allowAnonymous: boolean;
-  successMessage: string;
-  createdAt: string;
-  submissions: number;
-}
-
-const INITIAL_FORMS: Form[] = [
-  {
-    id: "form-001",
-    name: "Passenger Feedback",
-    type: "passenger",
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    departmentId: "customer-service",
-    departmentName: "Customer Service",
-    fields: [
-      { id: "f1", type: "rating", label: "How would you rate your experience?", required: true },
-      { id: "f2", type: "text", label: "What did you like most?", required: false },
-      { id: "f3", type: "textarea", label: "Any additional comments?", required: false },
-    ],
-    allowAnonymous: true,
-    successMessage: "Thank you for your feedback!",
-    createdAt: "2024-04-01",
-    submissions: 342
-  },
-  {
-    id: "form-002",
-    name: "Airport Cleanliness Survey",
-    type: "passenger",
-    locationId: "lagos",
-    locationName: "Lagos Murtala Muhammed",
-    departmentId: "facilities",
-    departmentName: "Facilities & Assets",
-    fields: [
-      { id: "f1", type: "rating", label: "Cleanliness Rating", required: true },
-      { id: "f2", type: "dropdown", label: "Area", required: true, options: ["Restroom", "Lounge", "Food Court", "Gate Area"] },
-      { id: "f3", type: "text", label: "Suggestions", required: false },
-    ],
-    allowAnonymous: true,
-    successMessage: "Thank you for helping us improve!",
-    createdAt: "2024-04-10",
-    submissions: 156
-  }
-];
+import { 
+  useTouchpoints, 
+  useCreateTouchpoint, 
+  useDeleteTouchpoint
+} from "@/hooks/useTouchpoints";
+import { useLocations } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
+import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/types/api";
 
 const FIELD_TYPES = [
   { value: 'rating', label: '⭐ Rating', icon: Star },
@@ -102,16 +38,6 @@ const FIELD_TYPES = [
   { value: 'file', label: 'File Upload', icon: Upload },
   { value: 'date', label: 'Date', icon: Calendar },
 ];
-
-import { 
-  useTouchpoints, 
-  useCreateTouchpoint, 
-  useUpdateTouchpoint, // Assuming this exists or I'll use patch
-  useDeleteTouchpoint,
-  useUpdateTouchpointStatus
-} from "@/hooks/useTouchpoints";
-import { useLocations } from "@/hooks/useLocations";
-import { useDepartments } from "@/hooks/useDepartments";
 
 export default function FormsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
@@ -123,12 +49,11 @@ export default function FormsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingFormId, setEditingFormId] = useState<string | null>(null);
-  const [selectedForm, setSelectedForm] = useState<any>(null);
+  const [selectedForm, setSelectedForm] = useState<Touchpoint | null>(null);
   const [wizardStep, setWizardStep] = useState(1);
 
   const createMutation = useCreateTouchpoint();
   const deleteMutation = useDeleteTouchpoint();
-  // We'll use create/patch for saving
 
   const touchpoints = touchpointsData?.data || [];
   const locations = locationsData?.data || [];
@@ -140,10 +65,10 @@ export default function FormsPage() {
     departmentId: '',
     allowAnonymous: true,
     successMessage: 'Thank you for your feedback!',
-    fields: [] as any[],
+    fields: [] as FormField[],
   });
 
-  const filteredForms = touchpoints.filter((tp: any) => 
+  const filteredForms = touchpoints.filter((tp: Touchpoint) => 
     !searchTerm || tp.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -156,9 +81,9 @@ export default function FormsPage() {
   };
 
   const handleAddField = (type: string = 'text') => {
-    const newField = {
+    const newField: FormField = {
       id: Date.now(),
-      type,
+      type: type as FormField['type'],
       label: 'New Field',
       required: false,
       options: type === 'dropdown' ? ['Option 1', 'Option 2'] : [],
@@ -166,10 +91,10 @@ export default function FormsPage() {
     setNewForm({...newForm, fields: [...newForm.fields, newField]});
   };
 
-  const handleUpdateField = (fieldId: number | string, updates: any) => {
+  const handleUpdateField = (fieldId: number | string, updates: Partial<FormField>) => {
     setNewForm({
       ...newForm,
-      fields: newForm.fields.map(f => f.id === fieldId ? {...f, ...updates} : f)
+      fields: newForm.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
     });
   };
 
@@ -180,14 +105,14 @@ export default function FormsPage() {
     });
   };
 
+
   const handleSaveForm = () => {
     const payload = {
       title: newForm.name,
       locationId: newForm.locationId,
       departmentId: newForm.departmentId,
-      type: 'FEEDBACK',
+      type: 'FEEDBACK' as TouchpointType,
       formConfig: newForm.fields,
-      // Metadata fields like allowAnonymous/successMessage could be stored in a JSON field if supported, or extra fields
     };
 
     if (isEditMode && editingFormId) {
@@ -265,8 +190,9 @@ export default function FormsPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredForms.map((form: any) => (
+            {filteredForms.map((form: Touchpoint) => (
               <tr key={form.id} className={styles.clickableRow} onClick={() => setSelectedForm(form)}>
+
                 <td>
                   <span className={styles.tpName}>{form.title}</span>
                 </td>
@@ -415,7 +341,7 @@ export default function FormsPage() {
                           onChange={(e) => handleLocationChange(e.target.value)}
                         >
                           <option value="">Select Location</option>
-                          {locations.map(loc => (
+                          {locations.map((loc: Location) => (
                             <option key={loc.id} value={loc.id}>{loc.name}</option>
                           ))}
                         </select>
@@ -431,11 +357,12 @@ export default function FormsPage() {
                           onChange={(e) => setNewForm({...newForm, departmentId: e.target.value})}
                         >
                           <option value="">Select Department</option>
-                          {locations.find(l => l.id === newForm.locationId)?.departments?.map((dept: any) => (
+                          {locations.find((l: Location) => l.id === newForm.locationId)?.departments?.map((dept: { id: string; name: string }) => (
                             <option key={dept.id} value={dept.id}>{dept.name}</option>
                           ))}
                         </select>
                       </div>
+
                     </div>
                   </div>
                 )}
@@ -665,7 +592,7 @@ export default function FormsPage() {
                         {newForm.name || 'Untitled Form'}
                       </div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                        {locations.find(l => l.id === newForm.locationId)?.name || 'FAAN'} • {locations.find(l => l.id === newForm.locationId)?.departments?.find((d: any) => d.id === newForm.departmentId)?.name || 'Operations'}
+                        {locations.find((l: Location) => l.id === newForm.locationId)?.name || 'FAAN'} • {locations.find((l: Location) => l.id === newForm.locationId)?.departments?.find((d) => d.id === newForm.departmentId)?.name || 'Operations'}
                       </div>
                     </div>
                     
@@ -857,10 +784,10 @@ export default function FormsPage() {
           <div className={`${styles.modalContent} ${styles.wideModal}`}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
-                <span className={`${styles.typeTag} ${selectedForm.type === 'passenger' ? 'feedback' : 'complaint'}`}>
-                  {selectedForm.type === 'passenger' ? 'Passenger' : 'Internal'}
+                <span className={`${styles.typeTag} feedback`}>
+                  Passenger Form
                 </span>
-                <h3 className={styles.modalTitle}>{selectedForm.name}</h3>
+                <h3 className={styles.modalTitle}>{selectedForm.title}</h3>
               </div>
               <button className={styles.closeBtn} onClick={() => setSelectedForm(null)}><X size={20} /></button>
             </div>
@@ -868,10 +795,10 @@ export default function FormsPage() {
               <div className={styles.detailGrid}>
                 <div className={styles.detailMain}>
                   <section className={styles.messageSection}>
-                    <h4 className={styles.detailLabel}>Form Fields ({selectedForm.fields.length})</h4>
+                    <h4 className={styles.detailLabel}>Form Fields ({selectedForm.formConfig?.length || 0})</h4>
                     <div className={styles.messageCard}>
-                      {selectedForm.fields.map((field, i) => (
-                        <div key={field.id} style={{ padding: '12px 0', borderBottom: i < selectedForm.fields.length - 1 ? '1px solid #e2e8f0' : 'none' }}>
+                      {selectedForm.formConfig?.map((field: FormField, i: number) => (
+                        <div key={field.id} style={{ padding: '12px 0', borderBottom: i < (selectedForm.formConfig?.length || 0) - 1 ? '1px solid #e2e8f0' : 'none' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                             <span style={{ fontWeight: 600, color: '#1e293b' }}>{field.label}</span>
                             {field.required && <span className={styles.priorityTag} style={{ fontSize: '9px' }}>Required</span>}
@@ -888,11 +815,11 @@ export default function FormsPage() {
                     <div className={styles.infoCards} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <div className={styles.infoCard}>
                         <FileStack size={18} />
-                        <div><span>Total Submissions</span><strong>{selectedForm.submissions}</strong></div>
+                        <div><span>Total Submissions</span><strong>{selectedForm.interactions || 0}</strong></div>
                       </div>
                       <div className={styles.infoCard}>
                         <Calendar size={18} />
-                        <div><span>Created</span><strong>{selectedForm.createdAt}</strong></div>
+                        <div><span>Created</span><strong>{selectedForm.createdAt ? new Date(selectedForm.createdAt).toLocaleDateString() : '-'}</strong></div>
                       </div>
                     </div>
                   </div>

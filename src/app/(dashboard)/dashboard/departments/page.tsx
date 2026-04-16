@@ -16,76 +16,32 @@ import {
   AlertCircle,
   Box,
   Edit,
-  Trash2
+  Trash2,
+  MapPin
 } from "lucide-react";
+import { Department } from "@/types/api";
+
+interface DeptAdmin {
+  id: string | number;
+  departmentId: string;
+  name: string;
+  email: string;
+}
+
+interface StaffMember {
+  id: string | number;
+  name: string;
+  role: string;
+}
+
+interface QRLink {
+  id: string | number;
+  name: string;
+  airport: string;
+}
 import styles from "../../Dashboard.module.css";
 import Image from "next/image";
-import { MOCK_LOCATIONS } from "@/data/mockLocations";
 import { useRole } from "@/context/RoleContext";
-
-const INITIAL_DEPARTMENTS = [
-  { 
-    id: 1, 
-    name: "Aviation Security (AVSEC)", 
-    icon: Shield, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 24, 
-    touchpoints: 12, 
-    activeIssues: 3,
-    responsibility: "Internal and external security of the airport premises and passengers.",
-    color: "#ef4444"
-  },
-  { 
-    id: 2, 
-    name: "Customer Service", 
-    icon: Users, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 18, 
-    touchpoints: 45, 
-    activeIssues: 0,
-    responsibility: "Handling passenger inquiries, complaints, and satisfaction surveys.",
-    color: "#22c55e"
-  },
-  { 
-    id: 3, 
-    name: "Operations Control", 
-    icon: Settings, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 15, 
-    touchpoints: 8, 
-    activeIssues: 5,
-    responsibility: "Real-time monitoring of airport flight operations and gate management.",
-    color: "#3b82f6"
-  },
-  { 
-    id: 4, 
-    name: "Facilities & Assets", 
-    icon: Briefcase, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 12, 
-    touchpoints: 15, 
-    activeIssues: 8,
-    responsibility: "Maintenance of airport infrastructure, restrooms, and terminal amenities.",
-    color: "#f59e0b"
-  },
-  { 
-    id: 5, 
-    name: "Protocol & VIP", 
-    icon: User, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 8, 
-    touchpoints: 5, 
-    activeIssues: 0,
-    responsibility: "Managing high-profile passenger experiences and lounge standards.",
-    color: "#8b5cf6"
-  }
-];
-
 
 import { 
   useDepartments, 
@@ -98,17 +54,32 @@ import { useLocations } from "@/hooks/useLocations";
 export default function DepartmentsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [selectedDept, setSelectedDept] = useState<any>(null);
+  const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [activeTab, setActiveTab] = useState("users");
   const [searchTerm, setSearchTerm] = useState("");
-  const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
-  const [editingDept, setEditingDept] = useState<any>(null);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [editingDept, setEditingDept] = useState<Department | null>(null);
 
   const [newDept, setNewDept] = useState({
     name: '',
     locationId: '',
     responsibility: '',
+    locationName: '',
   });
+
+  // Resources Management State
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [deptAdmins, setDeptAdmins] = useState<DeptAdmin[]>([]);
+  const [newAdmin, setNewAdmin] = useState({ name: "", email: "", password: "" });
+  
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [tempStaff, setTempStaff] = useState<StaffMember[]>([]);
+  const [newStaffDetails, setNewStaffDetails] = useState({ name: "", role: "Duty Officer" });
+  
+  const [isLinking, setIsLinking] = useState(false);
+  const [tempQR, setTempQR] = useState<QRLink[]>([]);
+  const [newQRDetails, setNewQRDetails] = useState({ name: "", airport: "Abuja International" });
+
 
   // Queries
   const { data: deptsData, isLoading: deptsLoading } = useDepartments({
@@ -131,7 +102,7 @@ export default function DepartmentsPage() {
     };
 
     if (editingDept) {
-      updateMutation.mutate({ uuid: editingDept.uuid, data: payload }, {
+      updateMutation.mutate({ uuid: editingDept.id as string, data: payload }, {
         onSuccess: () => {
           setIsAddModalOpen(false);
           setEditingDept(null);
@@ -141,7 +112,7 @@ export default function DepartmentsPage() {
       createMutation.mutate(payload, {
         onSuccess: () => {
           setIsAddModalOpen(false);
-          setNewDept({ name: '', locationId: '', responsibility: '' });
+          setNewDept({ name: '', locationId: '', responsibility: '', locationName: '' });
         }
       });
     }
@@ -193,15 +164,18 @@ export default function DepartmentsPage() {
     if (!selectedDept) return;
     const updated = departments.map(d => {
       if (d.id === selectedDept.id) {
+        const currentUsers = Array.isArray(d.users) ? d.users.length : (typeof d.users === 'number' ? d.users : 0);
+        const currentTPs = typeof d.touchpointCount === 'number' ? d.touchpointCount : (d._count?.touchpoints || 0);
+        
         return { 
           ...d, 
-          users: d.users + tempStaff.length, 
-          touchpoints: d.touchpoints + tempQR.length 
+          users: currentUsers + tempStaff.length, 
+          touchpointCount: currentTPs + tempQR.length 
         };
       }
       return d;
     });
-    setDepartments(updated);
+    // setDepartments(updated); // Removed as departments state is derived from React Query
     setSelectedDept(null);
     setTempStaff([]);
     setTempQR([]);
@@ -216,7 +190,7 @@ export default function DepartmentsPage() {
         </div>
         <button className={styles.createButton} onClick={() => {
             if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
-              const location = MOCK_LOCATIONS.find(l => l.id === currentLocation);
+              const location = locations.find(l => l.id === currentLocation);
               setNewDept({ ...newDept, locationId: currentLocation, locationName: location?.name || '' });
             }
             setIsAddModalOpen(true);
@@ -242,7 +216,7 @@ export default function DepartmentsPage() {
         {departments.filter(d => d.name.toLowerCase().includes(searchTerm.toLowerCase())).map((dept) => {
           const Icon = Shield; // Default icon for departments
           return (
-            <div key={dept.uuid} className={styles.deptCard}>
+            <div key={dept.id} className={styles.deptCard}>
               <div className={styles.deptCardHeader}>
                 <div className={styles.deptIconBox} style={{ backgroundColor: `#2563eb15`, color: `#2563eb` }}>
                    <Icon size={24} />
@@ -252,12 +226,12 @@ export default function DepartmentsPage() {
                     className={styles.cardMore} 
                     onClick={(e) => {
                       e.stopPropagation();
-                      setActiveDropdown(activeDropdown === (dept as any).uuid ? null : (dept as any).uuid);
+                      setActiveDropdown(activeDropdown === dept.id ? null : dept.id);
                     }}
                   >
                     <MoreVertical size={18} />
                   </button>
-                  {activeDropdown === (dept as any).uuid && (
+                  {activeDropdown === dept.id && (
                     <div className={styles.cardDropdown}>
                        <button className={styles.dropdownItem} onClick={(e) => {
                          e.stopPropagation();
@@ -266,6 +240,7 @@ export default function DepartmentsPage() {
                            name: dept.name,
                            locationId: dept.locationId,
                            responsibility: dept.responsibility || '',
+                           locationName: '',
                          });
                          setIsAddModalOpen(true);
                          setActiveDropdown(null);
@@ -274,7 +249,7 @@ export default function DepartmentsPage() {
                        <div className={styles.dropdownSeparator} />
                        <button className={`${styles.dropdownItem} ${styles.danger}`} onClick={(e) => {
                          e.stopPropagation();
-                         handleArchiveDept(dept.uuid);
+                         handleArchiveDept(dept.id);
                        }}><Trash2 size={14} /> Archive</button>
                     </div>
                   )}
@@ -286,7 +261,7 @@ export default function DepartmentsPage() {
                 <p className={styles.deptCardDesc}>{dept.responsibility || 'No responsibility defined.'}</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '11px', color: '#64748b' }}>
                   <MapPin size={12} />
-                  <span>{dept.location}</span>
+                  <span>{typeof dept.location === 'string' ? dept.location : (dept.location as any)?.name}</span>
                 </div>
               </div>
 
@@ -297,8 +272,7 @@ export default function DepartmentsPage() {
                 </div>
                 <div className={styles.deptMetric}>
                    <MousePointer2 size={14} />
-                   <span>{dept.touchpointsCount} QRs</span>
-                </div>
+                   <span>{dept.touchpointCount} QRs</span>                </div>
               </div>
 
               <button 
@@ -463,7 +437,7 @@ export default function DepartmentsPage() {
                        <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                          <Shield size={32} />
                          <p style={{ marginTop: '8px' }}>No admins assigned yet</p>
-                         <p style={{ fontSize: '12px' }}>Click "Add Admin" to assign a department administrator</p>
+                         <p style={{ fontSize: '12px' }}>Click &quot;Add Admin&quot; to assign a department administrator</p>
                        </div>
                      ) : (
                        deptAdmins.filter(a => a.departmentId === selectedDept?.id).map(admin => (
@@ -487,7 +461,7 @@ export default function DepartmentsPage() {
                ) : activeTab === "users" ? (
                  <div className={styles.resourceList}>
                     <div className={styles.resourceHeader}>
-                       <h4 className={styles.builderLabel}>Registered Staff ({selectedDept.users + tempStaff.length})</h4>
+                       <h4 className={styles.builderLabel}>Registered Staff ({(selectedDept.users?.length || 0) + tempStaff.length})</h4>
                        <button className={styles.inlineAddBtn} onClick={() => setIsAssigning(!isAssigning)}>
                          <Plus size={14} /> Assign Official
                        </button>
@@ -535,7 +509,7 @@ export default function DepartmentsPage() {
                ) : (
                  <div className={styles.resourceList}>
                     <div className={styles.resourceHeader}>
-                       <h4 className={styles.builderLabel}>Operational Touchpoints ({selectedDept.touchpoints + tempQR.length})</h4>
+                       <h4 className={styles.builderLabel}>Operational Touchpoints ({(selectedDept._count?.touchpoints || 0) + tempQR.length})</h4>
                        <button className={styles.inlineAddBtn} onClick={() => setIsLinking(!isLinking)}>
                          <Plus size={14} /> Link QR Code
                        </button>

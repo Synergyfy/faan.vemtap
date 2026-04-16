@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
-import { ApiResponse, PaginatedResponse, InternalReport } from '@/types/api';
+import { ApiResponse, PaginatedResponse, InternalReport, ReportTemplate } from '@/types/api';
 
-export const useReports = (params?: any) => {
+export const useReports = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['reports', params],
     queryFn: async () => {
@@ -12,7 +12,7 @@ export const useReports = (params?: any) => {
   });
 };
 
-export const useMyReports = (params?: any) => {
+export const useMyReports = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['my-reports', params],
     queryFn: async () => {
@@ -37,7 +37,7 @@ export const useCreateReport = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (reportData: any) => {
+    mutationFn: async (reportData: Partial<InternalReport>) => {
       const { data } = await api.post<ApiResponse<InternalReport>>('/reports', reportData);
       return data.data;
     },
@@ -47,11 +47,11 @@ export const useCreateReport = () => {
     },
   });
 };
-export const useReportTemplates = (params?: any) => {
+export const useReportTemplates = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['report-templates', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<PaginatedResponse<any>>>('/reports/templates', { params });
+      const { data } = await api.get<ApiResponse<PaginatedResponse<ReportTemplate>>>('/reports/templates', { params });
       return data.data;
     },
   });
@@ -61,8 +61,8 @@ export const useCreateReportTemplate = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (templateData: any) => {
-      const { data } = await api.post<ApiResponse<any>>('/reports/templates', templateData);
+    mutationFn: async (templateData: Partial<ReportTemplate>) => {
+      const { data } = await api.post<ApiResponse<ReportTemplate>>('/reports/templates', templateData);
       return data.data;
     },
     onSuccess: () => {

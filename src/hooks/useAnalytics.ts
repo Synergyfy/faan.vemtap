@@ -2,8 +2,20 @@ import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ApiResponse, AnalyticsSummary } from '@/types/api';
 
-export const useAnalyticsSummary = (params?: any) => {
-  return useQuery({
+export interface ChartDataPoint {
+  name: string;
+  score?: number;
+  issues?: number;
+  value?: number;
+  resolved?: number;
+  unresolved?: number;
+  [key: string]: string | number | undefined;
+}
+
+export type ChartData = ChartDataPoint[];
+
+export const useAnalyticsSummary = (params?: Record<string, unknown>) => {
+  return useQuery<AnalyticsSummary>({
     queryKey: ['analytics-summary', params],
     queryFn: async () => {
       const { data } = await api.get<ApiResponse<AnalyticsSummary>>('/analytics/summary', { params });
@@ -13,41 +25,41 @@ export const useAnalyticsSummary = (params?: any) => {
   });
 };
 
-export const useSatisfactionTrend = (params?: any) => {
-  return useQuery({
+export const useSatisfactionTrend = (params?: Record<string, unknown>) => {
+  return useQuery<ChartData>({
     queryKey: ['charts-satisfaction', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<any>>('/analytics/charts/satisfaction-trend', { params });
+      const { data } = await api.get<ApiResponse<ChartData>>('/analytics/charts/satisfaction-trend', { params });
       return data.data;
     },
   });
 };
 
-export const usePeakActivity = (params?: any) => {
-  return useQuery({
+export const usePeakActivity = (params?: Record<string, unknown>) => {
+  return useQuery<ChartData>({
     queryKey: ['charts-peak', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<any>>('/analytics/charts/peak-activity', { params });
+      const { data } = await api.get<ApiResponse<ChartData>>('/analytics/charts/peak-activity', { params });
       return data.data;
     },
   });
 };
 
-export const useHotspots = (params?: any) => {
-  return useQuery({
+export const useHotspots = (params?: Record<string, unknown>) => {
+  return useQuery<ChartData>({
     queryKey: ['charts-hotspots', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<any>>('/analytics/charts/hotspots', { params });
+      const { data } = await api.get<ApiResponse<ChartData>>('/analytics/charts/hotspots', { params });
       return data.data;
     },
   });
 };
 
-export const useDeptPerformanceChart = (params?: any) => {
-  return useQuery({
+export const useDeptPerformanceChart = (params?: Record<string, unknown>) => {
+  return useQuery<ChartData>({
     queryKey: ['charts-dept-perf', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<any>>('/analytics/charts/dept-performance', { params });
+      const { data } = await api.get<ApiResponse<ChartData>>('/analytics/charts/dept-performance', { params });
       return data.data;
     },
   });

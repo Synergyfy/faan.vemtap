@@ -1,31 +1,17 @@
-import { motion } from 'motion/react';
 import { User, MapPin, Briefcase, Heart } from 'lucide-react';
 
 export function AboutDisplay() {
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="my-2 sm:my-4"
-    >
+    <div className="my-2 sm:my-4">
       <div className="border border-[#00ff41] rounded-lg p-4 sm:p-6 bg-[#0f0f0f]">
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.1 }}
-        >
+        <div>
           <h2 className="text-lg sm:text-xl mb-3 sm:mb-4 flex items-center gap-2">
             <User size={18} className="sm:w-5 sm:h-5" />
             Frank Emesinwa
           </h2>
-        </motion.div>
+        </div>
 
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="space-y-4 text-sm"
-        >
+        <div className="space-y-4 text-sm">
           <div className="flex items-start gap-3">
             <Briefcase size={16} className="mt-1 flex-shrink-0" />
             <p>
@@ -75,8 +61,8 @@ export function AboutDisplay() {
               contributing to open source, or mentoring aspiring developers.
             </p>
           </div>
-        </motion.div>
+        </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

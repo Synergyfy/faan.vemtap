@@ -21,50 +21,6 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
-
-// Mock Data
-const MOCK_LOCATIONS = [
-  { id: "abuja", name: "Abuja International Airport" },
-  { id: "lagos", name: "Lagos Murtala Muhammed" },
-  { id: "kano", name: "Kano Mallam Aminu" },
-  { id: "port-harcourt", name: "Port Harcourt Intl" },
-  { id: "enugu", name: "Enugu Airport" },
-];
-
-const INITIAL_FORMS = [
-  { id: "form-001", name: "Passenger Feedback", type: "Feedback" },
-  { id: "form-002", name: "Airport Cleanliness Survey", type: "Feedback" },
-  { id: "form-003", name: "Security Complaint Form", type: "Complaint" },
-  { id: "form-004", name: "Baggage Incident Report", type: "Incident" },
-];
-
-const INITIAL_TOUCHPOINTS = [
-  { id: "tp-071dau", name: "Restroom Feedback - T1", location: "Abuja International Airport", type: "Feedback", status: "Active", interactions: 1250 },
-  { id: 2, name: "Security Complaint - Gate 4", location: "Lagos Murtala Muhammed", type: "Complaint", status: "Inactive", interactions: 450 },
-  { id: 3, name: "Baggage Incident - Arrival", location: "Abuja International Airport", type: "Incident", status: "Active", interactions: 120 },
-  { id: 4, name: "Lounge satisfaction - VIP", location: "Abuja International Airport", type: "Feedback", status: "Active", interactions: 890 },
-];
-
-// Mock Submissions Data
-const MOCK_SUBMISSIONS: any = {
-  "tp-071dau": [
-    { 
-      id: "sub-1", 
-      user: "Anonymous", 
-      timestamp: "2024-04-14 10:20 AM", 
-      rating: 5,
-      data: { "rating": 5, "comment": "Excellent service at the check-in counter!" }
-    },
-    { 
-      id: "sub-2", 
-      user: "John Doe", 
-      timestamp: "2024-04-14 11:45 AM", 
-      rating: 2,
-      data: { "rating": 2, "comment": "Long wait time at security.", "name": "John Doe", "email": "john@example.com" }
-    }
-  ]
-};
-
 import { 
   useTouchpoints, 
   useCreateTouchpoint, 
@@ -74,6 +30,7 @@ import {
 } from "@/hooks/useTouchpoints";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
+import { TouchpointType, Touchpoint, Location, Department } from "@/types/api";
 
 export default function TouchpointsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
@@ -82,7 +39,7 @@ export default function TouchpointsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [origin, setOrigin] = useState("");
   const [showQrPreview, setShowQrPreview] = useState(false);
-  const [currentTouchpoint, setCurrentTouchpoint] = useState<any>(null);
+  const [currentTouchpoint, setCurrentTouchpoint] = useState<Touchpoint | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [selectedLocId, setSelectedLocId] = useState("");
   const [tempLocId, setTempLocId] = useState("");
@@ -91,10 +48,15 @@ export default function TouchpointsPage() {
   const { data: tpData, isLoading: tpLoading } = useTouchpoints({
     locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : (selectedLocId || undefined)) || undefined
   });
+
+  // Fetch touchpoints to use as form templates (as per migration guide)
+  const { data: formsData } = useTouchpoints();
+
   const { data: locationsData } = useLocations();
   const { data: deptsData } = useDepartments({ 
     locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || undefined) : (selectedLocId || undefined) 
   });
+
 
   // Mutations
   const createMutation = useCreateTouchpoint();
@@ -107,6 +69,8 @@ export default function TouchpointsPage() {
     title: "",
     location: "",
     departmentId: "",
+    type: TouchpointType.FEEDBACK,
+    templateId: ""
   });
 
   useEffect(() => {
@@ -116,29 +80,32 @@ export default function TouchpointsPage() {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     createMutation.mutate({
-      name: newTouchpoint.title,
-      internalLocation: newTouchpoint.location,
+      title: newTouchpoint.title,
+      description: "",
+      type: newTouchpoint.type,
       departmentId: newTouchpoint.departmentId,
       locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : selectedLocId,
+      formConfig: [] // Default empty form config
     }, {
       onSuccess: () => {
         setIsModalOpen(false);
         setWizardStep(1);
-        setNewTouchpoint({ title: "", location: "", departmentId: "" });
+        setNewTouchpoint({ title: "", location: "", departmentId: "", type: TouchpointType.FEEDBACK, templateId: "" });
       }
     });
   };
 
-  const toggleStatus = (uuid: string, currentStatus: string) => {
+  const toggleStatus = (id: string, currentStatus: boolean) => {
     updateMutation.mutate({ 
-      uuid, 
-      status: currentStatus === "ACTIVE" ? "INACTIVE" : "ACTIVE" 
+      uuid: id, 
+      data: { isActive: !currentStatus }
     });
   };
 
   const touchpoints = tpData?.data || [];
   const locations = locationsData?.data || [];
   const departments = deptsData?.data || [];
+  const forms = formsData?.data || [];
 
   const getSelectedLocationName = () => {
     if (currentRole === 'LOCATION_ADMIN') return roleLocationName;
@@ -202,39 +169,39 @@ export default function TouchpointsPage() {
             </tr>
           </thead>
           <tbody>
-            {touchpoints.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase())).map((tp) => (
-              <tr key={tp.uuid}>
+            {touchpoints.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase())).map((tp) => (
+              <tr key={tp.id}>
                 <td>
                   <div className={styles.nameCell}>
-                    <span className={styles.tpName}>{tp.name}</span>
-                    <span className={styles.tpId}>ID: {tp.uuid.substring(0, 8).toUpperCase()}</span>
+                    <span className={styles.tpName}>{tp.title}</span>
+                    <span className={styles.tpId}>ID: {tp.id.substring(0, 8).toUpperCase()}</span>
                   </div>
                 </td>
-                <td>{tp.internalLocation}</td>
+                <td>{tp.location?.name || tp.locationId}</td>
                 <td>
-                  <span className={`${styles.typeTag} ${styles.feedback}`}>
-                    Feedback
+                  <span className={`${styles.typeTag} ${styles[tp.type.toLowerCase()]}`}>
+                    {tp.type}
                   </span>
                 </td>
                 <td>
                   <div className={styles.statusCell}>
-                    <div className={`${styles.statusDot} ${tp.status === "ACTIVE" ? styles.green : styles.gray}`} />
-                    <span>{tp.status}</span>
+                    <div className={`${styles.statusDot} ${tp.isActive ? styles.green : styles.gray}`} />
+                    <span>{tp.isActive ? "ACTIVE" : "INACTIVE"}</span>
                   </div>
                 </td>
-                <td>{tp.interactionsCount || 0}</td>
+                <td>{tp.interactions || 0}</td>
                 <td className={styles.textRight}>
                   <div className={styles.actionButtons}>
                     <button className={styles.actionIcon} title="View QR" onClick={() => {
                        setCurrentTouchpoint(tp);
                        setShowQrPreview(true);
                     }}><QrCode size={18} /></button>
-                    <button className={styles.actionIcon} title="Download" onClick={() => downloadQr(tp.uuid)}><Download size={18} /></button>
+                    <button className={styles.actionIcon} title="Download" onClick={() => downloadQr(tp.id)}><Download size={18} /></button>
                     <button className={styles.actionIcon} title="Edit"><Edit size={18} /></button>
                     <button 
-                      className={`${styles.actionIcon} ${styles.disableIcon} ${tp.status === "INACTIVE" ? styles.disabled : ""}`} 
-                      title={tp.status === "ACTIVE" ? "Disable" : "Enable"}
-                      onClick={() => toggleStatus(tp.uuid, tp.status)}
+                      className={`${styles.actionIcon} ${styles.disableIcon} ${!tp.isActive ? styles.disabled : ""}`} 
+                      title={tp.isActive ? "Disable" : "Enable"}
+                      onClick={() => toggleStatus(tp.id, tp.isActive)}
                     >
                       <Power size={18} />
                     </button>
@@ -281,7 +248,7 @@ export default function TouchpointsPage() {
                     gap: "8px"
                   }}>
                     <MapPin size={16} style={{ color: "#16a34a" }} />
-                    <span style={{ color: "#166534", fontWeight: 500 }}>Creating touchpoint for: {selectedLocation}</span>
+                    <span style={{ color: "#166534", fontWeight: 500 }}>Creating touchpoint for: {getSelectedLocationName()}</span>
                   </div>
                   <div className={styles.formGrid}>
                     <div className={styles.formGroup}>
@@ -304,7 +271,7 @@ export default function TouchpointsPage() {
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>Touchpoint Location</label>
-                        <span className={styles.fieldDesc}>The specific area within the {selectedLocation}.</span>
+                        <span className={styles.fieldDesc}>The specific area within the {getSelectedLocationName()}.</span>
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <MapPin size={18} />
@@ -331,7 +298,7 @@ export default function TouchpointsPage() {
                         >
                           <option value="">Select Department</option>
                           {departments.map(d => (
-                            <option key={d.uuid} value={d.id}>{d.name}</option>
+                            <option key={d.id} value={d.id}>{d.name}</option>
                           ))}
                         </select>
                       </div>
@@ -345,15 +312,17 @@ export default function TouchpointsPage() {
                       <div className={styles.modalInputWrapper}>
                         <Layers size={18} />
                         <select 
-                          value={newTouchpoint.type}
+                          value={newTouchpoint.templateId}
                           onChange={(e) => {
-                            const form = INITIAL_FORMS.find(f => f.id === e.target.value);
-                            setNewTouchpoint({...newTouchpoint, type: form?.type || "Feedback"});
+                            const form = forms.find((f: Touchpoint) => f.id === e.target.value);
+                            if (form) {
+                              setNewTouchpoint({...newTouchpoint, templateId: form.id, type: form.type});
+                            }
                           }}
                         >
                           <option value="">Select a Form</option>
-                          {INITIAL_FORMS.map(form => (
-                            <option key={form.id} value={form.id}>{form.name} ({form.type})</option>
+                          {forms.map((form: Touchpoint) => (
+                            <option key={form.id} value={form.id}>{form.title} ({form.type})</option>
                           ))}
                         </select>
                       </div>
@@ -373,8 +342,8 @@ export default function TouchpointsPage() {
                     <div className={styles.reviewSummary}>
                       <div className={styles.summaryItem}><strong>Name:</strong> {newTouchpoint.title}</div>
                       <div className={styles.summaryItem}><strong>Location:</strong> {newTouchpoint.location}</div>
-                      <div className={styles.summaryItem}><strong>Department:</strong> {departments.find(d => d.id === newTouchpoint.departmentId)?.name}</div>
-                      <div className={styles.summaryItem}><strong>Form:</strong> {INITIAL_FORMS.find(f => f.id === newTouchpoint.type)?.name || newTouchpoint.type}</div>
+                      <div className={styles.summaryItem}><strong>Department:</strong> {departments.find((d: Department) => d.id === newTouchpoint.departmentId)?.name}</div>
+                      <div className={styles.summaryItem}><strong>Form:</strong> {forms.find((f: Touchpoint) => f.id === newTouchpoint.templateId)?.title || newTouchpoint.type}</div>
                     </div>
                     <div className={styles.previewGrid}>
                       <div className={styles.previewItem}>

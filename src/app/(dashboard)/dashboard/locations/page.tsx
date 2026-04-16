@@ -90,13 +90,14 @@ const INITIAL_LOCATIONS: LocationData[] = [
 ];
 
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
+import { Location, Department } from "@/types/api";
 
 export default function LocationsPage() {
   const { currentRole, currentLocation, hasAccessToLocation } = useRole();
   const { data: locationsData, isLoading } = useLocations();
   const [expanded, setExpanded] = useState<string[]>([]);
-  const [selectedZone, setSelectedZone] = useState<any>(null);
-  const [selectedLocation, setSelectedLocation] = useState<any>(null);
+  const [selectedZone, setSelectedZone] = useState<Department | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [activeTooltip, setActiveTooltip] = useState<number | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
@@ -160,9 +161,9 @@ export default function LocationsPage() {
     });
   };
 
-  const filteredLocations = currentRole === UserRole.SUPER_ADMIN 
+  const filteredLocations = (currentRole === UserRole.SUPER_ADMIN 
     ? locations 
-    : locations.filter((loc: any) => loc.id === currentLocation);
+    : locations.filter((loc: Location) => loc.id === currentLocation)) as Location[];
 
   return (
     <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN]}>
@@ -195,18 +196,18 @@ export default function LocationsPage() {
 
                 {expanded.includes(airport.id) && (
                   <div className={styles.treeSubItems}>
-                    {airport.departments?.map((dept: any) => (
+                    {airport.departments?.map((dept) => (
                       <div key={dept.id} className={styles.treeItem}>
                         <div 
                           className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
                           onClick={() => {
-                            setSelectedZone(dept);
+                            setSelectedZone(dept as any); // Cast here if needed for state compatibility
                             setSelectedLocation(airport);
                           }}
                         >
                           <Building2 size={16} className={styles.terminalIcon} />
                           <span>{dept.name}</span>
-                          <div className={`${styles.statusDot} ${dept.isActive ? styles.green : styles.gray}`} />
+                          <div className={`${styles.statusDot} ${(dept as any).isActive ? styles.green : styles.gray}`} />
                         </div>
                       </div>
                     ))}
@@ -249,7 +250,7 @@ export default function LocationsPage() {
                 </div>
                 <div className={styles.statInfo}>
                   <span className={styles.statLabel}>Staff Count</span>
-                  <h3 className={styles.statValue}>{selectedZone?.staffCount || selectedZone?._count?.users || 0}</h3>
+                  <h3 className={styles.statValue}>{selectedZone?.staffCount || (selectedZone?._count as any)?.users || 0}</h3>
                 </div>
               </div>
 

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ApiResponse, PaginatedResponse, Submission, SubmissionListItem } from '@/types/api';
 
-export const useSubmissions = (params?: any) => {
+export const useSubmissions = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['submissions', params],
     queryFn: async () => {
@@ -23,39 +23,39 @@ export const useSubmission = (uuid: string) => {
   });
 };
 
-export const useUpdateSubmission = (uuid: string) => {
+export const useUpdateSubmission = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (updateData: any) => {
+    mutationFn: async ({ uuid, data: updateData }: { uuid: string; data: Partial<Submission> }) => {
       const { data } = await api.patch<ApiResponse<Submission>>(`/submissions/${uuid}`, updateData);
       return data.data;
     },
-    onSuccess: () => {
+    onSuccess: (_, { uuid }) => {
       queryClient.invalidateQueries({ queryKey: ['submissions'] });
       queryClient.invalidateQueries({ queryKey: ['submission', uuid] });
     },
   });
 };
 
-export const useAddSubmissionNote = (uuid: string) => {
+export const useAddSubmissionNote = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (noteData: { content: string }) => {
-      const { data } = await api.post(`/submissions/${uuid}/notes`, noteData);
+    mutationFn: async ({ uuid, content }: { uuid: string; content: string }) => {
+      const { data } = await api.post(`/submissions/${uuid}/notes`, { content });
       return data.data;
     },
-    },
-    onSuccess: () => {
+    onSuccess: (_, { uuid }) => {
       queryClient.invalidateQueries({ queryKey: ['submission', uuid] });
     },
   });
 };
 
+
 export const useCreateSubmission = () => {
   return useMutation({
-    mutationFn: async (submissionData: any) => {
+    mutationFn: async (submissionData: Record<string, unknown>) => {
       const { data } = await api.post<ApiResponse<Submission>>('/submissions', submissionData);
       return data.data;
     },

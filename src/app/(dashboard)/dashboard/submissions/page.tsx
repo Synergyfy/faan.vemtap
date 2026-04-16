@@ -23,85 +23,6 @@ import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { UserRole } from "@/types/rbac";
 
-interface Submission {
-  id: string;
-  type: string;
-  location: string;
-  locationId?: string;
-  datetime: string;
-  status: string;
-  department: string;
-  departmentId?: string;
-  passenger: string;
-  message: string;
-  rating: number | null;
-  priority: string;
-  formData: Record<string, unknown>;
-}
-
-// Mock Data for Submissions
-const ALL_SUBMISSIONS: Submission[] = [
-  { 
-    id: "SUB-8812", 
-    type: "Complaint", 
-    location: "Abuja T1 - Gate 4",
-    locationId: "abuja",
-    datetime: "2024-04-14 09:20 AM", 
-    status: "Open", 
-    department: "Security",
-    departmentId: "security",
-    passenger: "Anonymous",
-    message: "Extremely long wait time at security check. Only 2 lanes open during peak hours.",
-    rating: 2,
-    priority: "High",
-    formData: {
-      rating: 2,
-      travel_date: "2024-04-14",
-      flight_number: "NG-442",
-      passenger_email: "test@domain.com"
-    }
-  },
-  { 
-    id: "SUB-8815", 
-    type: "Feedback", 
-    location: "Lagos - International Lounge",
-    locationId: "lagos",
-    datetime: "2024-04-14 10:45 AM", 
-    status: "Resolved", 
-    department: "Facilities",
-    departmentId: "facilities-lagos",
-    passenger: "Emeka Obi",
-    message: "The new coffee machine in the wing-B lounge is fantastic! Great improvement.",
-    rating: 5,
-    priority: "Low",
-    formData: {
-      rating: 5,
-      engagement_type: "Survey",
-      preferred_contact: "Email"
-    }
-  },
-  { 
-    id: "SUB-8819", 
-    type: "Incident", 
-    location: "Abuja T2 - Baggage Claim",
-    locationId: "abuja",
-    datetime: "2024-04-14 11:15 AM", 
-    status: "In Progress", 
-    department: "Operations",
-    departmentId: "operations",
-    passenger: "Aisha Yusuf",
-    message: "Spilled liquid near Carousel 3. It's a slip hazard and needs immediate cleaning.",
-    rating: null,
-    priority: "Critical",
-    formData: {
-       incident_severity: "High",
-       action_required: "Cleaning",
-       location_verified: "Yes"
-    }
-  }
-];
-
-
 import { 
   useSubmissions, 
   useSubmission, 
@@ -109,6 +30,7 @@ import {
   useAddSubmissionNote 
 } from "@/hooks/useSubmissions";
 import { useDepartments } from "@/hooks/useDepartments";
+import { SubmissionStatus, Department } from "@/types/api";
 
 export default function SubmissionsPage() {
   const { currentRole, currentLocation, currentDepartment } = useRole();
@@ -127,20 +49,20 @@ export default function SubmissionsPage() {
   const { data: deptsData } = useDepartments();
 
   // Mutations
-  const updateMutation = useUpdateSubmission(selectedUuid || "");
-  const noteMutation = useAddSubmissionNote(selectedUuid || "");
+  const updateMutation = useUpdateSubmission();
+  const noteMutation = useAddSubmissionNote();
 
-  const handleUpdateStatus = (uuid: string, status: any) => {
-    updateMutation.mutate({ status });
+  const handleUpdateStatus = (uuid: string, status: string) => {
+    updateMutation.mutate({ uuid, data: { status: status as SubmissionStatus } });
   };
 
   const handleAssignDept = (uuid: string, departmentId: string) => {
-    updateMutation.mutate({ departmentId });
+    updateMutation.mutate({ uuid, data: { departmentId } });
   };
 
   const handleAddNote = () => {
     if (!noteContent.trim() || !selectedUuid) return;
-    noteMutation.mutate({ content: noteContent }, {
+    noteMutation.mutate({ uuid: selectedUuid, content: noteContent }, {
       onSuccess: () => setNoteContent("")
     });
   };
@@ -196,7 +118,7 @@ export default function SubmissionsPage() {
           </thead>
           <tbody>
             {submissions.map((sub) => (
-              <tr key={sub.id} className={styles.clickableRow} onClick={() => setSelectedUuid(sub.uuid)}>
+              <tr key={sub.id} className={styles.clickableRow} onClick={() => setSelectedUuid(sub.id)}>
                 <td>
                   <span className={styles.tpName}>{sub.id}</span>
                 </td>
@@ -337,7 +259,7 @@ export default function SubmissionsPage() {
                             <label>Status</label>
                             <select 
                               value={detail.status}
-                              onChange={(e) => handleUpdateStatus(detail.uuid, e.target.value)}
+                              onChange={(e) => handleUpdateStatus(detail.id, e.target.value)}
                             >
                                <option value="OPEN">Open</option>
                                <option value="IN_PROGRESS">In Progress</option>
@@ -351,7 +273,7 @@ export default function SubmissionsPage() {
                              <label>Assign Department</label>
                              <select 
                                value={typeof detail.department === 'string' ? detail.department : (detail.department as any)?.id}
-                               onChange={(e) => handleAssignDept(detail.uuid, e.target.value)}
+                               onChange={(e) => handleAssignDept(detail.id, e.target.value)}
                              >
                                 <option value="">Select Dept</option>
                                 {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -367,7 +289,7 @@ export default function SubmissionsPage() {
                 <button className={styles.cancelBtn} onClick={() => setSelectedUuid(null)}>Close</button>
                 <button 
                   className={styles.createButton}
-                  onClick={() => handleUpdateStatus(detail.uuid, 'RESOLVED')}
+                  onClick={() => handleUpdateStatus(detail.id, 'RESOLVED')}
                 >
                    <CheckCircle2 size={18} />
                    Mark as Resolved

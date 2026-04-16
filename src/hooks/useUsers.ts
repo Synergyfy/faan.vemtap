@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ApiResponse, PaginatedResponse, UserProfile, Role } from '@/types/api';
 
-export const useUsers = (params?: any) => {
+export const useUsers = (params?: Record<string, any>) => {
   return useQuery({
     queryKey: ['users', params],
     queryFn: async () => {
@@ -27,7 +27,7 @@ export const useCreateUser = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (userData: any) => {
+    mutationFn: async (userData: Partial<UserProfile>) => {
       const { data } = await api.post<ApiResponse<UserProfile>>('/users', userData);
       return data.data;
     },
@@ -41,7 +41,7 @@ export const useUpdateUser = (id: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (userData: any) => {
+    mutationFn: async (userData: Partial<UserProfile>) => {
       const { data } = await api.patch<ApiResponse<UserProfile>>(`/users/${id}`, userData);
       return data.data;
     },

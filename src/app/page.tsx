@@ -5,6 +5,7 @@ import styles from "./Login.module.css";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLogin } from "@/hooks/useAuth";
+import { AxiosError } from "axios";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -22,7 +23,9 @@ export default function LoginPage() {
         router.push("/dashboard");
       },
       onError: (err: any) => {
-        const message = err.response?.data?.error?.message || "Invalid credentials. Please try again.";
+        const axiosErr = err as AxiosError;
+        const data = axiosErr.response?.data as any;
+        const message = data?.error?.message || data?.message || "Invalid credentials. Please try again.";
         setError(Array.isArray(message) ? message[0] : message);
       }
     });

@@ -39,9 +39,12 @@ api.interceptors.request.use(
 
 // Response Interceptor: Handle token refresh on 401
 let isRefreshing = false;
-let failedQueue: any[] = [];
+let failedQueue: Array<{
+  resolve: (token: string | null) => void;
+  reject: (error: AxiosError | Error) => void;
+}> = [];
 
-const processQueue = (error: any, token: string | null = null) => {
+const processQueue = (error: AxiosError | Error | null, token: string | null = null) => {
   failedQueue.forEach((prom) => {
     if (error) {
       prom.reject(error);
@@ -49,13 +52,15 @@ const processQueue = (error: any, token: string | null = null) => {
       prom.resolve(token);
     }
   });
+
   failedQueue = [];
 };
+
 
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config as any;
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
     // If error is 401 and we haven't tried to refresh yet
     if (error.response?.status === 401 && !originalRequest._retry) {
@@ -64,7 +69,9 @@ api.interceptors.response.use(
           failedQueue.push({ resolve, reject });
         })
           .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
+            if (originalRequest.headers) {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+            }
             return api(originalRequest);
           })
           .catch((err) => Promise.reject(err));
@@ -96,7 +103,7 @@ api.interceptors.response.use(
         
         return api(originalRequest);
       } catch (refreshError) {
-        processQueue(refreshError, null);
+        processQueue(refreshError as any, null);
         clearTokens();
         if (typeof window !== 'undefined') {
           window.location.href = '/';

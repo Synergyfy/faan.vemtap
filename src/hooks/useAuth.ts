@@ -8,7 +8,7 @@ export const useLogin = () => {
   const { login } = useAuthContext();
 
   return useMutation({
-    mutationFn: async (credentials: any) => {
+    mutationFn: async (credentials: Record<string, string>) => {
       const { data } = await api.post<ApiResponse<AuthResponse>>('/auth/login', credentials);
       return data.data;
     },
@@ -66,7 +66,7 @@ export const useUpdateProfile = () => {
 
 export const useChangePassword = () => {
   return useMutation({
-    mutationFn: async (passwordData: any) => {
+    mutationFn: async (passwordData: Record<string, string>) => {
       const { data } = await api.patch('/auth/change-password', passwordData);
       return data.data;
     },

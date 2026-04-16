@@ -2,18 +2,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ApiResponse, InternalReport, InternalReportStatus } from '@/types/api';
 
-export const useKanban = (params?: any) => {
+export const useKanban = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['kanban', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<any>>('/reports/kanban', { params });
+      const { data } = await api.get<ApiResponse<Record<string, InternalReport[]>>>('/reports/kanban', { params });
       return data.data;
     },
     staleTime: 15 * 1000,
   });
 };
 
-export const useIssues = (params?: any) => {
+export const useIssues = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['issues', params],
     queryFn: async () => {
@@ -40,7 +40,7 @@ export const useCreateIssue = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (issueData: any) => {
+    mutationFn: async (issueData: Partial<InternalReport>) => {
       const { data } = await api.post<ApiResponse<InternalReport>>('/reports', issueData);
       return data.data;
     },
@@ -51,37 +51,36 @@ export const useCreateIssue = () => {
   });
 };
 
-export const useUpdateIssueStatus = (uuid: string) => {
+export const useUpdateIssueStatus = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (status: InternalReportStatus) => {
+    mutationFn: async ({ uuid, status }: { uuid: string; status: InternalReportStatus }) => {
       const { data } = await api.patch(`/reports/${uuid}/status`, { status });
       return data.data;
     },
-    onMutate: async (newStatus) => {
+    onMutate: async ({ uuid }) => {
       // Optimistic update for Kanban
       await queryClient.cancelQueries({ queryKey: ['kanban'] });
       const previousKanban = queryClient.getQueryData(['kanban']);
-      // Note: Implementation of board state update would go here
       return { previousKanban };
     },
-    onSettled: () => {
+    onSettled: (_, __, { uuid }) => {
       queryClient.invalidateQueries({ queryKey: ['kanban'] });
       queryClient.invalidateQueries({ queryKey: ['issue', uuid] });
     },
   });
 };
 
-export const useAddIssueNote = (uuid: string) => {
+export const useAddIssueNote = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (noteData: { content: string }) => {
-      const { data } = await api.post(`/reports/${uuid}/notes`, noteData);
+    mutationFn: async ({ uuid, content }: { uuid: string; content: string }) => {
+      const { data } = await api.post(`/reports/${uuid}/notes`, { content });
       return data.data;
     },
-    onSuccess: () => {
+    onSuccess: (_, { uuid }) => {
       queryClient.invalidateQueries({ queryKey: ['issue', uuid] });
     },
   });

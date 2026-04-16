@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ApiResponse, PaginatedResponse, Touchpoint } from '@/types/api';
 
-export const useTouchpoints = (params?: any) => {
+export const useTouchpoints = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['touchpoints', params],
     queryFn: async () => {
@@ -38,7 +38,7 @@ export const useTouchpointQR = (id: string) => {
   return useQuery({
     queryKey: ['touchpoint-qr', id],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<any>>(`/touchpoints/${id}/qr-data`);
+      const { data } = await api.get<ApiResponse<{ qrCode: string; url: string }>>(`/touchpoints/${id}/qr-data`);
       return data.data;
     },
     enabled: !!id,
@@ -49,7 +49,7 @@ export const useCreateTouchpoint = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (touchpointData: any) => {
+    mutationFn: async (touchpointData: Partial<Touchpoint>) => {
       const { data } = await api.post<ApiResponse<Touchpoint>>('/touchpoints', touchpointData);
       return data.data;
     },
@@ -91,7 +91,7 @@ export const useUpdateTouchpoint = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ uuid, data: updateData }: { uuid: string; data: any }) => {
+    mutationFn: async ({ uuid, data: updateData }: { uuid: string; data: Partial<Touchpoint> }) => {
       const { data } = await api.patch<ApiResponse<Touchpoint>>(`/touchpoints/${uuid}`, updateData);
       return data.data;
     },

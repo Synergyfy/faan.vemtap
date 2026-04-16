@@ -12,12 +12,23 @@ export const useSettings = () => {
   });
 };
 
+export const useApiKey = () => {
+  return useQuery({
+    queryKey: ['api-key'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<{ key: string }>>('/organizations/api-key');
+      return data.data;
+    },
+  });
+};
+
+
 export const useUpdateSettings = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (settingsData: any) => {
-      const { data } = await api.patch<ApiResponse<Organization>>('/organizations/settings', settingsData);
+    mutationFn: async (settingsData: Record<string, unknown>) => {
+      const { data } = await api.patch<ApiResponse<unknown>>('/settings', settingsData);
       return data.data;
     },
     onSuccess: () => {
@@ -25,6 +36,7 @@ export const useUpdateSettings = () => {
     },
   });
 };
+
 
 export const useRotateApiKey = () => {
   const queryClient = useQueryClient();

@@ -24,42 +24,15 @@ import {
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { UserRole } from "@/types/rbac";
-import { MOCK_LOCATIONS } from "@/data/mockLocations";
-import { getDepartmentsByLocation } from "@/data/mockDepartments";
-
-interface ReportTemplateField {
-  id: string;
-  type: 'text' | 'number' | 'date' | 'dropdown' | 'textarea';
-  label: string;
-  required: boolean;
-  options?: string[];
-}
-
-interface ReportTemplate {
-  id: string;
-  name: string;
-  locationId: string;
-  locationName: string;
-  departmentId: string;
-  departmentName: string;
-  fields: ReportTemplateField[];
-  createdAt: string;
-}
-
-interface InternalReport {
-  id: string;
-  templateId: string;
-  templateName: string;
-  title: string;
-  locationId: string;
-  locationName: string;
-  departmentId: string;
-  departmentName: string;
-  reportedBy: string;
-  date: string;
-  fieldValues: Record<string, any>;
-  status: 'draft' | 'submitted' | 'reviewed';
-}
+import { 
+  InternalReport, 
+  ReportType, 
+  InternalReportStatus, 
+  Location as ApiLocation, 
+  Department, 
+  ReportTemplate, 
+  ReportTemplateField 
+} from "@/types/api";
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Text Input', icon: Type },
@@ -67,41 +40,6 @@ const FIELD_TYPES = [
   { value: 'date', label: 'Date', icon: Calendar },
   { value: 'dropdown', label: 'Dropdown', icon: List },
   { value: 'textarea', label: 'Text Area', icon: FileText },
-];
-
-const MOCK_REPORTS: InternalReport[] = [
-  {
-    id: 'RPT-001',
-    templateId: 'TPL-001',
-    templateName: 'Daily Operations Report',
-    title: 'Terminal 2 Conveyor Belt Issue',
-    locationId: 'abuja',
-    locationName: 'Abuja International Airport',
-    departmentId: 'facilities',
-    departmentName: 'Facilities & Assets',
-    reportedBy: 'John Okafor',
-    date: '2024-04-14',
-    fieldValues: { 'Report Date': '2024-04-14', 'Shift': 'Morning', 'Flights Handled': '45', 'Incidents Noted': 'Baggage carousel malfunction' },
-    status: 'submitted'
-  },
-];
-
-const INITIAL_TEMPLATES: ReportTemplate[] = [
-  {
-    id: 'TPL-001',
-    name: 'Daily Operations Report',
-    locationId: 'abuja',
-    locationName: 'Abuja International Airport',
-    departmentId: 'operations',
-    departmentName: 'Operations Control',
-    fields: [
-      { id: 'f1', type: 'date', label: 'Report Date', required: true },
-      { id: 'f2', type: 'dropdown', label: 'Shift', required: true, options: ['Morning', 'Afternoon', 'Night'] },
-      { id: 'f3', type: 'number', label: 'Flights Handled', required: false },
-      { id: 'f4', type: 'textarea', label: 'Incidents Noted', required: false },
-    ],
-    createdAt: '2024-04-01'
-  },
 ];
 
 import { 
@@ -112,11 +50,12 @@ import {
   useDeleteReportTemplate
 } from "@/hooks/useReports";
 import { useLocations } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
 
 export default function ReportsPage() {
-  const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
+  const { currentRole, currentLocation, locationName: roleLocationName, availableDepartments } = useRole();
   const [activeView, setActiveView] = useState<'reports' | 'templates'>('reports');
-  const [selectedReport, setSelectedReport] = useState<any>(null);
+  const [selectedReport, setSelectedReport] = useState<InternalReport | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterDepartment, setFilterDepartment] = useState<string>("all");
@@ -143,15 +82,26 @@ export default function ReportsPage() {
   const deleteTemplateMutation = useDeleteReportTemplate();
 
   const reports = reportsData?.data || [];
-  const templates = templatesData?.data || [];
-  const locations = locationsData?.data || [];
+  const templates = (templatesData?.data || []) as ReportTemplate[];
+  const locations = (locationsData?.data || []) as ApiLocation[];
 
   const [newTemplate, setNewTemplate] = useState({
     name: '',
     locationId: currentLocation || '',
     departmentId: '',
-    fields: [] as any[],
+    fields: [] as ReportTemplateField[],
   });
+
+  const previewLocationName = useMemo(() => 
+    locations.find((l: ApiLocation) => (l as any).id === newTemplate.locationId)?.name || 'Unknown Location',
+    [locations, newTemplate.locationId]
+  );
+
+  const previewDepartmentName = useMemo(() => {
+    const loc = locations.find((l: ApiLocation) => (l as any).id === newTemplate.locationId);
+    const depts = (loc as any)?.departments || [];
+    return depts.find((d: Department) => d.id === newTemplate.departmentId)?.name || 'General Department';
+  }, [locations, newTemplate.locationId, newTemplate.departmentId]);
 
   const [newReport, setNewReport] = useState({
     templateId: '',
@@ -176,7 +126,7 @@ export default function ReportsPage() {
   const handleAddField = (type: string) => {
     const newField = {
       id: `field-${Date.now()}`,
-      type,
+      type: type as ReportTemplateField['type'],
       label: 'New Field',
       required: false,
       options: type === 'dropdown' ? ['Option 1', 'Option 2'] : undefined,
@@ -184,7 +134,7 @@ export default function ReportsPage() {
     setNewTemplate({ ...newTemplate, fields: [...newTemplate.fields, newField] });
   };
 
-  const handleUpdateField = (fieldId: string, updates: any) => {
+  const handleUpdateField = (fieldId: string, updates: Partial<ReportTemplateField>) => {
     setNewTemplate({
       ...newTemplate,
       fields: newTemplate.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
@@ -227,12 +177,12 @@ export default function ReportsPage() {
   };
 
   const handleDeleteReport = (id: string) => {
-    setReports(reports.filter(r => r.id !== id));
-    if (selectedReport?.id === id) setSelectedReport(null);
+    // Note: API deletion for reports not yet implemented in hooks
+    if (selectedReport?.id === id || selectedReport?.uuid === id) setSelectedReport(null);
   };
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'draft': return { bg: '#f1f5f9', color: '#64748b' };
       case 'submitted': return { bg: '#fef3c7', color: '#92400e' };
       case 'reviewed': return { bg: '#dcfce7', color: '#15803d' };
@@ -241,15 +191,23 @@ export default function ReportsPage() {
   };
 
   const filteredReports = reports.filter(report => {
-    if (searchTerm && !report.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    if (filterStatus !== 'all' && report.status !== filterStatus) return false;
+    const r = report as InternalReport;
+    if (searchTerm && !r.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (filterStatus !== 'all' && r.status.toLowerCase() !== filterStatus.toLowerCase()) return false;
     if (currentRole === 'LOCATION_ADMIN') {
-      if (filterDepartment !== 'all' && report.departmentId !== filterDepartment) return false;
-      if (filterDateFrom && new Date(report.date) < new Date(filterDateFrom)) return false;
-      if (filterDateTo && new Date(report.date) > new Date(filterDateTo)) return false;
+      const deptId = typeof r.department === 'object' ? (r.department as any)?.id : r.department;
+      if (filterDepartment !== 'all' && deptId !== filterDepartment) return false;
+      if (filterDateFrom && new Date(r.date || (r as any).createdAt) < new Date(filterDateFrom)) return false;
+      if (filterDateTo && new Date(r.date || (r as any).createdAt) > new Date(filterDateTo)) return false;
     }
     return true;
   });
+
+  const locationDepartments = useMemo(() => {
+    if (!newTemplate.locationId) return [];
+    const loc = locations.find((l: ApiLocation) => (l as any).id === newTemplate.locationId);
+    return (loc as any)?.departments || [];
+  }, [newTemplate.locationId, locations]);
 
 
   return (
@@ -323,10 +281,9 @@ export default function ReportsPage() {
                   style={{ width: 'auto' }}
                 >
                   <option value="all">All Departments</option>
-                  <option value="operations">Operations</option>
-                  <option value="security">Security</option>
-                  <option value="facilities">Facilities</option>
-                  <option value="customer-service">Customer Service</option>
+                  {availableDepartments.map(dept => (
+                    <option key={dept.id} value={dept.id}>{dept.name}</option>
+                  ))}
                 </select>
                 <input 
                   type="date" 
@@ -366,7 +323,7 @@ export default function ReportsPage() {
               </tr>
             </thead>
             <tbody>
-              {reports.filter(r => !searchTerm || r.title.toLowerCase().includes(searchTerm.toLowerCase())).map((report) => {
+              {filteredReports.map((report) => {
                 const statusStyle = getStatusColor(report.status);
                 const loc = typeof report.location === 'object' ? report.location : { name: report.location };
                 const dept = typeof report.department === 'object' ? report.department : { name: report.department };
@@ -376,9 +333,9 @@ export default function ReportsPage() {
                     <td><span className={styles.tpName}>{report.id}</span></td>
                     <td><span className={styles.typeTag} style={{ background: '#e0e7ff', color: '#4338ca' }}>{report.templateName || 'Internal'}</span></td>
                     <td><span className={styles.tpName}>{report.title}</span></td>
-                    <td><div className={styles.deptCell}><MapPin size={14} className={styles.deptIcon} /><span>{loc?.name || 'Unknown'}</span></div></td>
-                    <td><div className={styles.deptCell}><Shield size={14} className={styles.deptIcon} /><span>{dept?.name || 'General'}</span></div></td>
-                    <td><div className={styles.timeCell}><Calendar size={14} /><span>{new Date(report.createdAt).toLocaleDateString()}</span></div></td>
+                    <td><div className={styles.deptCell}><MapPin size={14} className={styles.deptIcon} /><span>{(loc as any)?.name || 'Unknown'}</span></div></td>
+                    <td><div className={styles.deptCell}><Shield size={14} className={styles.deptIcon} /><span>{(dept as any)?.name || 'General'}</span></div></td>
+                    <td><div className={styles.timeCell}><Calendar size={14} /><span>{new Date((report as any).createdAt).toLocaleDateString()}</span></div></td>
                     <td><span className={styles.statusBadge} style={{ backgroundColor: statusStyle.bg, color: statusStyle.color }}>{report.status}</span></td>
                     <td className={styles.textRight}><button className={styles.viewLink}>View <MoreVertical size={16} /></button></td>
                   </tr>
@@ -459,7 +416,7 @@ export default function ReportsPage() {
                         <MapPin size={18} />
                         <select value={newTemplate.locationId} onChange={(e) => handleLocationChange(e.target.value)}>
                           <option value="">Select Location</option>
-                          {locations.map(loc => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
+                          {locations.map(loc => (<option key={(loc as any).id} value={(loc as any).id}>{(loc as any).name}</option>))}
                         </select>
                       </div>
                     </div>
@@ -472,7 +429,7 @@ export default function ReportsPage() {
                           onChange={(e) => setNewTemplate({ ...newTemplate, departmentId: e.target.value })}
                         >
                           <option value="">Select Department</option>
-                          {locations.find(l => l.id === newTemplate.locationId)?.departments?.map((dept: any) => (
+                          {locationDepartments?.map((dept: Department) => (
                             <option key={dept.id} value={dept.id}>{dept.name}</option>
                           ))}
                         </select>
@@ -535,7 +492,7 @@ export default function ReportsPage() {
                     <div style={{ height: '46px', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}><span>9:41</span><div style={{ display: 'flex', gap: '4px' }}><div style={{ width: '16px', height: '10px', background: '#1e293b', borderRadius: '2px' }} /><div style={{ width: '14px', height: '10px', background: '#1e293b', borderRadius: '2px' }} /></div></div>
                     <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
                       <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{newTemplate.name || 'Untitled Report'}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{newTemplate.locationName.split(' ')[0]} • {newTemplate.departmentName.split(' ')[0]}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{previewLocationName.split(' ')[0]} • {previewDepartmentName.split(' ')[0]}</div>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
                       {newTemplate.fields.length === 0 ? (
@@ -611,13 +568,13 @@ export default function ReportsPage() {
                       <input type="text" placeholder="Brief title" value={newReport.title} onChange={(e) => setNewReport({ ...newReport, title: e.target.value })} />
                     </div>
                   </div>
-                  {selectedTemplate?.fields.map(field => (
+                  {selectedTemplate?.fields.map((field: ReportTemplateField) => (
                     <div key={field.id} className={styles.formGroup} style={{ marginTop: '12px' }}>
                       <label className={styles.formLabel}>{field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}</label>
                       {field.type === 'text' && <div className={styles.modalInputWrapper}><Type size={18} /><input type="text" value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required} /></div>}
                       {field.type === 'number' && <div className={styles.modalInputWrapper}><Wrench size={18} /><input type="number" value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required} /></div>}
                       {field.type === 'date' && <div className={styles.modalInputWrapper}><Calendar size={18} /><input type="date" value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required} /></div>}
-                      {field.type === 'dropdown' && <div className={styles.modalInputWrapper}><List size={18} /><select value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required}><option value="">Select</option>{field.options?.map(opt => (<option key={opt} value={opt}>{opt}</option>))}</select></div>}
+                      {field.type === 'dropdown' && <div className={styles.modalInputWrapper}><List size={18} /><select value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required}><option value="">Select</option>{field.options?.map((opt: string) => (<option key={opt} value={opt}>{opt}</option>))}</select></div>}
                       {field.type === 'textarea' && <textarea placeholder={field.label} value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required} className={styles.modalTextarea} style={{ height: '80px', marginTop: '8px' }} />}
                     </div>
                   ))}
@@ -649,7 +606,7 @@ export default function ReportsPage() {
                   <section className={styles.messageSection}>
                     <h4 className={styles.detailLabel}>Report Data</h4>
                     <div className={styles.messageCard}>
-                      {Object.entries(selectedReport.fieldValues).map(([key, value]) => (<div key={key} style={{ padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}><div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>{key}</div><div style={{ fontSize: '14px', color: '#1e293b' }}>{value || '-'}</div></div>))}
+                      {Object.entries(selectedReport.fieldValues || {}).map(([key, value]) => (<div key={key} style={{ padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}><div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>{key}</div><div style={{ fontSize: '14px', color: '#1e293b' }}>{typeof value === 'object' ? JSON.stringify(value) : String(value) || '-'}</div></div>))}
                     </div>
                   </section>
                   <div className={styles.infoCards}>
@@ -662,7 +619,7 @@ export default function ReportsPage() {
                 <div className={styles.detailSidebar}>
                   <div className={styles.actionGroup}>
                     <h4 className={styles.detailLabel}>Status</h4>
-                    <select value={selectedReport.status} onChange={(e) => { setReports(reports.map(r => r.id === selectedReport.id ? {...r, status: e.target.value as InternalReport['status']} : r)); setSelectedReport({...selectedReport, status: e.target.value as InternalReport['status']}); }} className={styles.modalInputWrapper}>
+                    <select value={selectedReport.status} onChange={(e) => { setSelectedReport({...selectedReport, status: e.target.value as InternalReport['status']}); }} className={styles.modalInputWrapper}>
                       <option value="draft">Draft</option>
                       <option value="submitted">Submitted</option>
                       <option value="reviewed">Reviewed</option>
