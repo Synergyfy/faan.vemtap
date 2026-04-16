@@ -28,72 +28,46 @@ const MOCK_LOCATIONS = [
 ];
 
 // Industry Standard Mock Data for Issues
-const INITIAL_ISSUES = [
-  { 
-    id: "ISSue-001", 
-    status: "pending", 
-    type: "Complaint", 
-    priority: "high", 
-    location: "Gate 4 - Abuja", 
-    title: "Security Wait Time", 
-    description: "Extremely long wait time at security check. Staff shortages reported.",
-    time: "4h ago",
-    department: "Security"
-  },
-  { 
-    id: "ISSue-002", 
-    status: "in-progress", 
-    type: "Incident", 
-    priority: "critical", 
-    location: "Carousel 3 - Lagos", 
-    title: "Liquid Spill", 
-    description: "Major liquid spill near baggage claim. Risk of slip and fall.",
-    time: "1h ago",
-    department: "Janitorial"
-  },
-  { 
-    id: "ISSue-003", 
-    status: "pending", 
-    type: "Maintenance", 
-    priority: "medium", 
-    location: "Restroom T1 - Abuja", 
-    title: "Water Leak", 
-    description: "Sink faucet in the male restroom is leaking continuously.",
-    time: "6h ago",
-    department: "Facilities"
-  },
-  { 
-    id: "ISSue-004", 
-    status: "resolved", 
-    type: "Feedback", 
-    priority: "low", 
-    location: "VIP Lounge - Abuja", 
-    title: "AC Satisfaction", 
-    description: "AC temp is now adjusted. Passenger confirmed comfort.",
-    time: "1d ago",
-    department: "Operations"
-  }
-];
+import { 
+  useKanban, 
+  useUpdateIssueStatus, 
+  useCreateIssue, 
+  useAddIssueNote 
+} from "@/hooks/useIssues";
+import { useLocations } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
 
 export default function IssueManagementPage() {
-  const { currentRole, currentDepartment } = useRole();
-  const [issues, setIssues] = useState(INITIAL_ISSUES);
+  const { currentRole, currentDepartment, currentLocation } = useRole();
   const [selectedIssue, setSelectedIssue] = useState<any>(null);
   const [draggedIssueId, setDraggedIssueId] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState("");
-  const [tempLocation, setTempLocation] = useState("");
+  const [selectedLocId, setSelectedLocId] = useState("");
+  const [tempLocId, setTempLocId] = useState("");
+  
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
-    priority: "medium",
-    department: "Security",
-    location: ""
+    priority: "MEDIUM",
+    departmentId: ""
   });
 
-  const [issueComments, setIssueComments] = useState<{ [key: string]: string[] }>({});
   const [newComment, setNewComment] = useState("");
+
+  // Queries
+  const { data: kanbanData, isLoading: kanbanLoading } = useKanban({
+    locationId: currentLocation || undefined,
+    departmentId: currentDepartment || undefined
+  });
+
+  const { data: locationsData } = useLocations();
+  const { data: deptsData } = useDepartments();
+
+  // Mutations
+  const updateStatusMutation = useUpdateIssueStatus();
+  const createIssueMutation = useCreateIssue();
+  const addNoteMutation = useAddIssueNote(selectedIssue?.uuid || "");
 
   const onDragStart = (id: string) => {
     setDraggedIssueId(id);
@@ -105,41 +79,44 @@ export default function IssueManagementPage() {
 
   const onDrop = (status: string) => {
     if (!draggedIssueId) return;
-    setIssues(issues.map(issue => 
-      issue.id === draggedIssueId ? { ...issue, status } : issue
-    ));
+    updateStatusMutation.mutate({ 
+      uuid: draggedIssueId, 
+      status: status.toUpperCase() as any 
+    });
     setDraggedIssueId(null);
   };
 
   const handleCreateIssue = (e: React.FormEvent) => {
     e.preventDefault();
-    const created = {
-      id: `ISSue-${Math.floor(Math.random() * 9000) + 1000}`,
-      status: "pending",
-      type: "Manual",
-      priority: newTask.priority,
-      location: newTask.location,
+    createIssueMutation.mutate({
       title: newTask.title,
       description: newTask.description,
-      time: "Just now",
-      department: newTask.department
-    };
-    // @ts-ignore
-    setIssues([created, ...issues]);
-    setIsCreateModalOpen(false);
-    setNewTask({ title: "", description: "", priority: "medium", department: "Security", location: "" });
+      priority: newTask.priority as any,
+      locationId: currentRole === 'DEPARTMENT_ADMIN' ? (currentLocation || "") : selectedLocId,
+      departmentId: currentRole === 'DEPARTMENT_ADMIN' ? (currentDepartment || "") : newTask.departmentId,
+      type: 'MANUAL'
+    }, {
+      onSuccess: () => {
+        setIsCreateModalOpen(false);
+        setNewTask({ title: "", description: "", priority: "MEDIUM", departmentId: "" });
+      }
+    });
   };
 
   const handleAddComment = () => {
     if (!newComment.trim() || !selectedIssue) return;
-    setIssueComments({
-      ...issueComments,
-      [selectedIssue.id]: [...(issueComments[selectedIssue.id] || []), newComment]
+    addNoteMutation.mutate({ content: newComment }, {
+      onSuccess: () => setNewComment("")
     });
-    setNewComment("");
   };
 
-  const getStatusIssues = (status: string) => issues.filter(i => i.status === status);
+  const getStatusIssues = (status: string) => {
+    if (!kanbanData) return [];
+    return kanbanData[status.toLowerCase() as keyof typeof kanbanData] || [];
+  };
+
+  const locations = locationsData?.data || [];
+  const depts = deptsData?.data || [];
 
   const Column = ({ title, status, color }: { title: string, status: string, color: string }) => (
     <div 
@@ -159,14 +136,14 @@ export default function IssueManagementPage() {
       <div className={styles.columnCards}>
         {getStatusIssues(status).map(issue => (
           <div 
-            key={issue.id} 
+            key={issue.uuid} 
             className={styles.issueCard}
             draggable
-            onDragStart={() => onDragStart(issue.id)}
+            onDragStart={() => onDragStart(issue.uuid)}
             onClick={() => setSelectedIssue(issue)}
           >
             <div className={styles.cardHeader}>
-              <span className={`${styles.priorityTagSmall} ${styles[issue.priority]}`}>{issue.priority}</span>
+              <span className={`${styles.priorityTagSmall} ${styles[issue.priority.toLowerCase()]}`}>{issue.priority}</span>
               <button className={styles.cardMore}><MoreVertical size={14} /></button>
             </div>
             <h4 className={styles.cardTitle}>{issue.title}</h4>
@@ -179,7 +156,7 @@ export default function IssueManagementPage() {
               </div>
               <div className={styles.cardMeta}>
                 <Clock size={12} />
-                <span>{issue.time}</span>
+                <span>{new Date(issue.submittedAt).toLocaleTimeString()}</span>
               </div>
             </div>
           </div>
@@ -287,49 +264,48 @@ export default function IssueManagementPage() {
                       </div>
                    </div>
 
-                   <div className={styles.formGrid}>
-                      <div className={styles.formGroup}>
-                        <label className={styles.formLabel}>Urgency / Priority</label>
-                        <div className={styles.modalInputWrapper}>
-                          <AlertCircle size={18} />
-                          <select 
-                            value={newTask.priority}
-                            onChange={(e) => setNewTask({...newTask, priority: e.target.value})}
-                          >
-                            <option value="low">Low Priority</option>
-                            <option value="medium">Medium Priority</option>
-                            <option value="high">High Priority</option>
-                            <option value="critical">Critical (Immediate)</option>
-                          </select>
-                        </div>
-                      </div>
-<div className={styles.formGroup}>
-                         <label className={styles.formLabel}>
-                           {currentRole === 'DEPARTMENT_ADMIN' ? 'Department (Auto-assigned)' : 'Handling Department'}
-                         </label>
+                    <div className={styles.formGrid}>
+                       <div className={styles.formGroup}>
+                         <label className={styles.formLabel}>Urgency / Priority</label>
                          <div className={styles.modalInputWrapper}>
-                           <Shield size={18} />
-                           {currentRole === 'DEPARTMENT_ADMIN' ? (
-                             <input 
-                               type="text" 
-                               value={currentDepartment || "Security"} 
-                               disabled 
-                               style={{ background: "#f1f5f9", cursor: "not-allowed" }}
-                             />
-                           ) : (
-                             <select 
-                               value={newTask.department}
-                               onChange={(e) => setNewTask({...newTask, department: e.target.value})}
-                             >
-                               <option value="Security">Aviation Security</option>
-                               <option value="Facilities">Facilities & Assets</option>
-                               <option value="Operations">Operations Control</option>
-                               <option value="Janitorial">Janitorial Services</option>
-                             </select>
-                           )}
+                           <AlertCircle size={18} />
+                           <select 
+                             value={newTask.priority}
+                             onChange={(e) => setNewTask({...newTask, priority: e.target.value})}
+                           >
+                             <option value="LOW">Low Priority</option>
+                             <option value="MEDIUM">Medium Priority</option>
+                             <option value="HIGH">High Priority</option>
+                             <option value="CRITICAL">Critical (Immediate)</option>
+                           </select>
                          </div>
                        </div>
-                   </div>
+                       <div className={styles.formGroup}>
+                          <label className={styles.formLabel}>
+                            {currentRole === 'DEPARTMENT_ADMIN' ? 'Department (Auto-assigned)' : 'Handling Department'}
+                          </label>
+                          <div className={styles.modalInputWrapper}>
+                            <Shield size={18} />
+                            {currentRole === 'DEPARTMENT_ADMIN' ? (
+                              <input 
+                                type="text" 
+                                value={currentDepartment || "Security"} 
+                                disabled 
+                                style={{ background: "#f1f5f9", cursor: "not-allowed" }}
+                              />
+                            ) : (
+                              <select 
+                                value={newTask.departmentId}
+                                onChange={(e) => setNewTask({...newTask, departmentId: e.target.value})}
+                              >
+                                <option value="">Select Department</option>
+                                {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                              </select>
+                            )}
+                          </div>
+                        </div>
+                    </div>
+</div>
 
                    <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
@@ -362,7 +338,7 @@ export default function IssueManagementPage() {
           <div className={`${styles.modalContent} ${styles.detailModal}`}>
              <div className={styles.modalHeader}>
                 <div className={styles.modalTitleGroup}>
-                  <span className={`${styles.priorityTag} ${styles[selectedIssue.priority]}`}>
+                  <span className={`${styles.priorityTag} ${styles[selectedIssue.priority.toLowerCase()]}`}>
                     {selectedIssue.priority} Priority
                   </span>
                   <h3 className={styles.modalTitle}>{selectedIssue.title}</h3>
@@ -391,23 +367,18 @@ export default function IssueManagementPage() {
                          </div>
                          <div className={styles.infoCard}>
                             <Clock size={18} />
-                            <div><span>Created</span><strong>{selectedIssue.time}</strong></div>
+                            <div><span>Created</span><strong>{new Date(selectedIssue.submittedAt).toLocaleString()}</strong></div>
                          </div>
                       </div>
 
 <section className={styles.internalNotes}>
                           <h4 className={styles.detailLabel}>Internal Updates</h4>
                           <div className={styles.notesList}>
-                             <div className={styles.noteItem}>
-                                <span className={styles.noteAuthor}>System</span>
-                                <p>Issue flagged from touchpoint submission.</p>
-                                <span className={styles.noteTime}>Just now</span>
-                             </div>
-                             {(issueComments[selectedIssue.id] || []).map((comment, idx) => (
+                             {selectedIssue.internalNotes?.map((note: any, idx: number) => (
                                <div key={idx} className={styles.noteItem}>
-                                  <span className={styles.noteAuthor}>You</span>
-                                  <p>{comment}</p>
-                                  <span className={styles.noteTime}>Just now</span>
+                                  <span className={styles.noteAuthor}>{note.author}</span>
+                                  <p>{note.content}</p>
+                                  <span className={styles.noteTime}>{new Date(note.time).toLocaleString()}</span>
                                </div>
                              ))}
                           </div>
@@ -526,9 +497,9 @@ export default function IssueManagementPage() {
                  <label style={{ display: "block", marginBottom: "8px", fontWeight: 500, color: "#374151" }}>
                    Airport Location
                  </label>
-                 <select
-                   value={tempLocation}
-                   onChange={(e) => setTempLocation(e.target.value)}
+                <select
+                   value={tempLocId}
+                   onChange={(e) => setTempLocId(e.target.value)}
                    style={{
                      width: "100%",
                      padding: "12px 16px",
@@ -540,22 +511,22 @@ export default function IssueManagementPage() {
                    }}
                  >
                    <option value="">Select an airport</option>
-                   {MOCK_LOCATIONS.map((loc) => (
-                     <option key={loc.id} value={loc.name}>{loc.name}</option>
+                   {locations.map((loc) => (
+                     <option key={loc.id} value={loc.id}>{loc.name}</option>
                    ))}
                  </select>
                </div>
                <button
                  onClick={() => {
-                   setSelectedLocation(tempLocation);
+                   setSelectedLocId(tempLocId);
                    setShowLocationPicker(false);
                    setIsCreateModalOpen(true);
                  }}
-                 disabled={!tempLocation}
+                 disabled={!tempLocId}
                  style={{
                    width: "100%",
                    padding: "12px",
-                   background: tempLocation ? "#2563eb" : "#94a3b8",
+                   background: tempLocId ? "#2563eb" : "#94a3b8",
                    color: "white",
                    border: "none",
                    borderRadius: "8px",

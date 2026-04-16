@@ -1,78 +1,85 @@
-"use client";
-
-import React, { useState, useEffect, use } from "react";
-import { Star, Send, ArrowRight, CheckCircle2, AlertCircle, Upload, HelpCircle } from "lucide-react";
+import React, { useState, use } from "react";
+import { Star, Send, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import styles from "./Passenger.module.css";
 import Image from "next/image";
+import { useTouchpointBySlug } from "@/hooks/useTouchpoints";
+import { useCreateSubmission } from "@/hooks/useSubmissions";
 
-// Mock mapping of Interaction Types to Branding
-const TYPE_THEMES: any = {
-  Feedback: { title: "Passenger Feedback", subtitle: "How was your experience today?", color: "#157347" },
-  Complaint: { title: "Lodge a Complaint", subtitle: "We're sorry to hear about your issue.", color: "#dc2626" },
-  Incident: { title: "Report an Incident", subtitle: "Help us keep our airport safe and secure.", color: "#92400e" },
-  "Lost & Found": { title: "Lost & Found", subtitle: "Tell us what you lost, we'll help find it.", color: "#0369a1" }
+// Normalized Backend Enum Mapping
+const TYPE_THEMES: Record<string, any> = {
+  FEEDBACK: { title: "Passenger Feedback", subtitle: "How was your experience today?", color: "#157347" },
+  COMPLAINT: { title: "Lodge a Complaint", subtitle: "We're sorry to hear about your issue.", color: "#dc2626" },
+  INCIDENT: { title: "Report an Incident", subtitle: "Help us keep our airport safe and secure.", color: "#92400e" },
+  LOST_AND_FOUND: { title: "Lost & Found", subtitle: "Tell us what you lost, we'll help find it.", color: "#0369a1" }
 };
 
 export default function PassengerFeedbackPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
-  const id = resolvedParams.id;
+  const id = resolvedParams.id; // slug or uuid
+
+  const { data: touchpoint, isLoading, error } = useTouchpointBySlug(id);
+  const createSubmission = useCreateSubmission();
 
   const [submitted, setSubmitted] = useState(false);
-  const [formData, setFormData] = useState<any>({
-    rating: 0,
-    comment: "",
+  const [submissionRef, setSubmissionRef] = useState("");
+  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [personalDetails, setPersonalDetails] = useState({
     name: "",
     email: "",
     phone: ""
   });
-  
-  const [config, setConfig] = useState<any>({
-    type: "Feedback",
-    requireContact: false,
-    fields: [
-      { id: "rating", type: "rating", label: "Rate your experience", required: true },
-      { id: "comment", type: "textarea", label: "Tell us more (Optional)", required: false }
-    ]
-  });
 
-  useEffect(() => {
-    if (id.includes("lost")) {
-      setConfig({
-        type: "Lost & Found",
-        requireContact: true,
-        fields: [
-          { id: "rating", type: "rating", label: "Overall Satisfaction", required: false },
-          { id: "comment", type: "textarea", label: "Describe the item you lost in detail", required: true }
-        ]
-      });
-    } else if (id.includes("inc")) {
-      setConfig({
-        type: "Incident",
-        requireContact: false,
-        fields: [
-          { id: "rating", type: "rating", label: "Impact Rating", required: false },
-          { id: "comment", type: "textarea", label: "Describe the incident", required: true }
-        ]
-      });
-    }
-  }, [id]);
+  if (isLoading) {
+    return (
+      <div className={styles.container} style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+        <Loader2 className={styles.spinning} size={48} color="#157347" />
+        <p style={{ marginTop: '16px', color: '#64748b' }}>Loading engagement form...</p>
+      </div>
+    );
+  }
 
-  const theme = TYPE_THEMES[config.type] || TYPE_THEMES.Feedback;
+  if (error || !touchpoint) {
+    return (
+      <div className={styles.container} style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+        <AlertCircle size={64} color="#dc2626" />
+        <h1 style={{ marginTop: '20px' }}>Invalid Link</h1>
+        <p style={{ color: '#64748b', maxWidth: '300px' }}>
+          This QR code may have expired or the link is incorrect. Please contact airport staff for assistance.
+        </p>
+      </div>
+    );
+  }
 
-  const handleInputChange = (id: string, value: any) => {
-    setFormData({ ...formData, [id]: value });
+  const theme = TYPE_THEMES[touchpoint.type] || TYPE_THEMES.FEEDBACK;
+  const fields = touchpoint.formConfig || [];
+
+  const handleInputChange = (fieldId: string, value: any) => {
+    setFormData({ ...formData, [fieldId]: value });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate system-level tracking
-    console.log("System Data:", {
-      timestamp: new Date().toISOString(),
-      locationId: id,
-      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
-      platform: typeof navigator !== 'undefined' ? navigator.platform : 'unknown'
+    
+    const payload = {
+      touchpointId: touchpoint.id,
+      locationId: touchpoint.locationId,
+      departmentId: touchpoint.departmentId,
+      type: touchpoint.type,
+      data: formData,
+      passengerDetails: (personalDetails.name || personalDetails.email) ? personalDetails : null,
+      metadata: {
+        timestamp: new Date().toISOString(),
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+        platform: typeof navigator !== 'undefined' ? navigator.platform : 'unknown'
+      }
+    };
+
+    createSubmission.mutate(payload, {
+      onSuccess: (data: any) => {
+        setSubmissionRef(data.uuid || data.id);
+        setSubmitted(true);
+      }
     });
-    setSubmitted(true);
   };
 
   if (submitted) {
@@ -84,10 +91,10 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
           </div>
           <h1 className={styles.successTitle}>Report Captured</h1>
           <p className={styles.successText}>
-            Thank you for helping us improve. Your {config.type.toLowerCase()} has been logged for FAAN review.
+            Thank you for helping us improve. Your {touchpoint.type.toLowerCase().replace('_', ' ')} has been logged for FAAN review.
           </p>
           <div className={styles.refInfo}>
-            <span>REF: {id.toUpperCase()}</span>
+            <span>REF: {submissionRef.substring(0, 8).toUpperCase()}</span>
             <span>{new Date().toLocaleDateString()}</span>
           </div>
           <button className={styles.doneBtn} onClick={() => window.location.reload()}>
@@ -110,7 +117,7 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
 
       <div className={styles.formCard}>
         <form onSubmit={handleSubmit} className={styles.dynamicForm}>
-          {config.fields.map((field: any) => (
+          {fields.map((field: any) => (
             <div key={field.id} className={styles.fieldGroup}>
               <label className={styles.label}>
                 {field.label} {field.required && <span className={styles.required}>*</span>}
@@ -122,10 +129,10 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
                     <button
                       key={star}
                       type="button"
-                      className={`${styles.starBtn} ${formData.rating >= star ? styles.starFilled : ""}`}
-                      onClick={() => handleInputChange("rating", star)}
+                      className={`${styles.starBtn} ${formData[field.id] >= star ? styles.starFilled : ""}`}
+                      onClick={() => handleInputChange(field.id, star)}
                     >
-                      <Star size={36} fill={formData.rating >= star ? "currentColor" : "none"} />
+                      <Star size={36} fill={formData[field.id] >= star ? "currentColor" : "none"} />
                     </button>
                   ))}
                 </div>
@@ -136,46 +143,32 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
                   className={styles.textarea}
                   placeholder="Provide more details..."
                   required={field.required}
-                  value={formData.comment}
-                  onChange={(e) => handleInputChange("comment", e.target.value)}
-                />
-              )}
-
-              {field.type === "number" && (
-                <input 
-                  type="number" 
-                  className={styles.input}
-                  placeholder="0"
-                  required={field.required}
+                  value={formData[field.id] || ""}
                   onChange={(e) => handleInputChange(field.id, e.target.value)}
                 />
               )}
 
-              {field.type === "email" && (
-                <input 
-                  type="email" 
+              {field.type === "dropdown" && (
+                <select 
                   className={styles.input}
-                  placeholder="your@email.com"
                   required={field.required}
+                  value={formData[field.id] || ""}
                   onChange={(e) => handleInputChange(field.id, e.target.value)}
-                />
+                >
+                  <option value="">Select Option</option>
+                  {field.options?.map((opt: string) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
               )}
 
-              {field.type === "date" && (
+              {(field.type === "text" || field.type === "email" || field.type === "number" || field.type === "date") && (
                 <input 
-                  type="date" 
+                  type={field.type} 
                   className={styles.input}
+                  placeholder={field.type === 'date' ? '' : "Type here..."}
                   required={field.required}
-                  onChange={(e) => handleInputChange(field.id, e.target.value)}
-                />
-              )}
-
-              {field.type === "text" && (
-                <input 
-                  type="text" 
-                  className={styles.input}
-                  placeholder="Type here..."
-                  required={field.required}
+                  value={formData[field.id] || ""}
                   onChange={(e) => handleInputChange(field.id, e.target.value)}
                 />
               )}
@@ -193,37 +186,34 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
             
             <div className={styles.contactGrid}>
               <div className={styles.contactField}>
-                <label className={styles.contactLabel}>Full Name {config.requireContact && "*"}</label>
+                <label className={styles.contactLabel}>Full Name</label>
                 <input 
                   type="text" 
                   className={styles.contactInput} 
                   placeholder="Your Name"
-                  required={config.requireContact}
-                  value={formData.name}
-                  onChange={(e) => handleInputChange("name", e.target.value)}
+                  value={personalDetails.name}
+                  onChange={(e) => setPersonalDetails({ ...personalDetails, name: e.target.value })}
                 />
               </div>
               <div className={styles.contactGridRow}>
                 <div className={styles.contactField}>
-                  <label className={styles.contactLabel}>Phone Number {config.requireContact && "*"}</label>
+                  <label className={styles.contactLabel}>Phone Number</label>
                   <input 
                     type="tel" 
                     className={styles.contactInput} 
                     placeholder="+234..." 
-                    required={config.requireContact}
-                    value={formData.phone}
-                    onChange={(e) => handleInputChange("phone", e.target.value)}
+                    value={personalDetails.phone}
+                    onChange={(e) => setPersonalDetails({ ...personalDetails, phone: e.target.value })}
                   />
                 </div>
                 <div className={styles.contactField}>
-                  <label className={styles.contactLabel}>Email Address {config.requireContact && "*"}</label>
+                  <label className={styles.contactLabel}>Email Address</label>
                   <input 
                     type="email" 
                     className={styles.contactInput} 
                     placeholder="email@example.com"
-                    required={config.requireContact}
-                    value={formData.email}
-                    onChange={(e) => handleInputChange("email", e.target.value)}
+                    value={personalDetails.email}
+                    onChange={(e) => setPersonalDetails({ ...personalDetails, email: e.target.value })}
                   />
                 </div>
               </div>
@@ -239,10 +229,10 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
             type="submit" 
             className={styles.submitBtn}
             style={{ backgroundColor: theme.color }}
-            disabled={!formData.rating && config.type === "Feedback"}
+            disabled={createSubmission.isPending}
           >
-            Submit Feedback
-            <Send size={18} />
+            {createSubmission.isPending ? "Submitting..." : "Submit Feedback"}
+            {createSubmission.isPending ? <Loader2 className={styles.spinning} size={18} /> : <Send size={18} />}
           </button>
         </form>
       </div>

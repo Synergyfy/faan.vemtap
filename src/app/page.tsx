@@ -4,22 +4,28 @@ import Image from "next/image";
 import styles from "./Login.module.css";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLogin } from "@/hooks/useAuth";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const loginMutation = useLogin();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    // Simulation of login
-    setTimeout(() => {
-      setLoading(false);
-      console.log("Login attempt with:", { email, password });
-      router.push("/dashboard");
-    }, 1500);
+    setError(null);
+    
+    loginMutation.mutate({ email, password }, {
+      onSuccess: () => {
+        router.push("/dashboard");
+      },
+      onError: (err: any) => {
+        const message = err.response?.data?.error?.message || "Invalid credentials. Please try again.";
+        setError(Array.isArray(message) ? message[0] : message);
+      }
+    });
   };
 
   return (
@@ -75,8 +81,10 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <button type="submit" className={styles.button} disabled={loading}>
-            {loading ? "Authenticating..." : "Login"}
+          {error && <div style={{ color: '#ef4444', marginBottom: '16px', fontSize: '14px', textAlign: 'center' }}>{error}</div>}
+
+          <button type="submit" className={styles.button} disabled={loginMutation.isPending}>
+            {loginMutation.isPending ? "Authenticating..." : "Login"}
           </button>
         </form>
       </main>

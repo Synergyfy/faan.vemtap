@@ -29,46 +29,26 @@ import {
 } from "recharts";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
-
-// MOCK DATA for analytics
-const satisfactionData = [
-  { name: "Mon", score: 4.2 },
-  { name: "Tue", score: 4.1 },
-  { name: "Wed", score: 4.4 },
-  { name: "Thu", score: 4.6 },
-  { name: "Fri", score: 4.8 },
-  { name: "Sat", score: 4.5 },
-  { name: "Sun", score: 4.9 },
-];
-
-const peakTimesData = [
-  { name: "6 AM", issues: 12 },
-  { name: "9 AM", issues: 45 },
-  { name: "12 PM", issues: 32 },
-  { name: "3 PM", issues: 58 },
-  { name: "6 PM", issues: 85 },
-  { name: "9 PM", issues: 15 },
-];
-
-const locationData = [
-  { name: "T1 Gate 4", value: 120 },
-  { name: "T2 Baggage", value: 95 },
-  { name: "VIP Lounge", value: 60 },
-  { name: "Arrivals Hall", value: 145 },
-];
-
-const deptPerformanceData = [
-  { name: "Security", unresolved: 15, resolved: 85 },
-  { name: "Facilities", unresolved: 30, resolved: 120 },
-  { name: "Operations", unresolved: 5, resolved: 45 },
-  { name: "Janitorial", unresolved: 10, resolved: 150 },
-];
+import { 
+  useAnalyticsSummary, 
+  useSatisfactionTrend, 
+  usePeakActivity, 
+  useHotspots, 
+  useDeptPerformanceChart 
+} from "@/hooks/useAnalytics";
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function AnalyticsPage() {
-  const { currentRole, currentDepartment, departmentName } = useRole();
+  const { currentRole, currentDepartment, departmentName, currentLocation } = useRole();
   const [timeRange, setTimeRange] = useState("Last 7 Days");
+
+  // Fetching real data
+  const { data: summary } = useAnalyticsSummary({ locationId: currentLocation, departmentId: currentDepartment });
+  const { data: satisfactionData } = useSatisfactionTrend({ locationId: currentLocation, departmentId: currentDepartment });
+  const { data: peakTimesData } = usePeakActivity({ locationId: currentLocation, departmentId: currentDepartment });
+  const { data: locationData } = useHotspots({ locationId: currentLocation });
+  const { data: deptPerformanceData } = useDeptPerformanceChart({ locationId: currentLocation });
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -134,8 +114,10 @@ export default function AnalyticsPage() {
                </div>
             </div>
             <div className={styles.kpiValueGroup}>
-               <h3 className={styles.kpiValue}>4.6<span className={styles.kpiMetric}>/5.0</span></h3>
-               <span className={styles.kpiTrendUp}>+0.2 this week</span>
+               <h3 className={styles.kpiValue}>
+                 {summary?.averageRating?.toFixed(1) || '0.0'}<span className={styles.kpiMetric}>/5.0</span>
+               </h3>
+               <span className={styles.kpiTrendUp}>+0.0 this week</span>
             </div>
          </div>
 
@@ -147,8 +129,8 @@ export default function AnalyticsPage() {
                </div>
             </div>
             <div className={styles.kpiValueGroup}>
-               <h3 className={styles.kpiValue}>12,450</h3>
-               <span className={styles.kpiTrendUp}>+15% this week</span>
+               <h3 className={styles.kpiValue}>{summary?.totalSubmissions.toLocaleString() || '0'}</h3>
+               <span className={styles.kpiTrendUp}>+0% this week</span>
             </div>
          </div>
 
@@ -160,23 +142,23 @@ export default function AnalyticsPage() {
                </div>
             </div>
             <div className={styles.kpiValueGroup}>
-               <h3 className={styles.kpiValue}>42</h3>
-               <span className={styles.kpiTrendDown}>-12% this week</span>
+               <h3 className={styles.kpiValue}>{summary?.openSubmissions || '0'}</h3>
+               <span className={styles.kpiTrendDown}>-0% this week</span>
             </div>
          </div>
 
          <div className={styles.kpiCard}>
             <div className={styles.kpiHeader}>
-               <span className={styles.kpiTitle}>Avg. Resolution Time</span>
+               <span className={styles.kpiTitle}>Resolved Issues</span>
                <div className={styles.kpiIconBox} style={{ color: '#f59e0b', backgroundColor: '#fffbeb' }}>
                   <Clock size={20} />
                </div>
             </div>
             <div className={styles.kpiValueGroup}>
-               <h3 className={styles.kpiValue}>1h 45m</h3>
-               <span className={styles.kpiTrendUp}>-30m this week</span>
+               <h3 className={styles.kpiValue}>{summary?.resolvedSubmissions || '0'}</h3>
+               <span className={styles.kpiTrendUp}>+0 this week</span>
             </div>
-</div>
+         </div>
        </div>
 
        {/* Department Admin Simplified View */}

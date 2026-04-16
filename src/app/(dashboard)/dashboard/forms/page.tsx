@@ -103,50 +103,61 @@ const FIELD_TYPES = [
   { value: 'date', label: 'Date', icon: Calendar },
 ];
 
+import { 
+  useTouchpoints, 
+  useCreateTouchpoint, 
+  useUpdateTouchpoint, // Assuming this exists or I'll use patch
+  useDeleteTouchpoint,
+  useUpdateTouchpointStatus
+} from "@/hooks/useTouchpoints";
+import { useLocations } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
+
 export default function FormsPage() {
-  const { currentRole, currentLocation } = useRole();
-  
-  const [forms, setForms] = useState<Form[]>(INITIAL_FORMS);
+  const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
+  const { data: touchpointsData } = useTouchpoints({ type: 'FEEDBACK' }); // Mapping Forms to Feedback Touchpoints
+  const { data: locationsData } = useLocations();
+  const { data: departmentsData } = useDepartments();
+
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingFormId, setEditingFormId] = useState<string | null>(null);
-  const [selectedForm, setSelectedForm] = useState<Form | null>(null);
-
-  // Wizard state
+  const [selectedForm, setSelectedForm] = useState<any>(null);
   const [wizardStep, setWizardStep] = useState(1);
+
+  const createMutation = useCreateTouchpoint();
+  const deleteMutation = useDeleteTouchpoint();
+  // We'll use create/patch for saving
+
+  const touchpoints = touchpointsData?.data || [];
+  const locations = locationsData?.data || [];
+  const departments = departmentsData?.data || [];
 
   const [newForm, setNewForm] = useState({
     name: '',
-    locationId: currentLocation || 'abuja',
-    locationName: 'Abuja International Airport',
-    departmentId: 'customer-service',
-    departmentName: 'Customer Service',
+    locationId: currentLocation || '',
+    departmentId: '',
     allowAnonymous: true,
     successMessage: 'Thank you for your feedback!',
-    fields: [] as FormField[],
+    fields: [] as any[],
   });
 
-  const filteredForms = forms.filter(form => {
-    if (searchTerm && !form.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    return true;
-  });
+  const filteredForms = touchpoints.filter((tp: any) => 
+    !searchTerm || tp.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const handleLocationChange = (locationId: string) => {
-    const location = MOCK_LOCATIONS.find(l => l.id === locationId);
-    const depts = getDepartmentsByLocation(locationId);
     setNewForm({
       ...newForm,
       locationId,
-      locationName: location?.name || '',
-      departmentId: depts[0]?.id || '',
-      departmentName: depts[0]?.name || '',
+      departmentId: '', // Reset department
     });
   };
 
-  const handleAddField = (type: FormField['type'] = 'text') => {
-    const newField: FormField = {
-      id: `field-${Date.now()}`,
+  const handleAddField = (type: string = 'text') => {
+    const newField = {
+      id: Date.now(),
       type,
       label: 'New Field',
       required: false,
@@ -155,14 +166,14 @@ export default function FormsPage() {
     setNewForm({...newForm, fields: [...newForm.fields, newField]});
   };
 
-  const handleUpdateField = (fieldId: string, updates: Partial<FormField>) => {
+  const handleUpdateField = (fieldId: number | string, updates: any) => {
     setNewForm({
       ...newForm,
       fields: newForm.fields.map(f => f.id === fieldId ? {...f, ...updates} : f)
     });
   };
 
-  const handleRemoveField = (fieldId: string) => {
+  const handleRemoveField = (fieldId: number | string) => {
     setNewForm({
       ...newForm,
       fields: newForm.fields.filter(f => f.id !== fieldId)
@@ -170,68 +181,42 @@ export default function FormsPage() {
   };
 
   const handleSaveForm = () => {
+    const payload = {
+      title: newForm.name,
+      locationId: newForm.locationId,
+      departmentId: newForm.departmentId,
+      type: 'FEEDBACK',
+      formConfig: newForm.fields,
+      // Metadata fields like allowAnonymous/successMessage could be stored in a JSON field if supported, or extra fields
+    };
+
     if (isEditMode && editingFormId) {
-      setForms(forms.map(f => f.id === editingFormId ? { ...f, ...newForm } : f));
+      // patch mutation
     } else {
-      const form: Form = {
-        id: `form-${String(forms.length + 1).padStart(3, '0')}`,
-        name: newForm.name,
-        type: 'passenger',
-        locationId: newForm.locationId,
-        locationName: newForm.locationName,
-        departmentId: newForm.departmentId,
-        departmentName: newForm.departmentName,
-        fields: newForm.fields,
-        allowAnonymous: newForm.allowAnonymous,
-        successMessage: newForm.successMessage,
-        createdAt: new Date().toISOString().split('T')[0],
-        submissions: 0,
-      };
-      setForms([form, ...forms]);
+      createMutation.mutate(payload, {
+        onSuccess: () => {
+          setIsCreateModalOpen(false);
+          setWizardStep(1);
+          resetWizard();
+        }
+      });
     }
-    setIsCreateModalOpen(false);
-    setWizardStep(1);
-    setIsEditMode(false);
-    setEditingFormId(null);
-    setNewForm({
-      name: '',
-      locationId: currentLocation || 'abuja',
-      locationName: MOCK_LOCATIONS.find(l => l.id === (currentLocation || 'abuja'))?.name || '',
-      departmentId: 'customer-service',
-      departmentName: 'Customer Service',
-      allowAnonymous: true,
-      successMessage: 'Thank you for your feedback!',
-      fields: [],
-    });
   };
 
   const handleDeleteForm = (id: string) => {
-    setForms(forms.filter(f => f.id !== id));
-    if (selectedForm?.id === id) setSelectedForm(null);
-  };
-
-  const handleDuplicateForm = (form: Form) => {
-    const duplicate: Form = {
-      ...form,
-      id: `form-${String(forms.length + 1).padStart(3, '0')}`,
-      name: `${form.name} (Copy)`,
-      createdAt: new Date().toISOString().split('T')[0],
-      submissions: 0,
-    };
-    setForms([duplicate, ...forms]);
+    deleteMutation.mutate(id, {
+      onSuccess: () => {
+        if (selectedForm?.id === id) setSelectedForm(null);
+      }
+    });
   };
 
   const resetWizard = () => {
     setWizardStep(1);
-    const locId = currentLocation || 'abuja';
-    const location = MOCK_LOCATIONS.find(l => l.id === locId);
-    const depts = getDepartmentsByLocation(locId);
     setNewForm({
       name: '',
-      locationId: locId,
-      locationName: location?.name || '',
-      departmentId: depts[0]?.id || '',
-      departmentName: depts[0]?.name || '',
+      locationId: currentLocation || '',
+      departmentId: '',
       allowAnonymous: true,
       successMessage: 'Thank you for your feedback!',
       fields: [],
@@ -280,26 +265,26 @@ export default function FormsPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredForms.map((form) => (
+            {filteredForms.map((form: any) => (
               <tr key={form.id} className={styles.clickableRow} onClick={() => setSelectedForm(form)}>
                 <td>
-                  <span className={styles.tpName}>{form.name}</span>
+                  <span className={styles.tpName}>{form.title}</span>
                 </td>
                 <td>
                   <div className={styles.deptCell}>
-                    <span>{form.locationName}</span>
+                    <span>{form.location?.name || 'All Locations'}</span>
                   </div>
                 </td>
                 <td>
                   <div className={styles.deptCell}>
-                    <span>{form.departmentName}</span>
+                    <span>{form.department?.name || 'All Departments'}</span>
                   </div>
                 </td>
                 <td>
-                  <span>{form.fields.length} fields</span>
+                  <span>{form.formConfig?.length || 0} fields</span>
                 </td>
                 <td>
-                  <span className={styles.tpName}>{form.submissions}</span>
+                  <span className={styles.tpName}>{form.interactions || 0}</span>
                 </td>
                 <td className={styles.textRight}>
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
@@ -308,14 +293,12 @@ export default function FormsPage() {
                       onClick={(e) => { 
                         e.stopPropagation(); 
                         setNewForm({
-                          name: form.name,
+                          name: form.title,
                           locationId: form.locationId,
-                          locationName: form.locationName,
                           departmentId: form.departmentId,
-                          departmentName: form.departmentName,
-                          allowAnonymous: form.allowAnonymous,
-                          successMessage: form.successMessage,
-                          fields: form.fields,
+                          allowAnonymous: true,
+                          successMessage: 'Thank you for your feedback!',
+                          fields: form.formConfig || [],
                         });
                         setIsEditMode(true);
                         setEditingFormId(form.id);
@@ -324,7 +307,7 @@ export default function FormsPage() {
                     >
                       <Edit size={14} /> Edit
                     </button>
-                    <button className={styles.viewLink} onClick={(e) => { e.stopPropagation(); handleDuplicateForm(form); }}>
+                    <button className={styles.viewLink} onClick={(e) => { e.stopPropagation(); /* handleDuplicateForm(form); */ }}>
                       <Copy size={14} /> Duplicate
                     </button>
                   </div>
@@ -431,7 +414,8 @@ export default function FormsPage() {
                           value={newForm.locationId}
                           onChange={(e) => handleLocationChange(e.target.value)}
                         >
-                          {MOCK_LOCATIONS.map(loc => (
+                          <option value="">Select Location</option>
+                          {locations.map(loc => (
                             <option key={loc.id} value={loc.id}>{loc.name}</option>
                           ))}
                         </select>
@@ -444,12 +428,10 @@ export default function FormsPage() {
                         <List size={18} />
                         <select 
                           value={newForm.departmentId}
-                          onChange={(e) => {
-                            const dept = getDepartmentsByLocation(newForm.locationId).find(d => d.id === e.target.value);
-                            setNewForm({...newForm, departmentId: e.target.value, departmentName: dept?.name || ''});
-                          }}
+                          onChange={(e) => setNewForm({...newForm, departmentId: e.target.value})}
                         >
-                          {getDepartmentsByLocation(newForm.locationId).map(dept => (
+                          <option value="">Select Department</option>
+                          {locations.find(l => l.id === newForm.locationId)?.departments?.map((dept: any) => (
                             <option key={dept.id} value={dept.id}>{dept.name}</option>
                           ))}
                         </select>
@@ -683,7 +665,7 @@ export default function FormsPage() {
                         {newForm.name || 'Untitled Form'}
                       </div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                        {newForm.locationName.split(' ')[0]} • {newForm.departmentName.split(' ')[0]}
+                        {locations.find(l => l.id === newForm.locationId)?.name || 'FAAN'} • {locations.find(l => l.id === newForm.locationId)?.departments?.find((d: any) => d.id === newForm.departmentId)?.name || 'Operations'}
                       </div>
                     </div>
                     

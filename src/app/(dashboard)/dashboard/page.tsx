@@ -27,64 +27,34 @@ import {
 import styles from "../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { UserRole } from "@/types/rbac";
-
-const SUPER_ADMIN_KPIS = [
-  { label: "Total Interactions (All Airports)", value: "2,450", change: "+12.5%", trendingUp: true, icon: Users, color: "#157347" },
-  { label: "Total Feedback Received", value: "1,280", change: "+8.2%", trendingUp: true, icon: MessageSquare, color: "#2563eb" },
-  { label: "Open Issues", value: "42", change: "-4.3%", trendingUp: false, icon: AlertCircle, color: "#f59e0b" },
-  { label: "Resolved Issues", value: "156", change: "+21.0%", trendingUp: true, icon: CheckCircle2, color: "#10b981" },
-  { label: "Average Satisfaction Score", value: "4.8", change: "+0.2", trendingUp: true, icon: Star, color: "#8b5cf6" },
-  { label: "Average Response Time", value: "12m", change: "-2m", trendingUp: false, icon: Clock, color: "#6366f1" },
-];
-
-const LOCATION_ADMIN_KPIS = [
-  { label: "Interactions (This Airport)", value: "892", change: "+9.3%", trendingUp: true, icon: Users, color: "#157347" },
-  { label: "Feedback Received", value: "445", change: "+6.1%", trendingUp: true, icon: MessageSquare, color: "#2563eb" },
-  { label: "Open Issues", value: "18", change: "-2.1%", trendingUp: false, icon: AlertCircle, color: "#f59e0b" },
-  { label: "Resolved Issues", value: "67", change: "+15.2%", trendingUp: true, icon: CheckCircle2, color: "#10b981" },
-  { label: "Airport Satisfaction", value: "4.6", change: "+0.1", trendingUp: true, icon: Star, color: "#8b5cf6" },
-  { label: "Avg Response Time", value: "10m", change: "-3m", trendingUp: false, icon: Clock, color: "#6366f1" },
-];
-
-const DEPARTMENT_ADMIN_KPIS = [
-  { label: "My Dept Issues", value: "12", change: "+3", trendingUp: true, icon: AlertCircle, color: "#f59e0b" },
-  { label: "Pending Items", value: "8", change: "-2", trendingUp: false, icon: Clock, color: "#6366f1" },
-  { label: "Resolved Today", value: "4", change: "+1", trendingUp: true, icon: CheckCircle2, color: "#10b981" },
-  { label: "Dept Satisfaction", value: "4.5", change: "+0.2", trendingUp: true, icon: Star, color: "#8b5cf6" },
-];
-
-const FEEDBACK_TREND = [
-  { day: "Mon", feedback: 400 },
-  { day: "Tue", feedback: 300 },
-  { day: "Wed", feedback: 600 },
-  { day: "Thu", feedback: 800 },
-  { day: "Fri", feedback: 500 },
-  { day: "Sat", feedback: 900 },
-  { day: "Sun", feedback: 700 },
-];
-
-const ISSUE_CATEGORIES = [
-  { name: "Cleanliness", value: 400, color: "#157347" },
-  { name: "Staff", value: 300, color: "#2563eb" },
-  { name: "Security", value: 200, color: "#f59e0b" },
-  { name: "Facilities", value: 278, color: "#ef4444" },
-];
-
-const ACTIVITIES = [
-  { id: 1, type: "complaint", text: "Complaint submitted – Terminal 2 Restroom", time: "5 mins ago", status: "Open" },
-  { id: 2, type: "feedback", text: "Feedback received – Departure Gate A", time: "12 mins ago", status: "Neutral" },
-  { id: 3, type: "resolved", text: "Issue resolved – Baggage Area", time: "45 mins ago", status: "Resolved" },
-  { id: 4, type: "complaint", text: "Security concern reported – Check-in Counter 4", time: "1 hour ago", status: "In Progress" },
-];
+import { useAnalyticsSummary } from "@/hooks/useAnalytics";
+import { useMemo } from "react";
 
 export default function DashboardPage() {
-  const { currentRole, roleLabel, locationName, departmentName } = useRole();
+  const { currentRole, locationName, departmentName, currentLocation, currentDepartment } = useRole();
   
-  const getKPIs = () => {
-    if (currentRole === UserRole.SUPER_ADMIN) return SUPER_ADMIN_KPIS;
-    if (currentRole === UserRole.LOCATION_ADMIN) return LOCATION_ADMIN_KPIS;
-    return DEPARTMENT_ADMIN_KPIS;
-  };
+  const { data: summary, isLoading } = useAnalyticsSummary({
+    locationId: currentLocation,
+    departmentId: currentDepartment
+  });
+
+  const kpis = useMemo(() => {
+    if (!summary) return [];
+
+    const base = [
+      { label: "Total Engagement", value: summary.totalSubmissions.toLocaleString(), change: "+0%", trendingUp: true, icon: Users, color: "#157347" },
+      { label: "Feedback Received", value: summary.feedbacks.toLocaleString(), change: "+0%", trendingUp: true, icon: MessageSquare, color: "#2563eb" },
+      { label: "Open Issues", value: summary.openSubmissions.toLocaleString(), change: "-0%", trendingUp: false, icon: AlertCircle, color: "#f59e0b" },
+      { label: "Resolved Issues", value: summary.resolvedSubmissions.toLocaleString(), change: "+0%", trendingUp: true, icon: CheckCircle2, color: "#10b981" },
+    ];
+
+    if (currentRole === UserRole.SUPER_ADMIN || currentRole === UserRole.LOCATION_ADMIN) {
+      base.push({ label: "Avg. Satisfaction", value: summary.averageRating?.toFixed(1) || "0.0", change: "+0.0", trendingUp: true, icon: Star, color: "#8b5cf6" });
+      base.push({ label: "Response Time", value: "12m", change: "-0m", trendingUp: false, icon: Clock, color: "#6366f1" });
+    }
+
+    return base;
+  }, [summary, currentRole]);
   
   const getPageTitle = () => {
     if (currentRole === UserRole.SUPER_ADMIN) return "HQ Dashboard Overview";
@@ -97,8 +67,6 @@ export default function DashboardPage() {
     if (currentRole === UserRole.LOCATION_ADMIN) return `Real-time metrics for ${locationName}.`;
     return `Real-time metrics for ${departmentName} department.`;
   };
-  
-  const kpis = getKPIs();
   
   return (
     <div className={styles.dashboard}>

@@ -19,33 +19,39 @@ import {
 import styles from "../../Dashboard.module.css";
 import Image from "next/image";
 import { useRole } from "@/context/RoleContext";
+import { 
+  useOrganization, 
+  useUpdateOrganization 
+} from "@/hooks/useOrganization";
+import { useApiKey } from "@/hooks/useSettings";
+import { useProfile } from "@/hooks/useAuth";
+import { useEffect } from "react";
 
 export default function SettingsPage() {
   const { currentRole, currentLocation, locationName, departmentName, currentDepartment } = useRole();
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState(currentRole === 'DEPARTMENT_ADMIN' ? 'profile' : 'general');
   const [showApiKey, setShowApiKey] = useState(false);
   
+  // Queries
+  const { data: organization } = useOrganization();
+  const { data: apiKeyData } = useApiKey();
+  const { data: profile } = useProfile();
+  
+  // Mutations
+  const updateOrgMutation = useUpdateOrganization();
+
   // Settings State
-  const [orgName, setOrgName] = useState("Federal Airports Authority of Nigeria");
-  const [emailAlerts, setEmailAlerts] = useState(true);
-  const [smsAlerts, setSmsAlerts] = useState(false);
-  const [retentionPeriod, setRetentionPeriod] = useState("365");
+  const [orgName, setOrgName] = useState("");
+  
+  useEffect(() => {
+    if (organization) {
+      setOrgName(organization.name);
+    }
+  }, [organization]);
 
-  // Location Admin settings
-  const [locationInfo, setLocationInfo] = useState({
-    name: locationName || "Lagos Murtala Muhammed",
-    code: currentLocation || "lagos",
-    timezone: "West Africa (GMT+1)",
-    email: "lagos.admin@faan.gov.ng",
-    phone: "+234 800 FAAN NG"
-  });
-
-  const [notifSettings, setNotifSettings] = useState({
-    newSubmission: true,
-    dailyDigest: false,
-    issueAlerts: true,
-    weeklyReport: true
-  });
+  const handleSaveOrg = () => {
+    updateOrgMutation.mutate({ name: orgName });
+  };
 
   return (
     <div className={styles.touchpointsLayout}>
@@ -63,9 +69,13 @@ export default function SettingsPage() {
             }
           </p>
         </div>
-        <button className={styles.createButton}>
+        <button 
+          className={styles.createButton} 
+          onClick={handleSaveOrg}
+          disabled={updateOrgMutation.isPending}
+        >
           <Save size={18} />
-          <span>Save Changes</span>
+          <span>{updateOrgMutation.isPending ? 'Saving...' : 'Save Changes'}</span>
         </button>
       </div>
 
@@ -268,17 +278,17 @@ export default function SettingsPage() {
                         <h4>Production API Key</h4>
                         <span className={styles.apiStatus}><CheckCircle2 size={12} /> Active</span>
                      </div>
-                     <div className={styles.apiInputGroup}>
-                        <input 
-                          type={showApiKey ? "text" : "password"} 
-                          value="vt_live_928374982347nf8w3y4nf9e" 
-                          readOnly 
-                          className={styles.modalInput}
-                        />
-                        <button className={styles.outlineBtn} onClick={() => setShowApiKey(!showApiKey)}>
-                          {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                     </div>
+                      <div className={styles.apiInputGroup}>
+                         <input 
+                           type={showApiKey ? "text" : "password"} 
+                           value={apiKeyData?.key || "Generating..."} 
+                           readOnly 
+                           className={styles.modalInput}
+                         />
+                         <button className={styles.outlineBtn} onClick={() => setShowApiKey(!showApiKey)}>
+                           {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                         </button>
+                      </div>
                      <p className={styles.fieldDesc} style={{ marginTop: "8px" }}>Used for integrating touchpoints into native mobile apps.</p>
                   </div>
 
@@ -287,7 +297,7 @@ export default function SettingsPage() {
                      <input type="text" placeholder="https://api.yoursystem.com/webhook" className={styles.modalInput} />
                      <p className={styles.fieldDesc} style={{ marginTop: "8px" }}>We'll send POST requests here when new issues are generated.</p>
                   </div>
-</div>
+               </div>
              </div>
            )}
 
@@ -352,7 +362,7 @@ export default function SettingsPage() {
                         className={styles.modalInput}
                       />
                    </div>
-</div>
+                </div>
               </div>
             )}
 
@@ -366,31 +376,34 @@ export default function SettingsPage() {
                  
                  <div className={styles.settingsForm}>
                     <div className={styles.formGroup}>
-                       <label className={styles.formLabel}>Full Name</label>
-                       <input 
-                         type="text" 
-                         value="Department Manager"
-                         className={styles.modalInput}
-                       />
-                    </div>
+                        <label className={styles.formLabel}>Full Name</label>
+                        <input 
+                          type="text" 
+                          value={profile ? `${profile.firstName} ${profile.lastName}` : "Loading..."}
+                          className={styles.modalInput}
+                          readOnly
+                        />
+                     </div>
 
-                    <div className={styles.formGroup}>
-                       <label className={styles.formLabel}>Email Address</label>
-                       <input 
-                         type="email" 
-                         value="dept.admin@faan.gov.ng"
-                         className={styles.modalInput}
-                       />
-                    </div>
+                     <div className={styles.formGroup}>
+                        <label className={styles.formLabel}>Email Address</label>
+                        <input 
+                          type="email" 
+                          value={profile?.email || ""}
+                          className={styles.modalInput}
+                          readOnly
+                        />
+                     </div>
 
-                    <div className={styles.formGroup}>
-                       <label className={styles.formLabel}>Phone Number</label>
-                       <input 
-                         type="text" 
-                         value="+234 800 000 0000"
-                         className={styles.modalInput}
-                       />
-                    </div>
+                     <div className={styles.formGroup}>
+                        <label className={styles.formLabel}>Phone Number</label>
+                        <input 
+                          type="text" 
+                          value={profile?.phoneNumber || "Not set"}
+                          className={styles.modalInput}
+                          readOnly
+                        />
+                     </div>
 
                     <div className={styles.formGroup}>
                        <label className={styles.formLabel}>Department</label>

@@ -86,9 +86,17 @@ const INITIAL_DEPARTMENTS = [
   }
 ];
 
+
+import { 
+  useDepartments, 
+  useCreateDepartment, 
+  useUpdateDepartment, 
+  useArchiveDepartment 
+} from "@/hooks/useDepartments";
+import { useLocations } from "@/hooks/useLocations";
+
 export default function DepartmentsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
-  const [departments, setDepartments] = useState(INITIAL_DEPARTMENTS);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedDept, setSelectedDept] = useState<any>(null);
   const [activeTab, setActiveTab] = useState("users");
@@ -98,61 +106,54 @@ export default function DepartmentsPage() {
 
   const [newDept, setNewDept] = useState({
     name: '',
-    locationId: 'abuja',
-    locationName: 'Abuja International Airport',
+    locationId: '',
     responsibility: '',
   });
 
-  const [tempStaff, setTempStaff] = useState<any[]>([]);
-  const [tempQR, setTempQR] = useState<any[]>([]);
+  // Queries
+  const { data: deptsData, isLoading: deptsLoading } = useDepartments({
+    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : undefined) || undefined
+  });
+  const { data: locationsData } = useLocations();
 
-  const [isAssigning, setIsAssigning] = useState(false);
-  const [newStaffDetails, setNewStaffDetails] = useState({ name: "", role: "Duty Officer" });
-  const [isLinking, setIsLinking] = useState(false);
-  const [newQRDetails, setNewQRDetails] = useState({ name: "", airport: "Abuja International" });
-
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-  const [newAdmin, setNewAdmin] = useState({ name: "", email: "", password: "" });
-  const [deptAdmins, setDeptAdmins] = useState<any[]>([]);
-
-  const handleLocationChange = (locationId: string) => {
-    const location = MOCK_LOCATIONS.find(l => l.id === locationId);
-    setNewDept({
-      ...newDept,
-      locationId,
-      locationName: location?.name || '',
-    });
-  };
+  // Mutations
+  const createMutation = useCreateDepartment();
+  const updateMutation = useUpdateDepartment();
+  const archiveMutation = useArchiveDepartment();
 
   const handleAddDept = (e: React.FormEvent) => {
     e.preventDefault();
 
+    const payload = {
+      name: newDept.name,
+      locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : newDept.locationId,
+      responsibility: newDept.responsibility,
+    };
+
     if (editingDept) {
-      setDepartments(departments.map(d => d.id === editingDept.id ? { ...d, ...newDept } : d));
-      setEditingDept(null);
+      updateMutation.mutate({ uuid: editingDept.uuid, data: payload }, {
+        onSuccess: () => {
+          setIsAddModalOpen(false);
+          setEditingDept(null);
+        }
+      });
     } else {
-      const newDeptData = {
-        id: Date.now(),
-        name: newDept.name,
-        icon: Briefcase,
-        locationId: newDept.locationId,
-        locationName: newDept.locationName,
-        users: 0,
-        touchpoints: 0,
-        activeIssues: 0,
-        responsibility: newDept.responsibility,
-        color: "#64748b"
-      };
-      setDepartments([newDeptData, ...departments]);
+      createMutation.mutate(payload, {
+        onSuccess: () => {
+          setIsAddModalOpen(false);
+          setNewDept({ name: '', locationId: '', responsibility: '' });
+        }
+      });
     }
-    setIsAddModalOpen(false);
-    setNewDept({
-      name: '',
-      locationId: 'abuja',
-      locationName: 'Abuja International Airport',
-      responsibility: '',
-    });
   };
+
+  const handleArchiveDept = (uuid: string) => {
+    archiveMutation.mutate(uuid);
+    setActiveDropdown(null);
+  };
+
+  const departments = deptsData?.data || [];
+  const locations = locationsData?.data || [];
 
   const handleAddDeptAdmin = () => {
     if (!newAdmin.name || !newAdmin.email || !newAdmin.password || !selectedDept) return;
@@ -171,10 +172,6 @@ export default function DepartmentsPage() {
     setNewAdmin({ name: "", email: "", password: "" });
   };
 
-  const handleArchiveDept = (id: number) => {
-    setDepartments(departments.filter(d => d.id !== id));
-    setActiveDropdown(null);
-  };
 
   const handleAddStaff = () => {
     if (!newStaffDetails.name) return;
@@ -243,24 +240,24 @@ export default function DepartmentsPage() {
 
       <div className={styles.deptGrid}>
         {departments.filter(d => d.name.toLowerCase().includes(searchTerm.toLowerCase())).map((dept) => {
-          const Icon = dept.icon;
+          const Icon = Shield; // Default icon for departments
           return (
-            <div key={dept.id} className={styles.deptCard}>
+            <div key={dept.uuid} className={styles.deptCard}>
               <div className={styles.deptCardHeader}>
-                <div className={styles.deptIconBox} style={{ backgroundColor: `${dept.color}15`, color: dept.color }}>
+                <div className={styles.deptIconBox} style={{ backgroundColor: `#2563eb15`, color: `#2563eb` }}>
                    <Icon size={24} />
                 </div>
                 <div className={styles.cardMenuWrapper}>
-                  <button 
+                   <button 
                     className={styles.cardMore} 
                     onClick={(e) => {
                       e.stopPropagation();
-                      setActiveDropdown(activeDropdown === dept.id ? null : dept.id);
+                      setActiveDropdown(activeDropdown === (dept as any).uuid ? null : (dept as any).uuid);
                     }}
                   >
                     <MoreVertical size={18} />
                   </button>
-                  {activeDropdown === dept.id && (
+                  {activeDropdown === (dept as any).uuid && (
                     <div className={styles.cardDropdown}>
                        <button className={styles.dropdownItem} onClick={(e) => {
                          e.stopPropagation();
@@ -268,8 +265,7 @@ export default function DepartmentsPage() {
                          setNewDept({
                            name: dept.name,
                            locationId: dept.locationId,
-                           locationName: dept.locationName,
-                           responsibility: dept.responsibility,
+                           responsibility: dept.responsibility || '',
                          });
                          setIsAddModalOpen(true);
                          setActiveDropdown(null);
@@ -278,7 +274,7 @@ export default function DepartmentsPage() {
                        <div className={styles.dropdownSeparator} />
                        <button className={`${styles.dropdownItem} ${styles.danger}`} onClick={(e) => {
                          e.stopPropagation();
-                         handleArchiveDept(dept.id);
+                         handleArchiveDept(dept.uuid);
                        }}><Trash2 size={14} /> Archive</button>
                     </div>
                   )}
@@ -287,28 +283,22 @@ export default function DepartmentsPage() {
 
               <div className={styles.deptCardInfo}>
                 <h3 className={styles.deptCardTitle}>{dept.name}</h3>
-                <p className={styles.deptCardDesc}>{dept.responsibility}</p>
+                <p className={styles.deptCardDesc}>{dept.responsibility || 'No responsibility defined.'}</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '11px', color: '#64748b' }}>
-                  <Plus size={12} />
-                  <span>{dept.locationName}</span>
+                  <MapPin size={12} />
+                  <span>{dept.location}</span>
                 </div>
               </div>
 
               <div className={styles.deptCardMetrics}>
                 <div className={styles.deptMetric}>
                    <Users size={14} />
-                   <span>{dept.users} Staff</span>
+                   <span>{dept.staffCount} Staff</span>
                 </div>
                 <div className={styles.deptMetric}>
                    <MousePointer2 size={14} />
-                   <span>{dept.touchpoints} QRs</span>
+                   <span>{dept.touchpointsCount} QRs</span>
                 </div>
-                {dept.activeIssues > 0 && (
-                  <div className={`${styles.deptMetric} ${styles.alertMetric}`}>
-                     <AlertCircle size={14} />
-                     <span>{dept.activeIssues} Alerts</span>
-                  </div>
-                )}
               </div>
 
               <button 
@@ -377,14 +367,15 @@ export default function DepartmentsPage() {
                                 style={{ background: "#f1f5f9", cursor: "not-allowed" }}
                               />
                             ) : (
-                              <select 
-                                value={newDept.locationId}
-                                onChange={(e) => handleLocationChange(e.target.value)}
-                              >
-                                {MOCK_LOCATIONS.map(loc => (
-                                  <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                ))}
-                              </select>
+                               <select 
+                                 value={newDept.locationId}
+                                 onChange={(e) => setNewDept({ ...newDept, locationId: e.target.value })}
+                               >
+                                 <option value="">Select Location</option>
+                                 {locations.map(loc => (
+                                   <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                 ))}
+                               </select>
                             )}
                          </div>
 </div>

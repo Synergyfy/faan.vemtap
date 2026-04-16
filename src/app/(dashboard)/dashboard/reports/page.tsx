@@ -104,13 +104,19 @@ const INITIAL_TEMPLATES: ReportTemplate[] = [
   },
 ];
 
+import { 
+  useReports, 
+  useCreateReport, 
+  useReportTemplates, 
+  useCreateReportTemplate,
+  useDeleteReportTemplate
+} from "@/hooks/useReports";
+import { useLocations } from "@/hooks/useLocations";
+
 export default function ReportsPage() {
-  const { currentRole, currentLocation, locationName, hasAccessToLocation, hasAccessToDepartment } = useRole();
-  
-  const [reports, setReports] = useState<InternalReport[]>(MOCK_REPORTS);
-  const [templates, setTemplates] = useState<ReportTemplate[]>(INITIAL_TEMPLATES);
+  const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const [activeView, setActiveView] = useState<'reports' | 'templates'>('reports');
-  const [selectedReport, setSelectedReport] = useState<InternalReport | null>(null);
+  const [selectedReport, setSelectedReport] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterDepartment, setFilterDepartment] = useState<string>("all");
@@ -121,40 +127,54 @@ export default function ReportsPage() {
   const [isSubmitReportOpen, setIsSubmitReportOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
 
+  // Queries
+  const { data: reportsData } = useReports({
+    status: filterStatus !== 'all' ? filterStatus : undefined,
+    departmentId: filterDepartment !== 'all' ? filterDepartment : undefined,
+    from: filterDateFrom || undefined,
+    to: filterDateTo || undefined,
+  });
+  const { data: templatesData } = useReportTemplates();
+  const { data: locationsData } = useLocations();
+
+  // Mutations
+  const createReportMutation = useCreateReport();
+  const createTemplateMutation = useCreateReportTemplate();
+  const deleteTemplateMutation = useDeleteReportTemplate();
+
+  const reports = reportsData?.data || [];
+  const templates = templatesData?.data || [];
+  const locations = locationsData?.data || [];
+
   const [newTemplate, setNewTemplate] = useState({
     name: '',
-    locationId: currentLocation || 'abuja',
-    locationName: locationName || 'Abuja International Airport',
-    departmentId: 'operations',
-    departmentName: 'Operations Control',
-    fields: [] as ReportTemplateField[],
+    locationId: currentLocation || '',
+    departmentId: '',
+    fields: [] as any[],
   });
 
   const [newReport, setNewReport] = useState({
     templateId: '',
     templateName: '',
     title: '',
-    locationId: currentLocation || 'abuja',
-    locationName: locationName || 'Abuja International Airport',
-    departmentId: 'operations',
-    departmentName: 'Operations Control',
     fieldValues: {} as Record<string, any>,
   });
 
+  const selectedTemplate = useMemo(() => 
+    templates.find(t => t.uuid === newReport.templateId || t.id === newReport.templateId),
+    [templates, newReport.templateId]
+  );
+
   const handleLocationChange = (locationId: string) => {
-    const location = MOCK_LOCATIONS.find(l => l.id === locationId);
-    const depts = getDepartmentsByLocation(locationId);
     setNewTemplate(prev => ({
       ...prev,
       locationId,
-      locationName: location?.name || '',
-      departmentId: depts[0]?.id || '',
-      departmentName: depts[0]?.name || '',
+      departmentId: '', // Reset department when location changes
     }));
   };
 
-  const handleAddField = (type: ReportTemplateField['type']) => {
-    const newField: ReportTemplateField = {
+  const handleAddField = (type: string) => {
+    const newField = {
       id: `field-${Date.now()}`,
       type,
       label: 'New Field',
@@ -164,7 +184,7 @@ export default function ReportsPage() {
     setNewTemplate({ ...newTemplate, fields: [...newTemplate.fields, newField] });
   };
 
-  const handleUpdateField = (fieldId: string, updates: Partial<ReportTemplateField>) => {
+  const handleUpdateField = (fieldId: string, updates: any) => {
     setNewTemplate({
       ...newTemplate,
       fields: newTemplate.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
@@ -179,53 +199,30 @@ export default function ReportsPage() {
   };
 
   const handleCreateTemplate = () => {
-    const template: ReportTemplate = {
-      id: `TPL-${String(templates.length + 1).padStart(3, '0')}`,
-      ...newTemplate,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setTemplates([template, ...templates]);
-    setIsCreateTemplateOpen(false);
-    setWizardStep(1);
-    setNewTemplate({
-      name: '',
-      locationId: currentLocation || 'abuja',
-      locationName: locationName || 'Abuja International Airport',
-      departmentId: 'operations',
-      departmentName: 'Operations Control',
-      fields: [],
+    createTemplateMutation.mutate({
+      name: newTemplate.name,
+      locationId: newTemplate.locationId,
+      departmentId: newTemplate.departmentId,
+      fields: newTemplate.fields,
+    }, {
+      onSuccess: () => {
+        setIsCreateTemplateOpen(false);
+        setWizardStep(1);
+        setNewTemplate({ name: '', locationId: currentLocation || '', departmentId: '', fields: [] });
+      }
     });
   };
 
   const handleSubmitReport = () => {
-    const template = templates.find(t => t.id === newReport.templateId);
-    if (!template) return;
-
-    const report: InternalReport = {
-      id: `RPT-${String(reports.length + 1).padStart(3, '0')}`,
+    createReportMutation.mutate({
       templateId: newReport.templateId,
-      templateName: newReport.templateName,
       title: newReport.title,
-      locationId: newReport.locationId,
-      locationName: newReport.locationName,
-      departmentId: newReport.departmentId,
-      departmentName: newReport.departmentName,
-      reportedBy: 'Current User',
-      date: new Date().toISOString().split('T')[0],
       fieldValues: newReport.fieldValues,
-      status: 'submitted',
-    };
-    setReports([report, ...reports]);
-    setIsSubmitReportOpen(false);
-    setNewReport({
-      templateId: '',
-      templateName: '',
-      title: '',
-      locationId: currentLocation || 'abuja',
-      locationName: locationName || 'Abuja International Airport',
-      departmentId: 'operations',
-      departmentName: 'Operations Control',
-      fieldValues: {},
+    }, {
+      onSuccess: () => {
+        setIsSubmitReportOpen(false);
+        setNewReport({ templateId: '', templateName: '', title: '', fieldValues: {} });
+      }
     });
   };
 
@@ -254,7 +251,6 @@ export default function ReportsPage() {
     return true;
   });
 
-  const selectedTemplate = templates.find(t => t.id === newReport.templateId);
 
   return (
     <div className={styles.touchpointsLayout}>
@@ -370,16 +366,19 @@ export default function ReportsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredReports.map((report) => {
+              {reports.filter(r => !searchTerm || r.title.toLowerCase().includes(searchTerm.toLowerCase())).map((report) => {
                 const statusStyle = getStatusColor(report.status);
+                const loc = typeof report.location === 'object' ? report.location : { name: report.location };
+                const dept = typeof report.department === 'object' ? report.department : { name: report.department };
+                
                 return (
-                  <tr key={report.id} className={styles.clickableRow} onClick={() => setSelectedReport(report)}>
+                  <tr key={report.uuid || report.id} className={styles.clickableRow} onClick={() => setSelectedReport(report)}>
                     <td><span className={styles.tpName}>{report.id}</span></td>
-                    <td><span className={styles.typeTag} style={{ background: '#e0e7ff', color: '#4338ca' }}>{report.templateName}</span></td>
+                    <td><span className={styles.typeTag} style={{ background: '#e0e7ff', color: '#4338ca' }}>{report.templateName || 'Internal'}</span></td>
                     <td><span className={styles.tpName}>{report.title}</span></td>
-                    <td><div className={styles.deptCell}><MapPin size={14} className={styles.deptIcon} /><span>{report.locationName}</span></div></td>
-                    <td><div className={styles.deptCell}><Shield size={14} className={styles.deptIcon} /><span>{report.departmentName}</span></div></td>
-                    <td><div className={styles.timeCell}><Calendar size={14} /><span>{report.date}</span></div></td>
+                    <td><div className={styles.deptCell}><MapPin size={14} className={styles.deptIcon} /><span>{loc?.name || 'Unknown'}</span></div></td>
+                    <td><div className={styles.deptCell}><Shield size={14} className={styles.deptIcon} /><span>{dept?.name || 'General'}</span></div></td>
+                    <td><div className={styles.timeCell}><Calendar size={14} /><span>{new Date(report.createdAt).toLocaleDateString()}</span></div></td>
                     <td><span className={styles.statusBadge} style={{ backgroundColor: statusStyle.bg, color: statusStyle.color }}>{report.status}</span></td>
                     <td className={styles.textRight}><button className={styles.viewLink}>View <MoreVertical size={16} /></button></td>
                   </tr>
@@ -459,7 +458,8 @@ export default function ReportsPage() {
                       <div className={styles.modalInputWrapper}>
                         <MapPin size={18} />
                         <select value={newTemplate.locationId} onChange={(e) => handleLocationChange(e.target.value)}>
-                          {MOCK_LOCATIONS.map(loc => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
+                          <option value="">Select Location</option>
+                          {locations.map(loc => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
                         </select>
                       </div>
                     </div>
@@ -467,8 +467,14 @@ export default function ReportsPage() {
                       <label className={styles.formLabel}>Department *</label>
                       <div className={styles.modalInputWrapper}>
                         <Shield size={18} />
-                        <select value={newTemplate.departmentId} onChange={(e) => { const dept = getDepartmentsByLocation(newTemplate.locationId).find(d => d.id === e.target.value); setNewTemplate({ ...newTemplate, departmentId: e.target.value, departmentName: dept?.name || '' }); }}>
-                          {getDepartmentsByLocation(newTemplate.locationId).map(dept => (<option key={dept.id} value={dept.id}>{dept.name}</option>))}
+                        <select 
+                          value={newTemplate.departmentId} 
+                          onChange={(e) => setNewTemplate({ ...newTemplate, departmentId: e.target.value })}
+                        >
+                          <option value="">Select Department</option>
+                          {locations.find(l => l.id === newTemplate.locationId)?.departments?.map((dept: any) => (
+                            <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
@@ -583,9 +589,16 @@ export default function ReportsPage() {
                 <label className={styles.formLabel}>Select Template *</label>
                 <div className={styles.modalInputWrapper}>
                   <LayoutTemplate size={18} />
-                  <select value={newReport.templateId} onChange={(e) => { const t = templates.find(t => t.id === e.target.value); setNewReport({ ...newReport, templateId: e.target.value, templateName: t?.name || '', locationId: t?.locationId || '', locationName: t?.locationName || '', departmentId: t?.departmentId || '', departmentName: t?.departmentName || '' }); }}>
+                  <select value={newReport.templateId} onChange={(e) => { 
+                    const t = templates.find(t => t.uuid === e.target.value || t.id === e.target.value); 
+                    setNewReport({ 
+                      ...newReport, 
+                      templateId: e.target.value, 
+                      templateName: t?.name || '',
+                    }); 
+                  }}>
                     <option value="">Select a template</option>
-                    {templates.map(t => (<option key={t.id} value={t.id}>{t.name}</option>))}
+                    {templates.map(t => (<option key={t.uuid || t.id} value={t.uuid || t.id}>{t.name}</option>))}
                   </select>
                 </div>
               </div>
