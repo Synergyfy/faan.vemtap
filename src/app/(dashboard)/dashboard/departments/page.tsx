@@ -16,143 +16,115 @@ import {
   AlertCircle,
   Box,
   Edit,
-  Trash2
+  Trash2,
+  MapPin
 } from "lucide-react";
+import { Department } from "@/types/api";
+
+interface DeptAdmin {
+  id: string | number;
+  departmentId: string;
+  name: string;
+  email: string;
+}
+
+interface StaffMember {
+  id: string | number;
+  name: string;
+  role: string;
+}
+
+interface QRLink {
+  id: string | number;
+  name: string;
+  airport: string;
+}
 import styles from "../../Dashboard.module.css";
 import Image from "next/image";
-import { MOCK_LOCATIONS } from "@/data/mockLocations";
 import { useRole } from "@/context/RoleContext";
 
-const INITIAL_DEPARTMENTS = [
-  { 
-    id: 1, 
-    name: "Aviation Security (AVSEC)", 
-    icon: Shield, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 24, 
-    touchpoints: 12, 
-    activeIssues: 3,
-    responsibility: "Internal and external security of the airport premises and passengers.",
-    color: "#ef4444"
-  },
-  { 
-    id: 2, 
-    name: "Customer Service", 
-    icon: Users, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 18, 
-    touchpoints: 45, 
-    activeIssues: 0,
-    responsibility: "Handling passenger inquiries, complaints, and satisfaction surveys.",
-    color: "#22c55e"
-  },
-  { 
-    id: 3, 
-    name: "Operations Control", 
-    icon: Settings, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 15, 
-    touchpoints: 8, 
-    activeIssues: 5,
-    responsibility: "Real-time monitoring of airport flight operations and gate management.",
-    color: "#3b82f6"
-  },
-  { 
-    id: 4, 
-    name: "Facilities & Assets", 
-    icon: Briefcase, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 12, 
-    touchpoints: 15, 
-    activeIssues: 8,
-    responsibility: "Maintenance of airport infrastructure, restrooms, and terminal amenities.",
-    color: "#f59e0b"
-  },
-  { 
-    id: 5, 
-    name: "Protocol & VIP", 
-    icon: User, 
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    users: 8, 
-    touchpoints: 5, 
-    activeIssues: 0,
-    responsibility: "Managing high-profile passenger experiences and lounge standards.",
-    color: "#8b5cf6"
-  }
-];
+import { 
+  useDepartments, 
+  useCreateDepartment, 
+  useUpdateDepartment, 
+  useArchiveDepartment 
+} from "@/hooks/useDepartments";
+import { useLocations } from "@/hooks/useLocations";
 
 export default function DepartmentsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
-  const [departments, setDepartments] = useState(INITIAL_DEPARTMENTS);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [selectedDept, setSelectedDept] = useState<any>(null);
+  const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [activeTab, setActiveTab] = useState("users");
   const [searchTerm, setSearchTerm] = useState("");
-  const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
-  const [editingDept, setEditingDept] = useState<any>(null);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [editingDept, setEditingDept] = useState<Department | null>(null);
 
   const [newDept, setNewDept] = useState({
     name: '',
-    locationId: 'abuja',
-    locationName: 'Abuja International Airport',
+    locationId: '',
     responsibility: '',
+    locationName: '',
   });
 
-  const [tempStaff, setTempStaff] = useState<any[]>([]);
-  const [tempQR, setTempQR] = useState<any[]>([]);
-
+  // Resources Management State
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [deptAdmins, setDeptAdmins] = useState<DeptAdmin[]>([]);
+  const [newAdmin, setNewAdmin] = useState({ name: "", email: "", password: "" });
+  
   const [isAssigning, setIsAssigning] = useState(false);
+  const [tempStaff, setTempStaff] = useState<StaffMember[]>([]);
   const [newStaffDetails, setNewStaffDetails] = useState({ name: "", role: "Duty Officer" });
+  
   const [isLinking, setIsLinking] = useState(false);
+  const [tempQR, setTempQR] = useState<QRLink[]>([]);
   const [newQRDetails, setNewQRDetails] = useState({ name: "", airport: "Abuja International" });
 
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-  const [newAdmin, setNewAdmin] = useState({ name: "", email: "", password: "" });
-  const [deptAdmins, setDeptAdmins] = useState<any[]>([]);
 
-  const handleLocationChange = (locationId: string) => {
-    const location = MOCK_LOCATIONS.find(l => l.id === locationId);
-    setNewDept({
-      ...newDept,
-      locationId,
-      locationName: location?.name || '',
-    });
-  };
+  // Queries
+  const { data: deptsData, isLoading: deptsLoading } = useDepartments({
+    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : undefined) || undefined
+  });
+  const { data: locationsData } = useLocations();
+
+  // Mutations
+  const createMutation = useCreateDepartment();
+  const updateMutation = useUpdateDepartment();
+  const archiveMutation = useArchiveDepartment();
 
   const handleAddDept = (e: React.FormEvent) => {
     e.preventDefault();
 
+    const payload = {
+      name: newDept.name,
+      locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : newDept.locationId,
+      responsibility: newDept.responsibility,
+    };
+
     if (editingDept) {
-      setDepartments(departments.map(d => d.id === editingDept.id ? { ...d, ...newDept } : d));
-      setEditingDept(null);
+      updateMutation.mutate({ uuid: editingDept.id as string, data: payload }, {
+        onSuccess: () => {
+          setIsAddModalOpen(false);
+          setEditingDept(null);
+        }
+      });
     } else {
-      const newDeptData = {
-        id: Date.now(),
-        name: newDept.name,
-        icon: Briefcase,
-        locationId: newDept.locationId,
-        locationName: newDept.locationName,
-        users: 0,
-        touchpoints: 0,
-        activeIssues: 0,
-        responsibility: newDept.responsibility,
-        color: "#64748b"
-      };
-      setDepartments([newDeptData, ...departments]);
+      createMutation.mutate(payload, {
+        onSuccess: () => {
+          setIsAddModalOpen(false);
+          setNewDept({ name: '', locationId: '', responsibility: '', locationName: '' });
+        }
+      });
     }
-    setIsAddModalOpen(false);
-    setNewDept({
-      name: '',
-      locationId: 'abuja',
-      locationName: 'Abuja International Airport',
-      responsibility: '',
-    });
   };
+
+  const handleArchiveDept = (uuid: string) => {
+    archiveMutation.mutate(uuid);
+    setActiveDropdown(null);
+  };
+
+  const departments = deptsData?.data || [];
+  const locations = locationsData?.data || [];
 
   const handleAddDeptAdmin = () => {
     if (!newAdmin.name || !newAdmin.email || !newAdmin.password || !selectedDept) return;
@@ -171,10 +143,6 @@ export default function DepartmentsPage() {
     setNewAdmin({ name: "", email: "", password: "" });
   };
 
-  const handleArchiveDept = (id: number) => {
-    setDepartments(departments.filter(d => d.id !== id));
-    setActiveDropdown(null);
-  };
 
   const handleAddStaff = () => {
     if (!newStaffDetails.name) return;
@@ -196,15 +164,18 @@ export default function DepartmentsPage() {
     if (!selectedDept) return;
     const updated = departments.map(d => {
       if (d.id === selectedDept.id) {
+        const currentUsers = Array.isArray(d.users) ? d.users.length : (typeof d.users === 'number' ? d.users : 0);
+        const currentTPs = typeof d.touchpointCount === 'number' ? d.touchpointCount : (d._count?.touchpoints || 0);
+        
         return { 
           ...d, 
-          users: d.users + tempStaff.length, 
-          touchpoints: d.touchpoints + tempQR.length 
+          users: currentUsers + tempStaff.length, 
+          touchpointCount: currentTPs + tempQR.length 
         };
       }
       return d;
     });
-    setDepartments(updated);
+    // setDepartments(updated); // Removed as departments state is derived from React Query
     setSelectedDept(null);
     setTempStaff([]);
     setTempQR([]);
@@ -219,7 +190,7 @@ export default function DepartmentsPage() {
         </div>
         <button className={styles.createButton} onClick={() => {
             if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
-              const location = MOCK_LOCATIONS.find(l => l.id === currentLocation);
+              const location = locations.find(l => l.id === currentLocation);
               setNewDept({ ...newDept, locationId: currentLocation, locationName: location?.name || '' });
             }
             setIsAddModalOpen(true);
@@ -243,15 +214,15 @@ export default function DepartmentsPage() {
 
       <div className={styles.deptGrid}>
         {departments.filter(d => d.name.toLowerCase().includes(searchTerm.toLowerCase())).map((dept) => {
-          const Icon = dept.icon;
+          const Icon = Shield; // Default icon for departments
           return (
             <div key={dept.id} className={styles.deptCard}>
               <div className={styles.deptCardHeader}>
-                <div className={styles.deptIconBox} style={{ backgroundColor: `${dept.color}15`, color: dept.color }}>
+                <div className={styles.deptIconBox} style={{ backgroundColor: `#2563eb15`, color: `#2563eb` }}>
                    <Icon size={24} />
                 </div>
                 <div className={styles.cardMenuWrapper}>
-                  <button 
+                   <button 
                     className={styles.cardMore} 
                     onClick={(e) => {
                       e.stopPropagation();
@@ -268,8 +239,8 @@ export default function DepartmentsPage() {
                          setNewDept({
                            name: dept.name,
                            locationId: dept.locationId,
-                           locationName: dept.locationName,
-                           responsibility: dept.responsibility,
+                           responsibility: dept.responsibility || '',
+                           locationName: '',
                          });
                          setIsAddModalOpen(true);
                          setActiveDropdown(null);
@@ -287,28 +258,21 @@ export default function DepartmentsPage() {
 
               <div className={styles.deptCardInfo}>
                 <h3 className={styles.deptCardTitle}>{dept.name}</h3>
-                <p className={styles.deptCardDesc}>{dept.responsibility}</p>
+                <p className={styles.deptCardDesc}>{dept.responsibility || 'No responsibility defined.'}</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '11px', color: '#64748b' }}>
-                  <Plus size={12} />
-                  <span>{dept.locationName}</span>
+                  <MapPin size={12} />
+                  <span>{typeof dept.location === 'string' ? dept.location : (dept.location as any)?.name}</span>
                 </div>
               </div>
 
               <div className={styles.deptCardMetrics}>
                 <div className={styles.deptMetric}>
                    <Users size={14} />
-                   <span>{dept.users} Staff</span>
+                   <span>{dept.staffCount} Staff</span>
                 </div>
                 <div className={styles.deptMetric}>
                    <MousePointer2 size={14} />
-                   <span>{dept.touchpoints} QRs</span>
-                </div>
-                {dept.activeIssues > 0 && (
-                  <div className={`${styles.deptMetric} ${styles.alertMetric}`}>
-                     <AlertCircle size={14} />
-                     <span>{dept.activeIssues} Alerts</span>
-                  </div>
-                )}
+                   <span>{dept.touchpointCount} QRs</span>                </div>
               </div>
 
               <button 
@@ -377,14 +341,15 @@ export default function DepartmentsPage() {
                                 style={{ background: "#f1f5f9", cursor: "not-allowed" }}
                               />
                             ) : (
-                              <select 
-                                value={newDept.locationId}
-                                onChange={(e) => handleLocationChange(e.target.value)}
-                              >
-                                {MOCK_LOCATIONS.map(loc => (
-                                  <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                ))}
-                              </select>
+                               <select 
+                                 value={newDept.locationId}
+                                 onChange={(e) => setNewDept({ ...newDept, locationId: e.target.value })}
+                               >
+                                 <option value="">Select Location</option>
+                                 {locations.map(loc => (
+                                   <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                 ))}
+                               </select>
                             )}
                          </div>
 </div>
@@ -472,7 +437,7 @@ export default function DepartmentsPage() {
                        <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                          <Shield size={32} />
                          <p style={{ marginTop: '8px' }}>No admins assigned yet</p>
-                         <p style={{ fontSize: '12px' }}>Click "Add Admin" to assign a department administrator</p>
+                         <p style={{ fontSize: '12px' }}>Click &quot;Add Admin&quot; to assign a department administrator</p>
                        </div>
                      ) : (
                        deptAdmins.filter(a => a.departmentId === selectedDept?.id).map(admin => (
@@ -496,7 +461,7 @@ export default function DepartmentsPage() {
                ) : activeTab === "users" ? (
                  <div className={styles.resourceList}>
                     <div className={styles.resourceHeader}>
-                       <h4 className={styles.builderLabel}>Registered Staff ({selectedDept.users + tempStaff.length})</h4>
+                       <h4 className={styles.builderLabel}>Registered Staff ({(selectedDept.users?.length || 0) + tempStaff.length})</h4>
                        <button className={styles.inlineAddBtn} onClick={() => setIsAssigning(!isAssigning)}>
                          <Plus size={14} /> Assign Official
                        </button>
@@ -544,7 +509,7 @@ export default function DepartmentsPage() {
                ) : (
                  <div className={styles.resourceList}>
                     <div className={styles.resourceHeader}>
-                       <h4 className={styles.builderLabel}>Operational Touchpoints ({selectedDept.touchpoints + tempQR.length})</h4>
+                       <h4 className={styles.builderLabel}>Operational Touchpoints ({(selectedDept._count?.touchpoints || 0) + tempQR.length})</h4>
                        <button className={styles.inlineAddBtn} onClick={() => setIsLinking(!isLinking)}>
                          <Plus size={14} /> Link QR Code
                        </button>

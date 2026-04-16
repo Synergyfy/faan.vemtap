@@ -89,17 +89,24 @@ const INITIAL_LOCATIONS: LocationData[] = [
   }
 ];
 
+import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
+import { Location, Department } from "@/types/api";
+
 export default function LocationsPage() {
   const { currentRole, currentLocation, hasAccessToLocation } = useRole();
-  const [locations, setLocations] = useState<LocationData[]>(INITIAL_LOCATIONS);
-  const [expanded, setExpanded] = useState<string[]>(["abuja", "abv-t1"]);
-  const [selectedZone, setSelectedZone] = useState<Terminal["zones"][0] | null>(locations[0].terminals[0].zones[0]);
-  const [selectedLocation, setSelectedLocation] = useState<LocationData | null>(locations[0]);
+  const { data: locationsData, isLoading } = useLocations();
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const [selectedZone, setSelectedZone] = useState<Department | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [activeTooltip, setActiveTooltip] = useState<number | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
-  
+  const createMutation = useCreateLocation();
+  const deleteMutation = useDeleteLocation();
+
+  const locations = locationsData?.data || [];
+
   const [newAdmin, setNewAdmin] = useState({
     name: '',
     email: '',
@@ -111,6 +118,9 @@ export default function LocationsPage() {
     name: '',
     type: 'International',
     address: '',
+    city: '',
+    airportCode: '',
+    code: '',
   });
 
   const toggleExpand = (id: string) => {
@@ -124,51 +134,36 @@ export default function LocationsPage() {
   };
 
   const handleAddAdmin = () => {
-    if (!selectedLocation) return;
-    
-    const updatedLocations = locations.map(loc => {
-      if (loc.id === selectedLocation.id) {
-        return {
-          ...loc,
-          admins: [...(loc.admins || []), { 
-            name: newAdmin.name, 
-            email: newAdmin.email, 
-            role: newAdmin.role as UserRole 
-          }]
-        };
-      }
-      return loc;
-    });
-    
-    setLocations(updatedLocations);
+    // Admin creation logic using useUsers would go here
     setIsAdminModalOpen(false);
-    setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
   };
 
   const handleCreateLocation = () => {
-    const location: LocationData = {
-      id: newLocation.name.toLowerCase().replace(/\s+/g, '-'),
+    createMutation.mutate({
       name: newLocation.name,
-      type: newLocation.type,
+      airportCode: newLocation.airportCode,
+      city: newLocation.city,
       address: newLocation.address,
-      admins: [],
-      terminals: [
-        { id: `${newLocation.name.toLowerCase().replace(/\s+/g, '-')}-t1`, name: 'Terminal 1', zones: [] }
-      ]
-    };
-    setLocations([...locations, location]);
-    setIsCreateModalOpen(false);
-    setNewLocation({ name: '', type: 'International', address: '' });
+      code: newLocation.code || newLocation.airportCode,
+    }, {
+      onSuccess: () => {
+        setIsCreateModalOpen(false);
+        setNewLocation({ name: '', type: 'International', address: '', city: '', airportCode: '', code: '' });
+      }
+    });
   };
 
   const handleDeleteLocation = (id: string) => {
-    setLocations(locations.filter(l => l.id !== id));
-    if (selectedLocation?.id === id) setSelectedLocation(null);
+    deleteMutation.mutate(id, {
+      onSuccess: () => {
+        if (selectedLocation?.id === id) setSelectedLocation(null);
+      }
+    });
   };
 
-  const filteredLocations = currentRole === UserRole.SUPER_ADMIN 
+  const filteredLocations = (currentRole === UserRole.SUPER_ADMIN 
     ? locations 
-    : locations.filter((loc: LocationData) => hasAccessToLocation(loc.id));
+    : locations.filter((loc: Location) => loc.id === currentLocation)) as Location[];
 
   return (
     <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN]}>
@@ -201,35 +196,19 @@ export default function LocationsPage() {
 
                 {expanded.includes(airport.id) && (
                   <div className={styles.treeSubItems}>
-                    {airport.terminals.map((terminal) => (
-                      <div key={terminal.id} className={styles.treeItem}>
+                    {airport.departments?.map((dept) => (
+                      <div key={dept.id} className={styles.treeItem}>
                         <div 
-                          className={styles.treeHeader}
-                          onClick={() => toggleExpand(terminal.id)}
+                          className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
+                          onClick={() => {
+                            setSelectedZone(dept as any); // Cast here if needed for state compatibility
+                            setSelectedLocation(airport);
+                          }}
                         >
-                          {expanded.includes(terminal.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                           <Building2 size={16} className={styles.terminalIcon} />
-                          <span>{terminal.name}</span>
+                          <span>{dept.name}</span>
+                          <div className={`${styles.statusDot} ${(dept as any).isActive ? styles.green : styles.gray}`} />
                         </div>
-
-                        {expanded.includes(terminal.id) && (
-                          <div className={styles.treeSubItems}>
-                            {terminal.zones.map((zone) => (
-                              <div 
-                                key={zone.id} 
-                                className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone?.id === zone.id ? styles.selected : ""}`}
-                                onClick={() => {
-                                  setSelectedZone(zone);
-                                  setSelectedLocation(airport);
-                                }}
-                              >
-                                <MapPin size={14} className={styles.zoneIcon} />
-                                <span>{zone.name}</span>
-                                <div className={`${styles.statusDot} ${styles[zone.status]}`} />
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -270,8 +249,8 @@ export default function LocationsPage() {
                   <Users size={24} />
                 </div>
                 <div className={styles.statInfo}>
-                  <span className={styles.statLabel}>Total Interactions</span>
-                  <h3 className={styles.statValue}>{selectedZone?.interactions || 0}</h3>
+                  <span className={styles.statLabel}>Staff Count</span>
+                  <h3 className={styles.statValue}>{selectedZone?.staffCount || (selectedZone?._count as any)?.users || 0}</h3>
                 </div>
               </div>
 
@@ -280,8 +259,8 @@ export default function LocationsPage() {
                   <Star size={24} />
                 </div>
                 <div className={styles.statInfo}>
-                  <span className={styles.statLabel}>Satisfaction Score</span>
-                  <h3 className={styles.statValue}>{selectedZone?.satisfaction || 0}/5.0</h3>
+                  <span className={styles.statLabel}>Touchpoints</span>
+                  <h3 className={styles.statValue}>{selectedZone?.touchpointCount || selectedZone?._count?.touchpoints || 0}</h3>
                 </div>
               </div>
 
@@ -290,8 +269,8 @@ export default function LocationsPage() {
                   <AlertCircle size={24} />
                 </div>
                 <div className={styles.statInfo}>
-                  <span className={styles.statLabel}>Open Issues</span>
-                  <h3 className={styles.statValue}>{selectedZone?.issues || 0}</h3>
+                  <span className={styles.statLabel}>Active Issues</span>
+                  <h3 className={styles.statValue}>{selectedZone?.activeIssueCount || 0}</h3>
                 </div>
               </div>
 
@@ -300,8 +279,8 @@ export default function LocationsPage() {
                   <MessageSquare size={24} />
                 </div>
                 <div className={styles.statInfo}>
-                  <span className={styles.statLabel}>Top Complaint</span>
-                  <h3 className={styles.statValue}>{selectedZone?.topComplaint || "None"}</h3>
+                  <span className={styles.statLabel}>Status</span>
+                  <h3 className={styles.statValue}>{selectedZone?.isActive ? "Active" : "Inactive"}</h3>
                 </div>
               </div>
             </div>
@@ -390,17 +369,30 @@ export default function LocationsPage() {
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Type</label>
+                    <label className={styles.formLabel}>Airport Code</label>
+                    <div className={styles.modalInputWrapper}>
+                      <Plane size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. ABV"
+                        value={newLocation.airportCode}
+                        onChange={(e) => setNewLocation({...newLocation, airportCode: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>City</label>
                     <div className={styles.modalInputWrapper}>
                       <Building2 size={18} />
-                      <select 
-                        value={newLocation.type}
-                        onChange={(e) => setNewLocation({...newLocation, type: e.target.value})}
-                      >
-                        <option value="International">International Airport</option>
-                        <option value="Domestic">Domestic Airport</option>
-                        <option value="Seaport">Seaport</option>
-                      </select>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Abuja"
+                        value={newLocation.city}
+                        onChange={(e) => setNewLocation({...newLocation, city: e.target.value})}
+                        required
+                      />
                     </div>
                   </div>
 
@@ -410,7 +402,7 @@ export default function LocationsPage() {
                       <MapPin size={18} />
                       <input 
                         type="text" 
-                        placeholder="e.g. Lagos, Nigeria"
+                        placeholder="e.g. Abuja, Nigeria"
                         value={newLocation.address}
                         onChange={(e) => setNewLocation({...newLocation, address: e.target.value})}
                         required

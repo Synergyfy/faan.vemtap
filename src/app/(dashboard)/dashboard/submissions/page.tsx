@@ -23,121 +23,52 @@ import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { UserRole } from "@/types/rbac";
 
-interface Submission {
-  id: string;
-  type: string;
-  location: string;
-  locationId?: string;
-  datetime: string;
-  status: string;
-  department: string;
-  departmentId?: string;
-  passenger: string;
-  message: string;
-  rating: number | null;
-  priority: string;
-  formData: Record<string, unknown>;
-}
-
-// Mock Data for Submissions
-const ALL_SUBMISSIONS: Submission[] = [
-  { 
-    id: "SUB-8812", 
-    type: "Complaint", 
-    location: "Abuja T1 - Gate 4",
-    locationId: "abuja",
-    datetime: "2024-04-14 09:20 AM", 
-    status: "Open", 
-    department: "Security",
-    departmentId: "security",
-    passenger: "Anonymous",
-    message: "Extremely long wait time at security check. Only 2 lanes open during peak hours.",
-    rating: 2,
-    priority: "High",
-    formData: {
-      rating: 2,
-      travel_date: "2024-04-14",
-      flight_number: "NG-442",
-      passenger_email: "test@domain.com"
-    }
-  },
-  { 
-    id: "SUB-8815", 
-    type: "Feedback", 
-    location: "Lagos - International Lounge",
-    locationId: "lagos",
-    datetime: "2024-04-14 10:45 AM", 
-    status: "Resolved", 
-    department: "Facilities",
-    departmentId: "facilities-lagos",
-    passenger: "Emeka Obi",
-    message: "The new coffee machine in the wing-B lounge is fantastic! Great improvement.",
-    rating: 5,
-    priority: "Low",
-    formData: {
-      rating: 5,
-      engagement_type: "Survey",
-      preferred_contact: "Email"
-    }
-  },
-  { 
-    id: "SUB-8819", 
-    type: "Incident", 
-    location: "Abuja T2 - Baggage Claim",
-    locationId: "abuja",
-    datetime: "2024-04-14 11:15 AM", 
-    status: "In Progress", 
-    department: "Operations",
-    departmentId: "operations",
-    passenger: "Aisha Yusuf",
-    message: "Spilled liquid near Carousel 3. It's a slip hazard and needs immediate cleaning.",
-    rating: null,
-    priority: "Critical",
-    formData: {
-       incident_severity: "High",
-       action_required: "Cleaning",
-       location_verified: "Yes"
-    }
-  }
-];
-
-const DEPARTMENTS = ["Security", "Facilities", "Operations", "Janitorial", "IT", "Customer Service"];
-const STATUSES = ["Open", "In Progress", "Resolved", "Archived"];
+import { 
+  useSubmissions, 
+  useSubmission, 
+  useUpdateSubmission, 
+  useAddSubmissionNote 
+} from "@/hooks/useSubmissions";
+import { useDepartments } from "@/hooks/useDepartments";
+import { SubmissionStatus, Department } from "@/types/api";
 
 export default function SubmissionsPage() {
-  const { currentRole, currentLocation, currentDepartment, hasAccessToLocation, hasAccessToDepartment } = useRole();
-  const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null);
+  const { currentRole, currentLocation, currentDepartment } = useRole();
+  const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [note, setNote] = useState("");
+  const [noteContent, setNoteContent] = useState("");
 
-  const filteredSubmissions = useMemo(() => {
-    return ALL_SUBMISSIONS.filter(sub => {
-      if (currentRole === UserRole.SUPER_ADMIN) return true;
-      if (currentRole === UserRole.LOCATION_ADMIN && sub.locationId) {
-        return hasAccessToLocation(sub.locationId);
-      }
-      if (currentRole === UserRole.DEPARTMENT_ADMIN) {
-        return hasAccessToDepartment(sub.departmentId || sub.department);
-      }
-      return true;
+  // Queries
+  const { data: submissionsData, isLoading: listLoading } = useSubmissions({
+    search: searchTerm || undefined,
+    locationId: currentLocation || undefined,
+    departmentId: currentDepartment || undefined,
+  });
+
+  const { data: detail, isLoading: detailLoading } = useSubmission(selectedUuid || "");
+  const { data: deptsData } = useDepartments();
+
+  // Mutations
+  const updateMutation = useUpdateSubmission();
+  const noteMutation = useAddSubmissionNote();
+
+  const handleUpdateStatus = (uuid: string, status: string) => {
+    updateMutation.mutate({ uuid, data: { status: status as SubmissionStatus } });
+  };
+
+  const handleAssignDept = (uuid: string, departmentId: string) => {
+    updateMutation.mutate({ uuid, data: { departmentId } });
+  };
+
+  const handleAddNote = () => {
+    if (!noteContent.trim() || !selectedUuid) return;
+    noteMutation.mutate({ uuid: selectedUuid, content: noteContent }, {
+      onSuccess: () => setNoteContent("")
     });
-  }, [currentRole, currentLocation, currentDepartment, hasAccessToLocation, hasAccessToDepartment]);
-
-  const [submissions, setSubmissions] = useState<Submission[]>(filteredSubmissions);
-
-  const handleUpdateStatus = (id: string, newStatus: string) => {
-    setSubmissions(submissions.map((s: Submission) => s.id === id ? { ...s, status: newStatus } : s));
-    if (selectedSubmission?.id === id) {
-      setSelectedSubmission({ ...selectedSubmission, status: newStatus });
-    }
   };
 
-  const handleAssignDept = (id: string, dept: string) => {
-    setSubmissions(submissions.map((s: Submission) => s.id === id ? { ...s, department: dept } : s));
-    if (selectedSubmission?.id === id) {
-      setSelectedSubmission({ ...selectedSubmission, department: dept });
-    }
-  };
+  const submissions = submissionsData?.data || [];
+  const depts = deptsData?.data || [];
 
   return (
     <div className={styles.touchpointsLayout}>
@@ -186,12 +117,8 @@ export default function SubmissionsPage() {
             </tr>
           </thead>
           <tbody>
-            {submissions.filter((s: Submission) => 
-              s.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
-              s.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              s.message.toLowerCase().includes(searchTerm.toLowerCase())
-            ).map((sub) => (
-              <tr key={sub.id} className={styles.clickableRow} onClick={() => setSelectedSubmission(sub)}>
+            {submissions.map((sub) => (
+              <tr key={sub.id} className={styles.clickableRow} onClick={() => setSelectedUuid(sub.id)}>
                 <td>
                   <span className={styles.tpName}>{sub.id}</span>
                 </td>
@@ -222,7 +149,7 @@ export default function SubmissionsPage() {
                 <td>
                   <div className={styles.timeCell}>
                     <Clock size={14} />
-                    <span>{sub.datetime}</span>
+                    <span>{new Date(sub.submittedAt).toLocaleString()}</span>
                   </div>
                 </td>
                 <td className={styles.textRight}>
@@ -238,17 +165,17 @@ export default function SubmissionsPage() {
       </div>
 
       {/* DETAIL DRAWER / MODAL */}
-      {selectedSubmission && (
+      {selectedUuid && detail && (
         <div className={styles.modalOverlay}>
           <div className={`${styles.modalContent} ${styles.detailModal}`}>
              <div className={styles.modalHeader}>
                 <div className={styles.modalTitleGroup}>
-                  <span className={`${styles.priorityTag} ${styles[selectedSubmission.priority.toLowerCase()]}`}>
-                    {selectedSubmission.priority} Priority
+                  <span className={`${styles.priorityTag} ${styles[detail.priority.toLowerCase()]}`}>
+                    {detail.priority} Priority
                   </span>
-                  <h3 className={styles.modalTitle}>{selectedSubmission.id} Detail</h3>
+                  <h3 className={styles.modalTitle}>{detail.id} Detail</h3>
                 </div>
-                <button className={styles.closeBtn} onClick={() => setSelectedSubmission(null)}><X size={20} /></button>
+                <button className={styles.closeBtn} onClick={() => setSelectedUuid(null)}><X size={20} /></button>
              </div>
 
              <div className={styles.modalBody}>
@@ -258,35 +185,22 @@ export default function SubmissionsPage() {
                       <section className={styles.messageSection}>
                          <h4 className={styles.detailLabel}>Dynamic Submission Data</h4>
                          <div className={styles.dynamicDataCard}>
-                            {/* Base Message always shown if present */}
-                            {selectedSubmission.message && (
-                              <div className={styles.dataField}>
-                                <span className={styles.smallLabel}>Primary Message / Comment</span>
-                                <p className={styles.masterMessage}>{selectedSubmission.message}</p>
-                              </div>
-                            )}
-
-                            {/* Dynamically render all other form data */}
-                            {selectedSubmission.formData && Object.entries(selectedSubmission.formData).map(([key, value]: [string, any]) => {
-                              if (key === "comment") return null; // Already handled as 'message'
-                              
-                              return (
+                            {detail.formData && Object.entries(detail.formData).map(([key, value]: [string, any]) => (
                                 <div key={key} className={styles.dataField}>
                                    <span className={styles.smallLabel}>{key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</span>
                                    <div className={styles.fieldValueContainer}>
-                                      {key === "rating" ? (
+                                      {key.toLowerCase().includes('rating') ? (
                                         <div className={styles.miniStars}>
                                           {[...Array(5)].map((_, i) => (
                                             <Star key={i} size={14} fill={i < (value as number) ? "#fbbf24" : "none"} color={i < (value as number) ? "#fbbf24" : "#e2e8f0"} />
                                           ))}
                                         </div>
                                       ) : (
-                                        <span className={styles.fieldValueText}>{value.toString()}</span>
+                                        <span className={styles.fieldValueText}>{value?.toString() || '—'}</span>
                                       )}
                                    </div>
                                 </div>
-                              );
-                            })}
+                            ))}
                          </div>
                       </section>
 
@@ -294,22 +208,22 @@ export default function SubmissionsPage() {
                          <div className={styles.infoCard}>
                             <MapPin size={18} />
                             <div>
-                               <span>Location</span>
-                               <strong>{selectedSubmission.location}</strong>
+                               <span>Location Area</span>
+                               <strong>{typeof detail.location === 'string' ? detail.location : detail.location?.name}</strong>
                             </div>
                          </div>
                          <div className={styles.infoCard}>
                             <User size={18} />
                             <div>
-                               <span>Passenger</span>
-                               <strong>{selectedSubmission.passenger}</strong>
+                               <span>Touchpoint Type</span>
+                               <strong>{detail.type}</strong>
                             </div>
                          </div>
                          <div className={styles.infoCard}>
                             <Clock size={18} />
                             <div>
                                <span>Timestamp</span>
-                               <strong>{selectedSubmission.datetime}</strong>
+                               <strong>{new Date(detail.submittedAt).toLocaleString()}</strong>
                             </div>
                          </div>
                       </div>
@@ -317,19 +231,21 @@ export default function SubmissionsPage() {
                       <section className={styles.internalNotes}>
                          <h4 className={styles.detailLabel}>Internal Notes</h4>
                          <div className={styles.notesList}>
-                            <div className={styles.noteItem}>
-                               <span className={styles.noteAuthor}>System</span>
-                               <p>Submission received from mobile touchpoint.</p>
-                               <span className={styles.noteTime}>Just now</span>
-                            </div>
+                            {detail.internalNotes?.map((note, idx) => (
+                               <div key={idx} className={styles.noteItem}>
+                                  <span className={styles.noteAuthor}>{note.author}</span>
+                                  <p>{note.content}</p>
+                                  <span className={styles.noteTime}>{new Date(note.time).toLocaleString()}</span>
+                               </div>
+                            ))}
                          </div>
                          <div className={styles.noteInputArea}>
                             <textarea 
                               placeholder="Add an internal note..." 
-                              value={note}
-                              onChange={(e) => setNote(e.target.value)}
+                              value={noteContent}
+                              onChange={(e) => setNoteContent(e.target.value)}
                             />
-                            <button className={styles.noteSendBtn}><Send size={16} /></button>
+                            <button className={styles.noteSendBtn} onClick={handleAddNote}><Send size={16} /></button>
                          </div>
                       </section>
                    </div>
@@ -342,39 +258,39 @@ export default function SubmissionsPage() {
                          <div className={styles.controlItem}>
                             <label>Status</label>
                             <select 
-                              value={selectedSubmission.status}
-                              onChange={(e) => handleUpdateStatus(selectedSubmission.id, e.target.value)}
+                              value={detail.status}
+                              onChange={(e) => handleUpdateStatus(detail.id, e.target.value)}
                             >
-                               {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                               <option value="OPEN">Open</option>
+                               <option value="IN_PROGRESS">In Progress</option>
+                               <option value="RESOLVED">Resolved</option>
+                               <option value="ARCHIVED">Archived</option>
                             </select>
-</div>
+                         </div>
 
                           {currentRole !== 'DEPARTMENT_ADMIN' && (
                           <div className={styles.controlItem}>
                              <label>Assign Department</label>
                              <select 
-                               value={selectedSubmission.department}
-                               onChange={(e) => handleAssignDept(selectedSubmission.id, e.target.value)}
+                               value={typeof detail.department === 'string' ? detail.department : (detail.department as any)?.id}
+                               onChange={(e) => handleAssignDept(detail.id, e.target.value)}
                              >
-                                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                                <option value="">Select Dept</option>
+                                {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                              </select>
                           </div>
                           )}
                        </div>
-
-                      <div className={styles.dangerZone}>
-                        <button className={styles.archiveBtn}>
-                          <Trash2 size={16} />
-                          Archive Submission
-                        </button>
-                      </div>
                    </div>
                 </div>
              </div>
 
              <div className={styles.modalActions}>
-                <button className={styles.cancelBtn} onClick={() => setSelectedSubmission(null)}>Close</button>
-                <button className={styles.createButton}>
+                <button className={styles.cancelBtn} onClick={() => setSelectedUuid(null)}>Close</button>
+                <button 
+                  className={styles.createButton}
+                  onClick={() => handleUpdateStatus(detail.id, 'RESOLVED')}
+                >
                    <CheckCircle2 size={18} />
                    Mark as Resolved
                 </button>

@@ -21,132 +21,95 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
-
-// Mock Data
-const MOCK_LOCATIONS = [
-  { id: "abuja", name: "Abuja International Airport" },
-  { id: "lagos", name: "Lagos Murtala Muhammed" },
-  { id: "kano", name: "Kano Mallam Aminu" },
-  { id: "port-harcourt", name: "Port Harcourt Intl" },
-  { id: "enugu", name: "Enugu Airport" },
-];
-
-const INITIAL_FORMS = [
-  { id: "form-001", name: "Passenger Feedback", type: "Feedback" },
-  { id: "form-002", name: "Airport Cleanliness Survey", type: "Feedback" },
-  { id: "form-003", name: "Security Complaint Form", type: "Complaint" },
-  { id: "form-004", name: "Baggage Incident Report", type: "Incident" },
-];
-
-const INITIAL_TOUCHPOINTS = [
-  { id: "tp-071dau", name: "Restroom Feedback - T1", location: "Abuja International Airport", type: "Feedback", status: "Active", interactions: 1250 },
-  { id: 2, name: "Security Complaint - Gate 4", location: "Lagos Murtala Muhammed", type: "Complaint", status: "Inactive", interactions: 450 },
-  { id: 3, name: "Baggage Incident - Arrival", location: "Abuja International Airport", type: "Incident", status: "Active", interactions: 120 },
-  { id: 4, name: "Lounge satisfaction - VIP", location: "Abuja International Airport", type: "Feedback", status: "Active", interactions: 890 },
-];
-
-// Mock Submissions Data
-const MOCK_SUBMISSIONS: any = {
-  "tp-071dau": [
-    { 
-      id: "sub-1", 
-      user: "Anonymous", 
-      timestamp: "2024-04-14 10:20 AM", 
-      rating: 5,
-      data: { "rating": 5, "comment": "Excellent service at the check-in counter!" }
-    },
-    { 
-      id: "sub-2", 
-      user: "John Doe", 
-      timestamp: "2024-04-14 11:45 AM", 
-      rating: 2,
-      data: { "rating": 2, "comment": "Long wait time at security.", "name": "John Doe", "email": "john@example.com" }
-    }
-  ]
-};
+import { 
+  useTouchpoints, 
+  useCreateTouchpoint, 
+  useUpdateTouchpoint, 
+  useArchiveTouchpoint,
+  useDownloadQr
+} from "@/hooks/useTouchpoints";
+import { useLocations } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
+import { TouchpointType, Touchpoint, Location, Department } from "@/types/api";
 
 export default function TouchpointsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
-  const [touchpoints, setTouchpoints] = useState(INITIAL_TOUCHPOINTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [origin, setOrigin] = useState("");
   const [showQrPreview, setShowQrPreview] = useState(false);
-  const [currentTouchpoint, setCurrentTouchpoint] = useState<any>(null);
+  const [currentTouchpoint, setCurrentTouchpoint] = useState<Touchpoint | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState("");
-  const [tempLocation, setTempLocation] = useState("");
+  const [selectedLocId, setSelectedLocId] = useState("");
+  const [tempLocId, setTempLocId] = useState("");
 
-  // Submission State
-  const [showResponses, setShowResponses] = useState(false);
-  const [activeResponses, setActiveResponses] = useState<any[]>([]);
-  const [selectedResponse, setSelectedResponse] = useState<any>(null);
+  // Queries
+  const { data: tpData, isLoading: tpLoading } = useTouchpoints({
+    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : (selectedLocId || undefined)) || undefined
+  });
 
-  const handleViewResponses = (tp: any) => {
-    setActiveResponses(MOCK_SUBMISSIONS[tp.id] || []);
-    setShowResponses(true);
-    setCurrentTouchpoint(tp);
-  };
+  // Fetch touchpoints to use as form templates (as per migration guide)
+  const { data: formsData } = useTouchpoints();
+
+  const { data: locationsData } = useLocations();
+  const { data: deptsData } = useDepartments({ 
+    locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || undefined) : (selectedLocId || undefined) 
+  });
+
+
+  // Mutations
+  const createMutation = useCreateTouchpoint();
+  const updateMutation = useUpdateTouchpoint();
+  const archiveMutation = useArchiveTouchpoint();
+  const { mutate: downloadQr } = useDownloadQr();
 
   // Form Builder State
   const [newTouchpoint, setNewTouchpoint] = useState({
     title: "",
     location: "",
-    department: "",
-    type: "Feedback",
-    template: "Standard Survey"
+    departmentId: "",
+    type: TouchpointType.FEEDBACK,
+    templateId: ""
   });
-
-  const [formFields, setFormFields] = useState<any[]>([
-    { id: 1, type: "rating", label: "Overall Experience", required: true }
-  ]);
 
   useEffect(() => {
     setOrigin(window.location.origin);
   }, []);
 
-  const addField = (type: string) => {
-    const newField = {
-      id: Date.now(),
-      type: type,
-      label: type === "rating" ? "Rate your experience" : `New ${type} question`,
-      required: true,
-      options: type === "select" ? ["Option 1", "Option 2"] : undefined
-    };
-    setFormFields([...formFields, newField]);
-  };
-
-  const removeField = (id: number) => {
-    setFormFields(formFields.filter(f => f.id !== id));
-  };
-
-  const updateField = (id: number, updates: any) => {
-    setFormFields(formFields.map(f => f.id === id ? { ...f, ...updates } : f));
-  };
-
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    const created = {
-      id: touchpoints.length + 1,
-      name: newTouchpoint.title,
-      location: newTouchpoint.location,
+    createMutation.mutate({
+      title: newTouchpoint.title,
+      description: "",
       type: newTouchpoint.type,
-      status: "Active",
-      interactions: 0,
-      config: formFields
-    };
-    setTouchpoints([created, ...touchpoints]);
-    setIsModalOpen(false);
-    setWizardStep(1);
-    setFormFields([{ id: 1, type: "rating", label: "Overall Experience", required: true }]);
-    setNewTouchpoint({ title: "", location: "", department: "", type: "Feedback", template: "Standard Survey" });
+      departmentId: newTouchpoint.departmentId,
+      locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : selectedLocId,
+      formConfig: [] // Default empty form config
+    }, {
+      onSuccess: () => {
+        setIsModalOpen(false);
+        setWizardStep(1);
+        setNewTouchpoint({ title: "", location: "", departmentId: "", type: TouchpointType.FEEDBACK, templateId: "" });
+      }
+    });
   };
 
-  const toggleStatus = (id: any) => {
-    setTouchpoints(touchpoints.map(tp => 
-      tp.id === id ? { ...tp, status: tp.status === "Active" ? "Inactive" : "Active" } : tp
-    ));
+  const toggleStatus = (id: string, currentStatus: boolean) => {
+    updateMutation.mutate({ 
+      uuid: id, 
+      data: { isActive: !currentStatus }
+    });
+  };
+
+  const touchpoints = tpData?.data || [];
+  const locations = locationsData?.data || [];
+  const departments = deptsData?.data || [];
+  const forms = formsData?.data || [];
+
+  const getSelectedLocationName = () => {
+    if (currentRole === 'LOCATION_ADMIN') return roleLocationName;
+    return locations.find(l => l.id === selectedLocId)?.name || "Selected Location";
   };
 
   const generatedId = `tp-${Math.random().toString(36).substr(2, 6)}`;
@@ -162,7 +125,7 @@ export default function TouchpointsPage() {
         </div>
         <button className={styles.createButton} onClick={() => {
           if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
-            setSelectedLocation(roleLocationName || currentLocation);
+            setSelectedLocId(currentLocation);
             setIsModalOpen(true);
             setWizardStep(1);
           } else {
@@ -206,15 +169,15 @@ export default function TouchpointsPage() {
             </tr>
           </thead>
           <tbody>
-            {touchpoints.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase())).map((tp) => (
+            {touchpoints.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase())).map((tp) => (
               <tr key={tp.id}>
                 <td>
                   <div className={styles.nameCell}>
-                    <span className={styles.tpName}>{tp.name}</span>
-                    <span className={styles.tpId}>ID: TP-00{tp.id}</span>
+                    <span className={styles.tpName}>{tp.title}</span>
+                    <span className={styles.tpId}>ID: {tp.id.substring(0, 8).toUpperCase()}</span>
                   </div>
                 </td>
-                <td>{tp.location}</td>
+                <td>{tp.location?.name || tp.locationId}</td>
                 <td>
                   <span className={`${styles.typeTag} ${styles[tp.type.toLowerCase()]}`}>
                     {tp.type}
@@ -222,20 +185,23 @@ export default function TouchpointsPage() {
                 </td>
                 <td>
                   <div className={styles.statusCell}>
-                    <div className={`${styles.statusDot} ${tp.status === "Active" ? styles.green : styles.gray}`} />
-                    <span>{tp.status}</span>
+                    <div className={`${styles.statusDot} ${tp.isActive ? styles.green : styles.gray}`} />
+                    <span>{tp.isActive ? "ACTIVE" : "INACTIVE"}</span>
                   </div>
                 </td>
-                <td>{tp.interactions.toLocaleString()}</td>
+                <td>{tp.interactions || 0}</td>
                 <td className={styles.textRight}>
                   <div className={styles.actionButtons}>
-                    <button className={styles.actionIcon} title="View QR" onClick={() => setShowQrPreview(true)}><QrCode size={18} /></button>
-                    <button className={styles.actionIcon} title="Download"><Download size={18} /></button>
+                    <button className={styles.actionIcon} title="View QR" onClick={() => {
+                       setCurrentTouchpoint(tp);
+                       setShowQrPreview(true);
+                    }}><QrCode size={18} /></button>
+                    <button className={styles.actionIcon} title="Download" onClick={() => downloadQr(tp.id)}><Download size={18} /></button>
                     <button className={styles.actionIcon} title="Edit"><Edit size={18} /></button>
                     <button 
-                      className={`${styles.actionIcon} ${styles.disableIcon} ${tp.status === "Inactive" ? styles.disabled : ""}`} 
-                      title={tp.status === "Active" ? "Disable" : "Enable"}
-                      onClick={() => toggleStatus(tp.id)}
+                      className={`${styles.actionIcon} ${styles.disableIcon} ${!tp.isActive ? styles.disabled : ""}`} 
+                      title={tp.isActive ? "Disable" : "Enable"}
+                      onClick={() => toggleStatus(tp.id, tp.isActive)}
                     >
                       <Power size={18} />
                     </button>
@@ -282,7 +248,7 @@ export default function TouchpointsPage() {
                     gap: "8px"
                   }}>
                     <MapPin size={16} style={{ color: "#16a34a" }} />
-                    <span style={{ color: "#166534", fontWeight: 500 }}>Creating touchpoint for: {selectedLocation}</span>
+                    <span style={{ color: "#166534", fontWeight: 500 }}>Creating touchpoint for: {getSelectedLocationName()}</span>
                   </div>
                   <div className={styles.formGrid}>
                     <div className={styles.formGroup}>
@@ -305,7 +271,7 @@ export default function TouchpointsPage() {
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>Touchpoint Location</label>
-                        <span className={styles.fieldDesc}>The specific area within the {selectedLocation}.</span>
+                        <span className={styles.fieldDesc}>The specific area within the {getSelectedLocationName()}.</span>
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <MapPin size={18} />
@@ -327,14 +293,13 @@ export default function TouchpointsPage() {
                       <div className={styles.modalInputWrapper}>
                         <Briefcase size={18} />
                         <select 
-                          value={newTouchpoint.department}
-                          onChange={(e) => setNewTouchpoint({...newTouchpoint, department: e.target.value})}
+                          value={newTouchpoint.departmentId}
+                          onChange={(e) => setNewTouchpoint({...newTouchpoint, departmentId: e.target.value})}
                         >
                           <option value="">Select Department</option>
-                          <option value="Operations">Operations</option>
-                          <option value="Security">Security</option>
-                          <option value="Maintenance">Maintenance</option>
-                          <option value="Facilities">Facilities</option>
+                          {departments.map(d => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
@@ -347,15 +312,17 @@ export default function TouchpointsPage() {
                       <div className={styles.modalInputWrapper}>
                         <Layers size={18} />
                         <select 
-                          value={newTouchpoint.type}
+                          value={newTouchpoint.templateId}
                           onChange={(e) => {
-                            const form = INITIAL_FORMS.find(f => f.id === e.target.value);
-                            setNewTouchpoint({...newTouchpoint, type: form?.type || "Feedback"});
+                            const form = forms.find((f: Touchpoint) => f.id === e.target.value);
+                            if (form) {
+                              setNewTouchpoint({...newTouchpoint, templateId: form.id, type: form.type});
+                            }
                           }}
                         >
                           <option value="">Select a Form</option>
-                          {INITIAL_FORMS.map(form => (
-                            <option key={form.id} value={form.id}>{form.name} ({form.type})</option>
+                          {forms.map((form: Touchpoint) => (
+                            <option key={form.id} value={form.id}>{form.title} ({form.type})</option>
                           ))}
                         </select>
                       </div>
@@ -375,16 +342,16 @@ export default function TouchpointsPage() {
                     <div className={styles.reviewSummary}>
                       <div className={styles.summaryItem}><strong>Name:</strong> {newTouchpoint.title}</div>
                       <div className={styles.summaryItem}><strong>Location:</strong> {newTouchpoint.location}</div>
-                      <div className={styles.summaryItem}><strong>Department:</strong> {newTouchpoint.department}</div>
-                      <div className={styles.summaryItem}><strong>Form:</strong> {INITIAL_FORMS.find(f => f.id === newTouchpoint.type)?.name || newTouchpoint.type}</div>
+                      <div className={styles.summaryItem}><strong>Department:</strong> {departments.find((d: Department) => d.id === newTouchpoint.departmentId)?.name}</div>
+                      <div className={styles.summaryItem}><strong>Form:</strong> {forms.find((f: Touchpoint) => f.id === newTouchpoint.templateId)?.title || newTouchpoint.type}</div>
                     </div>
                     <div className={styles.previewGrid}>
                       <div className={styles.previewItem}>
                         <span className={styles.previewLabel}>Access Link (Live)</span>
-                        <a href={dynamicLink} target="_blank" className={styles.previewLink} onClick={(e) => e.stopPropagation()}>
-                          <span>{dynamicLink.length > 30 ? dynamicLink.substring(0, 27) + "..." : dynamicLink}</span>
+                        <div className={styles.previewLink}>
+                          <span>{origin}/p/{newTouchpoint.title.toLowerCase().replace(/\s+/g, '-')}</span>
                           <ExternalLink size={14} />
-                        </a>
+                        </div>
                       </div>
                       <div className={styles.previewItem}>
                         <span className={styles.previewLabel}>QR Code</span>
@@ -414,7 +381,7 @@ export default function TouchpointsPage() {
                   type="button" 
                   className={styles.submitBtn} 
                   onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={!newTouchpoint.title || !newTouchpoint.location || !newTouchpoint.department || !newTouchpoint.type}
+                  disabled={!newTouchpoint.title || !newTouchpoint.location || !newTouchpoint.departmentId || !newTouchpoint.type}
                 >
                   Continue to Review
                 </button>
@@ -445,8 +412,8 @@ export default function TouchpointsPage() {
                   Airport Location
                 </label>
                 <select
-                  value={tempLocation}
-                  onChange={(e) => setTempLocation(e.target.value)}
+                  value={tempLocId}
+                  onChange={(e) => setTempLocId(e.target.value)}
                   style={{
                     width: "100%",
                     padding: "12px 16px",
@@ -458,29 +425,29 @@ export default function TouchpointsPage() {
                   }}
                 >
                   <option value="">Select an airport</option>
-                  {MOCK_LOCATIONS.map((loc) => (
-                    <option key={loc.id} value={loc.name}>{loc.name}</option>
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
                   ))}
                 </select>
               </div>
               <button
                 onClick={() => {
-                  setSelectedLocation(tempLocation);
+                  setSelectedLocId(tempLocId);
                   setShowLocationPicker(false);
                   setIsModalOpen(true);
                   setWizardStep(1);
                 }}
-                disabled={!tempLocation}
+                disabled={!tempLocId}
                 style={{
                   width: "100%",
                   padding: "12px",
-                  background: tempLocation ? "#2563eb" : "#94a3b8",
+                  background: tempLocId ? "#2563eb" : "#94a3b8",
                   color: "white",
                   border: "none",
                   borderRadius: "8px",
                   fontSize: "15px",
                   fontWeight: 600,
-                  cursor: tempLocation ? "pointer" : "not-allowed",
+                  cursor: tempLocId ? "pointer" : "not-allowed",
                 }}
               >
                 Confirm
@@ -499,7 +466,7 @@ export default function TouchpointsPage() {
             <div className={styles.fullQrWrapper}>
               <div className={styles.qrBackground}>
                 <QRCodeSVG 
-                  value={dynamicLink} 
+                  value={`${origin}/p/${currentTouchpoint?.uuid || 'sample'}`} 
                   size={200} 
                   includeMargin={true}
                   level="H" 
@@ -513,12 +480,12 @@ export default function TouchpointsPage() {
                 />
               </div>
               <div className={styles.qrInfo}>
-                <p className={styles.qrLinkText}>{dynamicLink}</p>
+                <p className={styles.qrLinkText}>{origin}/p/{currentTouchpoint?.uuid || 'sample'}</p>
                 <span className={styles.qrScanHint}>Scan to test this touchpoint</span>
               </div>
             </div>
             <div className={styles.previewActions}>
-              <button className={styles.downloadBtn} onClick={() => alert("Downloading QR Code...")}>
+              <button className={styles.downloadBtn} onClick={() => currentTouchpoint && downloadQr(currentTouchpoint.uuid)}>
                 <Download size={18} />
                 Download PNG
               </button>
