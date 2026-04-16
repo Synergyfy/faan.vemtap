@@ -21,6 +21,7 @@ import {
 import styles from "../../Dashboard.module.css";
 import Image from "next/image";
 import { MOCK_LOCATIONS } from "@/data/mockLocations";
+import { useRole } from "@/context/RoleContext";
 
 const INITIAL_DEPARTMENTS = [
   { 
@@ -86,6 +87,7 @@ const INITIAL_DEPARTMENTS = [
 ];
 
 export default function DepartmentsPage() {
+  const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const [departments, setDepartments] = useState(INITIAL_DEPARTMENTS);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedDept, setSelectedDept] = useState<any>(null);
@@ -215,7 +217,13 @@ export default function DepartmentsPage() {
           <h2 className={styles.pageTitle}>Departments Management</h2>
           <p className={styles.pageSubtitle}>Organize FAAN personnel and operational responsibilities.</p>
         </div>
-        <button className={styles.createButton} onClick={() => setIsAddModalOpen(true)}>
+        <button className={styles.createButton} onClick={() => {
+            if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
+              const location = MOCK_LOCATIONS.find(l => l.id === currentLocation);
+              setNewDept({ ...newDept, locationId: currentLocation, locationName: location?.name || '' });
+            }
+            setIsAddModalOpen(true);
+          }}>
           <Plus size={18} />
           <span>Create Department</span>
         </button>
@@ -350,29 +358,41 @@ export default function DepartmentsPage() {
                         </div>
                       </div>
 
-                      <div className={styles.formGroup}>
-                        <div className={styles.labelGroup}>
-                           <label className={styles.formLabel}>Assign Location *</label>
-                           <span className={styles.fieldDesc}>Which airport does this department belong to?</span>
-                        </div>
-                        <div className={styles.modalInputWrapper}>
-                           <Plus size={18} />
-                           <select 
-                            value={newDept.locationId}
-                            onChange={(e) => handleLocationChange(e.target.value)}
-                           >
-                             {MOCK_LOCATIONS.map(loc => (
-                               <option key={loc.id} value={loc.id}>{loc.name}</option>
-                             ))}
-                           </select>
-                        </div>
-                      </div>
-
-                      <div className={styles.formGroup}>
-                        <div className={styles.labelGroup}>
-                           <label className={styles.formLabel}>Operations Charter</label>
-                           <span className={styles.fieldDesc}>Summarize the core responsibility of this unit.</span>
-                        </div>
+<div className={styles.formGroup}>
+                         <div className={styles.labelGroup}>
+                            <label className={styles.formLabel}>
+                              {currentRole === 'LOCATION_ADMIN' ? 'Location (Auto-assigned)' : 'Assign to this Location *'}
+                            </label>
+                            <span className={styles.fieldDesc}>
+                              {currentRole === 'LOCATION_ADMIN' ? 'This department will be created for your airport.' : 'Which airport does this department belong to?'}
+                            </span>
+                         </div>
+                         <div className={styles.modalInputWrapper}>
+                            <Plus size={18} />
+                            {currentRole === 'LOCATION_ADMIN' ? (
+                              <input 
+                                type="text" 
+                                value={roleLocationName || currentLocation || ''} 
+                                disabled 
+                                style={{ background: "#f1f5f9", cursor: "not-allowed" }}
+                              />
+                            ) : (
+                              <select 
+                                value={newDept.locationId}
+                                onChange={(e) => handleLocationChange(e.target.value)}
+                              >
+                                {MOCK_LOCATIONS.map(loc => (
+                                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                ))}
+                              </select>
+                            )}
+                         </div>
+</div>
+                       <div className={styles.formGroup}>
+                         <div className={styles.labelGroup}>
+                            <label className={styles.formLabel}>Operations Charter</label>
+                            <span className={styles.fieldDesc}>Summarize the core responsibility of this unit.</span>
+                         </div>
                         <textarea 
                           placeholder="e.g. Responsible for passenger inquiries..." 
                           value={newDept.responsibility}

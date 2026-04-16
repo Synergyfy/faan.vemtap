@@ -113,6 +113,9 @@ export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<InternalReport | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterDepartment, setFilterDepartment] = useState<string>("all");
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("");
+  const [filterDateTo, setFilterDateTo] = useState<string>("");
   
   const [isCreateTemplateOpen, setIsCreateTemplateOpen] = useState(false);
   const [isSubmitReportOpen, setIsSubmitReportOpen] = useState(false);
@@ -243,6 +246,11 @@ export default function ReportsPage() {
   const filteredReports = reports.filter(report => {
     if (searchTerm && !report.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filterStatus !== 'all' && report.status !== filterStatus) return false;
+    if (currentRole === 'LOCATION_ADMIN') {
+      if (filterDepartment !== 'all' && report.departmentId !== filterDepartment) return false;
+      if (filterDateFrom && new Date(report.date) < new Date(filterDateFrom)) return false;
+      if (filterDateTo && new Date(report.date) > new Date(filterDateTo)) return false;
+    }
     return true;
   });
 
@@ -298,7 +306,7 @@ export default function ReportsPage() {
           />
         </div>
         {activeView === 'reports' && (
-          <div className={styles.filterGroup}>
+          <div className={styles.filterGroup} style={{ display: 'flex', flexDirection: 'row', gap: '8px', flexWrap: 'wrap' }}>
             <select 
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
@@ -310,6 +318,38 @@ export default function ReportsPage() {
               <option value="submitted">Submitted</option>
               <option value="reviewed">Reviewed</option>
             </select>
+            {currentRole === 'LOCATION_ADMIN' && (
+              <>
+                <select 
+                  value={filterDepartment}
+                  onChange={(e) => setFilterDepartment(e.target.value)}
+                  className={styles.filterButton}
+                  style={{ width: 'auto' }}
+                >
+                  <option value="all">All Departments</option>
+                  <option value="operations">Operations</option>
+                  <option value="security">Security</option>
+                  <option value="facilities">Facilities</option>
+                  <option value="customer-service">Customer Service</option>
+                </select>
+                <input 
+                  type="date" 
+                  value={filterDateFrom}
+                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  className={styles.filterButton}
+                  style={{ width: 'auto', padding: '8px 12px' }}
+                  placeholder="From Date"
+                />
+                <input 
+                  type="date" 
+                  value={filterDateTo}
+                  onChange={(e) => setFilterDateTo(e.target.value)}
+                  className={styles.filterButton}
+                  style={{ width: 'auto', padding: '8px 12px' }}
+                  placeholder="To Date"
+                />
+              </>
+            )}
           </div>
         )}
       </div>

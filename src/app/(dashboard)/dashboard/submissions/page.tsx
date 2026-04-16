@@ -178,8 +178,8 @@ export default function SubmissionsPage() {
             <tr>
               <th>ID</th>
               <th>Type</th>
-              <th>Location</th>
-              <th>Department</th>
+              <th>Location Area</th>
+              {currentRole !== 'DEPARTMENT_ADMIN' && <th>Department</th>}
               <th>Status</th>
               <th>Date</th>
               <th className={styles.textRight}>Actions</th>
@@ -206,12 +206,14 @@ export default function SubmissionsPage() {
                     <span>{sub.location}</span>
                   </div>
                 </td>
+                {currentRole !== 'DEPARTMENT_ADMIN' && (
                 <td>
                   <div className={styles.deptCell}>
                     <Shield size={14} className={styles.deptIcon} />
                     <span>{sub.department}</span>
                   </div>
                 </td>
+                )}
                 <td>
                   <span className={`${styles.statusBadge} ${styles[sub.status.toLowerCase().replace(" ", "")]}`}>
                     {sub.status}
@@ -345,18 +347,20 @@ export default function SubmissionsPage() {
                             >
                                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
-                         </div>
+</div>
 
-                         <div className={styles.controlItem}>
-                            <label>Assign Department</label>
-                            <select 
-                              value={selectedSubmission.department}
-                              onChange={(e) => handleAssignDept(selectedSubmission.id, e.target.value)}
-                            >
-                               {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                            </select>
-                         </div>
-                      </div>
+                          {currentRole !== 'DEPARTMENT_ADMIN' && (
+                          <div className={styles.controlItem}>
+                             <label>Assign Department</label>
+                             <select 
+                               value={selectedSubmission.department}
+                               onChange={(e) => handleAssignDept(selectedSubmission.id, e.target.value)}
+                             >
+                                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                             </select>
+                          </div>
+                          )}
+                       </div>
 
                       <div className={styles.dangerZone}>
                         <button className={styles.archiveBtn}>
