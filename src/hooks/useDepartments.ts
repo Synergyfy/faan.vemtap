@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ApiResponse, PaginatedResponse, Department } from '@/types/api';
 
-export const useDepartments = (params?: Record<string, unknown>) => {
+export const useDepartments = (params?: Record<string, unknown>, options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['departments', params],
     queryFn: async () => {
       const { data } = await api.get<ApiResponse<PaginatedResponse<Department>>>('/departments', { params });
       return data.data;
     },
+    ...options,
   });
 };
 

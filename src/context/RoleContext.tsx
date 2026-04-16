@@ -10,6 +10,7 @@ import {
   ROLE_DESCRIPTIONS 
 } from '@/types/rbac';
 import { useProfile } from '@/hooks/useAuth';
+import { useAuthContext } from '@/context/AuthContext';
 import { useLocations } from '@/hooks/useLocations';
 import { useDepartments } from '@/hooks/useDepartments';
 import { Location, Department } from '@/types/api';
@@ -43,9 +44,10 @@ interface RoleProviderProps {
 }
 
 export function RoleProvider({ children }: RoleProviderProps) {
+  const { isAuthenticated } = useAuthContext();
   const { data: profile, isLoading: profileLoading } = useProfile();
-  const { data: locationsData, isLoading: locationsLoading } = useLocations();
-  const { data: deptsData, isLoading: deptsLoading } = useDepartments();
+  const { data: locationsData, isLoading: locationsLoading } = useLocations(undefined, { enabled: isAuthenticated });
+  const { data: deptsData, isLoading: deptsLoading } = useDepartments(undefined, { enabled: isAuthenticated });
 
   const [currentRole, setCurrentRole] = useState<UserRole>(UserRole.SUPER_ADMIN);
   const [currentLocation, setCurrentLocation] = useState<string | null>(null);
