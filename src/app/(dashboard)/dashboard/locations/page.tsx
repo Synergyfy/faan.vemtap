@@ -16,87 +16,24 @@ import {
   Plus,
   X,
   Trash2,
-  Edit
+  Edit,
+  Globe,
+  CheckCircle,
+  Building
 } from "lucide-react";
+import Image from "next/image";
 import styles from "../../Dashboard.module.css";
 import RoleGuard from "@/components/auth/RoleGuard";
 import { UserRole } from "@/types/rbac";
 import { useRole } from "@/context/RoleContext";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
-
-interface Terminal {
-  id: string;
-  name: string;
-  zones: { id: string; name: string; status: string; interactions?: number; satisfaction?: number; issues?: number; topComplaint?: string; }[];
-}
-
-interface Admin {
-  name: string;
-  email: string;
-  role: UserRole;
-}
-
-interface LocationData {
-  id: string;
-  name: string;
-  type: string;
-  address: string;
-  terminals: Terminal[];
-  admins?: Admin[];
-}
-
-const INITIAL_LOCATIONS: LocationData[] = [
-  {
-    id: "abuja",
-    name: "Abuja International Airport",
-    type: "International",
-    address: "Abuja, Nigeria",
-    admins: [],
-    terminals: [
-      {
-        id: "abv-t1",
-        name: "Terminal 1",
-        zones: [
-          { id: "abv-t1-g1", name: "Departure Gate A", interactions: 120, satisfaction: 4.8, issues: 2, topComplaint: "Seating", status: "green" },
-          { id: "abv-t1-l1", name: "VIP Lounge", interactions: 45, satisfaction: 4.9, issues: 0, topComplaint: "None", status: "green" },
-          { id: "abv-t1-r1", name: "Restroom - East Wing", interactions: 230, satisfaction: 3.2, issues: 8, topComplaint: "Cleanliness", status: "red" },
-        ]
-      },
-      {
-        id: "abv-t2",
-        name: "Terminal 2",
-        zones: [
-          { id: "abv-t2-s1", name: "Security Area", interactions: 500, satisfaction: 4.1, issues: 5, topComplaint: "Wait Time", status: "yellow" },
-        ]
-      }
-    ]
-  },
-  {
-    id: "lagos",
-    name: "Lagos Murtala Muhammed",
-    type: "International",
-    address: "Lagos, Nigeria",
-    admins: [],
-    terminals: [
-      {
-        id: "los-intl",
-        name: "International Terminal",
-        zones: [
-          { id: "los-intl-g1", name: "Gate 1", interactions: 300, satisfaction: 4.5, issues: 3, topComplaint: "Staff", status: "green" },
-          { id: "los-intl-b1", name: "Baggage Area", interactions: 600, satisfaction: 3.8, issues: 12, topComplaint: "Baggage Delay", status: "yellow" },
-        ]
-      }
-    ]
-  }
-];
-
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
 import { useCreateUser } from "@/hooks/useUsers";
 import { Location, Department, Role } from "@/types/api";
 
 export default function LocationsPage() {
-  const { currentRole, currentLocation, hasAccessToLocation } = useRole();
+  const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const { data: locationsData, isLoading } = useLocations();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [selectedZone, setSelectedZone] = useState<Department | null>(null);
@@ -104,6 +41,7 @@ export default function LocationsPage() {
   const [activeTooltip, setActiveTooltip] = useState<number | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const createMutation = useCreateLocation();
   const deleteMutation = useDeleteLocation();
@@ -144,14 +82,12 @@ export default function LocationsPage() {
       return;
     }
 
-    // Assign to first department of the location if available
     const departmentId = selectedLocation.departments?.[0]?.id;
     if (!departmentId) {
       toast.error("This location has no departments. Please create a department first before adding an admin.");
       return;
     }
 
-    // Split name into first and last
     const nameParts = newAdmin.name.trim().split(" ");
     const firstName = nameParts[0];
     const lastName = nameParts.slice(1).join(" ") || "Admin";
@@ -182,7 +118,6 @@ export default function LocationsPage() {
   };
 
   const handleCreateLocation = () => {
-    // Frontend Validation
     if (!newLocation.name.trim()) return toast.error("Location name is required");
     if (!newLocation.airportCode.trim()) return toast.error("Airport code is required");
     if (newLocation.airportCode.length > 10) return toast.error("Airport code must be 10 characters or less");
@@ -190,21 +125,19 @@ export default function LocationsPage() {
     const locationCode = newLocation.code.trim() || newLocation.airportCode.trim();
     if (!locationCode) return toast.error("Location code is required");
     
-    // Validate code: uppercase alphanumeric with underscores
     const codeRegex = /^[A-Z0-9_]+$/;
     if (!codeRegex.test(locationCode)) {
       return toast.error("Code must be uppercase alphanumeric with underscores (e.g., LOS_INTL)");
     }
 
-    if (!newLocation.state.trim()) return toast.error("State is required");
-    if (newLocation.state.length > 100) return toast.error("State must be 100 characters or less");
+    if (!newLocation.city.trim()) return toast.error("City is required");
 
     createMutation.mutate({
       name: newLocation.name,
       airportCode: newLocation.airportCode,
       city: newLocation.city,
-      state: newLocation.state,
-      address: newLocation.address,
+      state: newLocation.city, // Using city as state for fallback if not provided
+      address: newLocation.address || newLocation.city,
       code: locationCode,
     }, {
       onSuccess: () => {
@@ -225,20 +158,19 @@ export default function LocationsPage() {
     });
   };
 
-  const handleDeleteLocation = (id: string) => {
-    deleteMutation.mutate(id, {
-      onSuccess: () => {
-        if (selectedLocation?.id === id) setSelectedLocation(null);
-      }
-    });
-  };
-
   const filteredLocations = (currentRole === UserRole.SUPER_ADMIN 
     ? locations 
     : locations.filter((loc: Location) => loc.id === currentLocation)) as Location[];
 
+  const terminalFiltered = filteredLocations.filter(loc => 
+    !searchTerm || loc.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const totalLocations = locations.length;
+  const totalDepartments = locations.reduce((sum, loc) => sum + (loc.departments?.length || 0), 0);
+
   return (
-    <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN]}>
+    <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]}>
       <div className={styles.locationsLayout} onClick={() => setActiveTooltip(null)}>
         {/* LEFT PANEL - TREE VIEW */}
         <aside className={styles.treePanel} onClick={(e) => e.stopPropagation()}>
@@ -246,12 +178,17 @@ export default function LocationsPage() {
             <h3 className={styles.panelTitle}>Locations Tree</h3>
             <div className={styles.panelSearch}>
               <Search size={16} />
-              <input type="text" placeholder="Search locations..." />
+              <input 
+                type="text" 
+                placeholder="Search locations..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
           </div>
 
           <div className={styles.treeView}>
-            {filteredLocations.map((airport) => (
+            {terminalFiltered.map((airport) => (
               <div key={airport.id} className={styles.treeItem}>
                 <div 
                   className={`${styles.treeHeader} ${selectedLocation?.id === airport.id ? styles.selected : ""}`} 
@@ -273,7 +210,7 @@ export default function LocationsPage() {
                         <div 
                           className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
                           onClick={() => {
-                            setSelectedZone(dept as any); // Cast here if needed for state compatibility
+                            setSelectedZone(dept as any);
                             setSelectedLocation(airport);
                           }}
                         >
@@ -292,12 +229,82 @@ export default function LocationsPage() {
 
         {/* MAIN VIEW */}
         <main className={styles.locationMain} onClick={(e) => e.stopPropagation()}>
+          {/* Hero Section */}
+          <div className={styles.deptHero}>
+            <div className={styles.deptHeroMain}>
+              <div className={styles.deptHeroTitleRow}>
+                <div className={styles.deptHeroMark} aria-hidden="true">
+                  <Image src="/Faan.logo_.png" alt="" width={34} height={34} />
+                </div>
+                <div className={styles.deptHeroText}>
+                  <h2 className={styles.deptHeroTitle}>Locations Management</h2>
+                  <p className={styles.deptHeroSubtitle}>
+                    Manage airport locations, terminals, zones, and operational health across the entire FAAN network.
+                  </p>
+                </div>
+              </div>
+              <div className={styles.deptHeroPills}>
+                <span className={styles.deptPill}>
+                  <Globe size={14} />
+                  <span>System-Wide View</span>
+                </span>
+                <span className={styles.deptPillMuted}>
+                  <Building size={14} />
+                  <span>{currentRole === UserRole.SUPER_ADMIN ? "Super Admin Access" : "Location Admin Access"}</span>
+                </span>
+              </div>
+            </div>
+
+            <div className={styles.deptHeroActions}>
+              <button
+                className={styles.createButton}
+                onClick={() => setIsCreateModalOpen(true)}
+              >
+                <Plus size={18} />
+                <span>Add Location</span>
+              </button>
+              <p className={styles.deptHeroHint}>Register new airport locations.</p>
+            </div>
+          </div>
+
+          {/* Stats Grid top */}
+          <div className={styles.deptStatsGrid} aria-label="Locations summary">
+            <div className={styles.deptStatCard}>
+              <div className={styles.deptStatIcon} aria-hidden="true">
+                <Globe size={18} />
+              </div>
+              <div className={styles.deptStatBody}>
+                <div className={styles.deptStatLabel}>Total Locations</div>
+                <div className={styles.deptStatValue}>{totalLocations}</div>
+              </div>
+            </div>
+            <div className={styles.deptStatCard}>
+              <div className={styles.deptStatIcon} style={{ background: 'rgba(37, 99, 235, 0.12)', border: '1px solid rgba(37, 99, 235, 0.22)', color: '#2563eb' }} aria-hidden="true">
+                <Building2 size={18} />
+              </div>
+              <div className={styles.deptStatBody}>
+                <div className={styles.deptStatLabel}>Departments</div>
+                <div className={styles.deptStatValue}>{totalDepartments}</div>
+              </div>
+            </div>
+            <div className={styles.deptStatCard}>
+              <div className={styles.deptStatIcon} style={{ background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.22)', color: '#22c55e' }} aria-hidden="true">
+                <CheckCircle size={18} />
+              </div>
+              <div className={styles.deptStatBody}>
+                <div className={styles.deptStatLabel}>Active Zones</div>
+                <div className={styles.deptStatValue}>24</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Location Title */}
           <div className={styles.mainHeader}>
             <div>
               <h2 className={styles.locationTitle}>
-                {selectedLocation ? selectedLocation.name : "Locations Management"}
+                {selectedLocation ? selectedLocation.name : "All Locations"}
               </h2>
-              <p className={styles.locationPath}>FAA System / Locations {selectedLocation && `/ ${selectedLocation.name}`}</p>
+              <p className={styles.locationPath}>FAA Network / Locations {selectedLocation && `/ ${selectedLocation.name}`}</p>
             </div>
             <div style={{ display: 'flex', gap: '12px' }}>
               {selectedLocation && (
@@ -306,14 +313,10 @@ export default function LocationsPage() {
                   <span>Add Admin</span>
                 </button>
               )}
-              <button className={styles.filterButton} onClick={() => setIsCreateModalOpen(true)}>
-                <Plus size={18} />
-                <span>Create New Location</span>
-              </button>
             </div>
           </div>
 
-          {/* Stats Grid */}
+          {/* Stats Grid for Selected Zone */}
           {selectedZone && (
             <div className={styles.statsGrid}>
               <div className={styles.statCard}>
@@ -363,7 +366,7 @@ export default function LocationsPage() {
             <div className={styles.sectionHeader}>
               <div>
                 <h3 className={styles.sectionTitle}>Zone Status Heatmap</h3>
-                <p className={styles.sectionSubtitle}>Detailed health overview of all operational zones.</p>
+                <p className={styles.sectionSubtitle}>Real-time operational health across all zones.</p>
               </div>
               <div className={styles.legend}>
                 <div className={styles.legendItem}><span className={styles.green} /> Good</div>
@@ -420,27 +423,92 @@ export default function LocationsPage() {
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
-              <h3 className={styles.modalTitle}>Create New Location</h3>
-              <button className={styles.closeBtn} onClick={() => setIsCreateModalOpen(false)}><X size={20} /></button>
+              <div className={styles.modalTitleGroup}>
+                <span className={styles.wizardBadge}>New Entry</span>
+                <h3 className={styles.modalTitle}>Create New Location</h3>
+                <p className={styles.modalSubtitle}>Register a new airport in the FAAN network</p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setIsCreateModalOpen(false)}>
+                <X size={20} />
+              </button>
             </div>
             <form onSubmit={(e) => { e.preventDefault(); handleCreateLocation(); }}>
               <div className={styles.modalBody}>
                 <div className={styles.modalForm}>
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Location Name</label>
+                  <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Location Name *</label>
+                      <span className={styles.fieldDesc}>Full airport name</span>
+                    </div>
                     <div className={styles.modalInputWrapper}>
                       <Plane size={18} />
                       <input 
                         type="text" 
-                        placeholder="e.g. Lagos Airport"
+                        placeholder="e.g. Lagos Murtala Muhammed International Airport"
                         value={newLocation.name}
                         onChange={(e) => setNewLocation({...newLocation, name: e.target.value})}
                         required
                       />
                     </div>
                   </div>
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Location Code</label>
+
+                  <div className={styles.formGrid}>
+                    <div className={styles.formGroup}>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Airport Code *</label>
+                        <span className={styles.fieldDesc}>IATA code</span>
+                      </div>
+                      <div className={styles.modalInputWrapper}>
+                        <Globe size={18} />
+                        <input 
+                          type="text" 
+                          placeholder="e.g. LOS"
+                          value={newLocation.airportCode}
+                          onChange={(e) => setNewLocation({...newLocation, airportCode: e.target.value.toUpperCase()})}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>City *</label>
+                        <span className={styles.fieldDesc}>City name</span>
+                      </div>
+                      <div className={styles.modalInputWrapper}>
+                        <Building size={18} />
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Lagos"
+                          value={newLocation.city}
+                          onChange={(e) => setNewLocation({...newLocation, city: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Address *</label>
+                      <span className={styles.fieldDesc}>Full postal address</span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <MapPin size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Ikeja, Lagos, Nigeria"
+                        value={newLocation.address}
+                        onChange={(e) => setNewLocation({...newLocation, address: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Location Code</label>
+                      <span className={styles.fieldDesc}>Internal identifier (e.g. LOS_INTL)</span>
+                    </div>
                     <div className={styles.modalInputWrapper}>
                       <Building2 size={18} />
                       <input 
@@ -450,87 +518,15 @@ export default function LocationsPage() {
                         onChange={(e) => setNewLocation({...newLocation, code: e.target.value.toUpperCase()})}
                       />
                     </div>
-                    <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                      Uppercase alphanumeric with underscores. Defaults to Airport Code if empty.
-                    </p>
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Airport Code</label>
-                    <div className={styles.modalInputWrapper}>
-                      <Plane size={18} />
-                      <input 
-                        type="text" 
-                        placeholder="e.g. ABV"
-                        value={newLocation.airportCode}
-                        onChange={(e) => setNewLocation({...newLocation, airportCode: e.target.value.toUpperCase()})}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>City</label>
-                    <div className={styles.modalInputWrapper}>
-                      <Building2 size={18} />
-                      <input 
-                        type="text" 
-                        placeholder="e.g. Ikeja"
-                        value={newLocation.city}
-                        onChange={(e) => setNewLocation({...newLocation, city: e.target.value})}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>State</label>
-                    <div className={styles.modalInputWrapper}>
-                      <MapPin size={18} />
-                      <input 
-                        type="text" 
-                        placeholder="e.g. Lagos"
-                        value={newLocation.state}
-                        onChange={(e) => setNewLocation({...newLocation, state: e.target.value})}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Address</label>
-                    <div className={styles.modalInputWrapper}>
-                      <MapPin size={18} />
-                      <input 
-                        type="text" 
-                        placeholder="e.g. Murtala Muhammed International Airport"
-                        value={newLocation.address}
-                        onChange={(e) => setNewLocation({...newLocation, address: e.target.value})}
-                        required
-                      />
-                    </div>
                   </div>
                 </div>
               </div>
               <div className={styles.modalActions}>
-                <button 
-                  type="button" 
-                  className={styles.cancelBtn} 
-                  onClick={() => setIsCreateModalOpen(false)}
-                  disabled={createMutation.isPending}
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className={styles.createButton}
-                  disabled={createMutation.isPending}
-                  style={{ opacity: createMutation.isPending ? 0.7 : 1, cursor: createMutation.isPending ? 'not-allowed' : 'pointer' }}
-                >
-                  {createMutation.isPending ? 'Saving...' : 'Save Location'}
+                <button type="button" className={styles.cancelBtn} onClick={() => setIsCreateModalOpen(false)}>Cancel</button>
+                <button type="submit" className={styles.createButton} disabled={createMutation.isPending}>
+                  <CheckCircle size={18} /> {createMutation.isPending ? "Saving..." : "Save Location"}
                 </button>
               </div>
-
             </form>
           </div>
         </div>
@@ -541,19 +537,28 @@ export default function LocationsPage() {
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
-              <h3 className={styles.modalTitle}>Add Admin to {selectedLocation?.name}</h3>
-              <button className={styles.closeBtn} onClick={() => setIsAdminModalOpen(false)}><X size={20} /></button>
+              <div className={styles.modalTitleGroup}>
+                <span className={styles.wizardBadge}>User Management</span>
+                <h3 className={styles.modalTitle}>Add Admin to {selectedLocation?.name}</h3>
+                <p className={styles.modalSubtitle}>Create a new location administrator</p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setIsAdminModalOpen(false)}>
+                <X size={20} />
+              </button>
             </div>
             <form onSubmit={(e) => { e.preventDefault(); handleAddAdmin(); }}>
               <div className={styles.modalBody}>
                 <div className={styles.modalForm}>
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Name</label>
+                  <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Full Name *</label>
+                      <span className={styles.fieldDesc}>Administrator&apos;s full name</span>
+                    </div>
                     <div className={styles.modalInputWrapper}>
                       <Users size={18} />
                       <input 
                         type="text" 
-                        placeholder="Admin Name"
+                        placeholder="e.g. John Doe"
                         value={newAdmin.name}
                         onChange={(e) => setNewAdmin({...newAdmin, name: e.target.value})}
                         required
@@ -561,13 +566,16 @@ export default function LocationsPage() {
                     </div>
                   </div>
 
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Email</label>
+                  <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Email Address *</label>
+                      <span className={styles.fieldDesc}>Valid email for login</span>
+                    </div>
                     <div className={styles.modalInputWrapper}>
                       <Search size={18} />
                       <input 
                         type="email" 
-                        placeholder="admin@email.com"
+                        placeholder="admin@faan.gov.ng"
                         value={newAdmin.email}
                         onChange={(e) => setNewAdmin({...newAdmin, email: e.target.value})}
                         required
@@ -575,8 +583,11 @@ export default function LocationsPage() {
                     </div>
                   </div>
 
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Password</label>
+                  <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Password *</label>
+                      <span className={styles.fieldDesc}>Initial login password</span>
+                    </div>
                     <div className={styles.modalInputWrapper}>
                       <Filter size={18} />
                       <input 
@@ -590,7 +601,10 @@ export default function LocationsPage() {
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Role</label>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Role</label>
+                      <span className={styles.fieldDesc}>User access level</span>
+                    </div>
                     <div className={styles.modalInputWrapper}>
                       <Star size={18} />
                       <select 
@@ -604,14 +618,9 @@ export default function LocationsPage() {
                 </div>
               </div>
               <div className={styles.modalActions}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setIsAdminModalOpen(false)} disabled={createUserMutation.isPending}>Cancel</button>
-                <button 
-                  type="submit" 
-                  className={styles.createButton}
-                  disabled={createUserMutation.isPending}
-                  style={{ opacity: createUserMutation.isPending ? 0.7 : 1, cursor: createUserMutation.isPending ? 'not-allowed' : 'pointer' }}
-                >
-                  {createUserMutation.isPending ? 'Saving...' : 'Save Admin'}
+                <button type="button" className={styles.cancelBtn} onClick={() => setIsAdminModalOpen(false)}>Cancel</button>
+                <button type="submit" className={styles.createButton} disabled={createUserMutation.isPending}>
+                  <Users size={18} /> {createUserMutation.isPending ? "Creating..." : "Create Admin"}
                 </button>
               </div>
             </form>

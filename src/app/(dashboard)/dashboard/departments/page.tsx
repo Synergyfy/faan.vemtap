@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Plus,
-  Search,
-  Users,
-  MousePointer2,
-  Shield,
+import { useState, type CSSProperties } from "react";
+import { 
+  Plus, 
+  Search, 
+  Users, 
+  MousePointer2, 
+  Shield, 
   MoreVertical,
   X,
   User,
@@ -17,7 +17,9 @@ import {
   Box,
   Edit,
   Trash2,
-  MapPin
+  MapPin,
+  Building2,
+  Layers3
 } from "lucide-react";
 import { Department } from "@/types/api";
 
@@ -53,6 +55,23 @@ import {
 import { useLocations } from "@/hooks/useLocations";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+
+const DEPT_ACCENTS = [
+  { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
+  { bg: "rgba(37, 99, 235, 0.12)", fg: "#2563eb", ring: "rgba(37, 99, 235, 0.22)" },
+  { bg: "rgba(124, 58, 237, 0.12)", fg: "#7c3aed", ring: "rgba(124, 58, 237, 0.22)" },
+  { bg: "rgba(217, 119, 6, 0.14)", fg: "#d97706", ring: "rgba(217, 119, 6, 0.24)" },
+  { bg: "rgba(219, 39, 119, 0.12)", fg: "#db2777", ring: "rgba(219, 39, 119, 0.22)" },
+] as const;
+
+function hashToIndex(input: string, modulo: number) {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash) % modulo;
+}
 
 export default function DepartmentsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
@@ -163,6 +182,27 @@ export default function DepartmentsPage() {
 
   const departments = deptsData?.data || [];
   const locations = locationsData?.data || [];
+  const filteredDepartments = departments.filter((d) =>
+    d.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const totalStaff = departments.reduce((sum, d) => {
+    if (typeof (d as any).staffCount === "number") return sum + (d as any).staffCount;
+    if (Array.isArray((d as any).users)) return sum + (d as any).users.length;
+    if (typeof (d as any).users === "number") return sum + (d as any).users;
+    return sum;
+  }, 0);
+
+  const totalTouchpoints = departments.reduce((sum, d) => {
+    if (typeof (d as any).touchpointCount === "number") return sum + (d as any).touchpointCount;
+    if (typeof (d as any)._count?.touchpoints === "number") return sum + (d as any)._count.touchpoints;
+    return sum;
+  }, 0);
+
+  const scopeLabel =
+    currentRole === "LOCATION_ADMIN"
+      ? roleLocationName || "Your Location"
+      : "All Locations";
 
   const handleAddDeptAdmin = () => {
     if (!newAdmin.name || !newAdmin.email || !newAdmin.password || !selectedDept) {
@@ -242,110 +282,257 @@ export default function DepartmentsPage() {
 
   return (
     <div className={styles.touchpointsLayout}>
-      <div className={styles.pageHeader}>
-        <div>
-          <h2 className={styles.pageTitle}>Departments Management</h2>
-          <p className={styles.pageSubtitle}>Organize FAAN personnel and operational responsibilities.</p>
-        </div>
-        <button className={styles.createButton} onClick={() => {
-          if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
-            const location = locations.find(l => l.id === currentLocation);
-            setNewDept({ ...newDept, locationId: currentLocation, locationName: location?.name || '' });
-          }
-          setIsAddModalOpen(true);
-        }}>
-          <Plus size={18} />
-          <span>Create Department</span>
-        </button>
-      </div>
-
-      <div className={styles.tableControls}>
-        <div className={styles.searchBar}>
-          <Search size={18} className={styles.searchIcon} />
-          <input
-            type="text"
-            placeholder="Search departments..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className={styles.deptGrid}>
-        {departments.filter(d => d.name.toLowerCase().includes(searchTerm.toLowerCase())).map((dept) => {
-          const Icon = Shield; // Default icon for departments
-          return (
-            <div key={dept.id} className={styles.deptCard}>
-              <div className={styles.deptCardHeader}>
-                <div className={styles.deptIconBox} style={{ backgroundColor: `#2563eb15`, color: `#2563eb` }}>
-                  <Icon size={24} />
-                </div>
-                <div className={styles.cardMenuWrapper}>
-                  <button
-                    className={styles.cardMore}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveDropdown(activeDropdown === dept.id ? null : dept.id);
-                    }}
-                  >
-                    <MoreVertical size={18} />
-                  </button>
-                  {activeDropdown === dept.id && (
-                    <div className={styles.cardDropdown}>
-                      <button className={styles.dropdownItem} onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingDept(dept);
-                        setNewDept({
-                          name: dept.name,
-                          code: dept.code,
-                          locationId: dept.locationId,
-                          responsibility: dept.responsibility || '',
-                          locationName: '',
-                        });
-                        setIsAddModalOpen(true);
-                        setActiveDropdown(null);
-                      }}><Edit size={14} /> Edit Dept</button>
-
-                      <div className={styles.dropdownSeparator} />
-                      <button className={`${styles.dropdownItem} ${styles.danger}`} onClick={(e) => {
-                        e.stopPropagation();
-                        handleArchiveDept(dept.id);
-                      }}><Trash2 size={14} /> Archive</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className={styles.deptCardInfo}>
-                <h3 className={styles.deptCardTitle}>{dept.name}</h3>
-                <p className={styles.deptCardDesc}>{dept.responsibility || 'No responsibility defined.'}</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '11px', color: '#64748b' }}>
-                  <MapPin size={12} />
-                  <span>{typeof dept.location === 'string' ? dept.location : (dept.location as any)?.name}</span>
-                </div>
-              </div>
-
-              <div className={styles.deptCardMetrics}>
-                <div className={styles.deptMetric}>
-                  <Users size={14} />
-                  <span>{dept.staffCount} Staff</span>
-                </div>
-                <div className={styles.deptMetric}>
-                  <MousePointer2 size={14} />
-                  <span>{dept.touchpointCount} QRs</span>                </div>
-              </div>
-
-              <button
-                className={styles.deptManageBtn}
-                onClick={() => setSelectedDept(dept)}
-              >
-                Manage Resources
-                <ExternalLink size={16} />
-              </button>
+      <div className={styles.deptHero}>
+        <div className={styles.deptHeroMain}>
+          <div className={styles.deptHeroTitleRow}>
+            <div className={styles.deptHeroMark} aria-hidden="true">
+              <Image src="/Faan.logo_.png" alt="" width={34} height={34} />
             </div>
-          );
-        })}
+            <div className={styles.deptHeroText}>
+              <h2 className={styles.deptHeroTitle}>Departments</h2>
+              <p className={styles.deptHeroSubtitle}>
+                Structure airport operations into clear units, assign responsibility, and manage resources.
+              </p>
+            </div>
+          </div>
+          <div className={styles.deptHeroPills}>
+            <span className={styles.deptPill}>
+              <MapPin size={14} />
+              <span>Scope: {scopeLabel}</span>
+            </span>
+            <span className={styles.deptPillMuted}>
+              <Building2 size={14} />
+              <span>{currentRole === "LOCATION_ADMIN" ? "Location Administration" : "System Administration"}</span>
+            </span>
+          </div>
+        </div>
+
+        <div className={styles.deptHeroActions}>
+          <button
+            className={styles.createButton}
+            onClick={() => {
+              if (currentRole === "LOCATION_ADMIN" && currentLocation) {
+                const location = locations.find((l) => l.id === currentLocation);
+                setNewDept({ ...newDept, locationId: currentLocation, locationName: location?.name || "" });
+              }
+              setIsAddModalOpen(true);
+            }}
+          >
+            <Plus size={18} />
+            <span>Create Department</span>
+          </button>
+          <p className={styles.deptHeroHint}>Use clear names like “Customer Service”, “Security”, or “Operations”.</p>
+        </div>
       </div>
+
+      <div className={styles.deptStatsGrid} aria-label="Departments summary">
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} aria-hidden="true">
+            <Layers3 size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Departments</div>
+            <div className={styles.deptStatValue}>{departments.length}</div>
+          </div>
+        </div>
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} aria-hidden="true">
+            <Users size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Staff</div>
+            <div className={styles.deptStatValue}>{totalStaff}</div>
+          </div>
+        </div>
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} aria-hidden="true">
+            <MousePointer2 size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Touchpoints</div>
+            <div className={styles.deptStatValue}>{totalTouchpoints}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.deptControlsCard}>
+        <div className={styles.deptControlsRow}>
+          <div className={`${styles.searchBar} ${styles.deptSearchBar}`}>
+            <Search size={18} className={styles.searchIcon} />
+            <input
+              type="text"
+              placeholder="Search departments…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={styles.searchInput}
+            />
+          </div>
+          <div className={styles.deptControlsMeta} aria-live="polite">
+            {deptsLoading ? (
+              <span>Loading…</span>
+            ) : (
+              <span>
+                Showing <strong>{filteredDepartments.length}</strong> of <strong>{departments.length}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {deptsLoading ? (
+        <div className={styles.deptGrid} aria-label="Loading departments">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={`dept-skeleton-${i}`} className={`${styles.deptCard} ${styles.deptSkeletonCard}`}>
+              <div className={styles.deptCardHeader}>
+                <div className={styles.deptSkeletonIcon} />
+                <div className={styles.deptSkeletonMenu} />
+              </div>
+              <div className={styles.deptCardInfo}>
+                <div className={styles.deptSkeletonLine} style={{ width: "64%" }} />
+                <div className={styles.deptSkeletonLine} style={{ width: "92%" }} />
+                <div className={styles.deptSkeletonLine} style={{ width: "78%" }} />
+              </div>
+              <div className={styles.deptCardMetrics}>
+                <div className={styles.deptSkeletonPill} />
+                <div className={styles.deptSkeletonPill} />
+              </div>
+              <div className={styles.deptSkeletonBtn} />
+            </div>
+          ))}
+        </div>
+      ) : filteredDepartments.length === 0 ? (
+        <div className={styles.deptEmptyState} role="status">
+          <div className={styles.deptEmptyIcon} aria-hidden="true">
+            <Shield size={22} />
+          </div>
+          <h3 className={styles.deptEmptyTitle}>
+            {searchTerm ? "No departments match your search" : "No departments created yet"}
+          </h3>
+          <p className={styles.deptEmptyText}>
+            {searchTerm
+              ? "Try a different keyword or clear the search."
+              : "Create departments to define responsibilities and assign personnel and touchpoints."}
+          </p>
+          <div className={styles.deptEmptyActions}>
+            {searchTerm ? (
+              <button className={styles.cancelBtn} onClick={() => setSearchTerm("")}>
+                Clear Search
+              </button>
+            ) : (
+              <button
+                className={styles.createButton}
+                onClick={() => {
+                  if (currentRole === "LOCATION_ADMIN" && currentLocation) {
+                    const location = locations.find((l) => l.id === currentLocation);
+                    setNewDept({ ...newDept, locationId: currentLocation, locationName: location?.name || "" });
+                  }
+                  setIsAddModalOpen(true);
+                }}
+              >
+                <Plus size={18} />
+                <span>Create Department</span>
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className={styles.deptGrid}>
+          {filteredDepartments.map((dept) => {
+            const Icon = Shield; // Default icon for departments
+            const accent = DEPT_ACCENTS[hashToIndex(String((dept as any).id ?? dept.name), DEPT_ACCENTS.length)];
+            const accentStyle = {
+              "--accent-bg": accent.bg,
+              "--accent-fg": accent.fg,
+              "--accent-ring": accent.ring,
+            } as CSSProperties;
+
+            const deptLocationName =
+              typeof (dept as any).location === "string"
+                ? (dept as any).location
+                : (dept as any).location?.name || roleLocationName || "—";
+
+            return (
+              <div key={dept.id} className={styles.deptCard}>
+                <div className={styles.deptCardHeader}>
+                  <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
+                    <Icon size={24} />
+                  </div>
+                  <div className={styles.cardMenuWrapper}>
+                    <button
+                      className={styles.cardMore}
+                      aria-label={`Department actions for ${dept.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveDropdown(activeDropdown === dept.id ? null : dept.id);
+                      }}
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+                    {activeDropdown === dept.id && (
+                      <div className={styles.cardDropdown}>
+                        <button
+                          className={styles.dropdownItem}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingDept(dept);
+                            setNewDept({
+                              name: dept.name,
+                              code: dept.code,
+                              locationId: (dept as any).locationId,
+                              responsibility: dept.responsibility || "",
+                              locationName: "",
+                            });
+                            setIsAddModalOpen(true);
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <Edit size={14} /> Edit Dept
+                        </button>
+
+                        <div className={styles.dropdownSeparator} />
+                        <button
+                          className={`${styles.dropdownItem} ${styles.danger}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleArchiveDept(dept.id);
+                          }}
+                        >
+                          <Trash2 size={14} /> Archive
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className={styles.deptCardInfo}>
+                  <h3 className={styles.deptCardTitle}>{dept.name}</h3>
+                  <p className={styles.deptCardDesc}>{dept.responsibility || "No responsibility defined."}</p>
+                  <div className={styles.deptLocationRow}>
+                    <MapPin size={12} />
+                    <span>{deptLocationName}</span>
+                  </div>
+                </div>
+
+                <div className={styles.deptCardMetrics}>
+                  <div className={styles.deptMetric}>
+                    <Users size={14} />
+                    <span>{(dept as any).staffCount} Staff</span>
+                  </div>
+                  <div className={styles.deptMetric}>
+                    <MousePointer2 size={14} />
+                    <span>{(dept as any).touchpointCount} QRs</span>
+                  </div>
+                </div>
+
+                <button className={styles.deptManageBtn} onClick={() => setSelectedDept(dept)}>
+                  Manage Resources
+                  <ExternalLink size={16} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* ADD / EDIT DEPARTMENT MODAL */}
       {isAddModalOpen && (
