@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { 
-  ChevronRight, 
-  ChevronDown, 
-  Plane, 
-  Building2, 
+import {
+  ChevronRight,
+  ChevronDown,
+  Plane,
+  Building2,
   MapPin,
   Users,
   Star,
@@ -67,7 +67,7 @@ export default function LocationsPage() {
   });
 
   const toggleExpand = (id: string) => {
-    setExpanded(prev => 
+    setExpanded(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
@@ -83,10 +83,6 @@ export default function LocationsPage() {
     }
 
     const departmentId = selectedLocation.departments?.[0]?.id;
-    if (!departmentId) {
-      toast.error("This location has no departments. Please create a department first before adding an admin.");
-      return;
-    }
 
     const nameParts = newAdmin.name.trim().split(" ");
     const firstName = nameParts[0];
@@ -121,10 +117,10 @@ export default function LocationsPage() {
     if (!newLocation.name.trim()) return toast.error("Location name is required");
     if (!newLocation.airportCode.trim()) return toast.error("Airport code is required");
     if (newLocation.airportCode.length > 10) return toast.error("Airport code must be 10 characters or less");
-    
+
     const locationCode = newLocation.code.trim() || newLocation.airportCode.trim();
     if (!locationCode) return toast.error("Location code is required");
-    
+
     const codeRegex = /^[A-Z0-9_]+$/;
     if (!codeRegex.test(locationCode)) {
       return toast.error("Code must be uppercase alphanumeric with underscores (e.g., LOS_INTL)");
@@ -148,7 +144,7 @@ export default function LocationsPage() {
       onError: (error: any) => {
         const axiosError = error as AxiosError<{ message: string | string[] }>;
         const message = axiosError.response?.data?.message || "Failed to create location";
-        
+
         if (Array.isArray(message)) {
           message.forEach(msg => toast.error(msg));
         } else {
@@ -158,11 +154,11 @@ export default function LocationsPage() {
     });
   };
 
-  const filteredLocations = (currentRole === UserRole.SUPER_ADMIN 
-    ? locations 
+  const filteredLocations = (currentRole === UserRole.SUPER_ADMIN
+    ? locations
     : locations.filter((loc: Location) => loc.id === currentLocation)) as Location[];
 
-  const terminalFiltered = filteredLocations.filter(loc => 
+  const terminalFiltered = filteredLocations.filter(loc =>
     !searchTerm || loc.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -178,9 +174,9 @@ export default function LocationsPage() {
             <h3 className={styles.panelTitle}>Locations Tree</h3>
             <div className={styles.panelSearch}>
               <Search size={16} />
-              <input 
-                type="text" 
-                placeholder="Search locations..." 
+              <input
+                type="text"
+                placeholder="Search locations..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -190,8 +186,8 @@ export default function LocationsPage() {
           <div className={styles.treeView}>
             {terminalFiltered.map((airport) => (
               <div key={airport.id} className={styles.treeItem}>
-                <div 
-                  className={`${styles.treeHeader} ${selectedLocation?.id === airport.id ? styles.selected : ""}`} 
+                <div
+                  className={`${styles.treeHeader} ${selectedLocation?.id === airport.id ? styles.selected : ""}`}
                   onClick={() => {
                     toggleExpand(airport.id);
                     setSelectedLocation(airport);
@@ -207,7 +203,7 @@ export default function LocationsPage() {
                   <div className={styles.treeSubItems}>
                     {airport.departments?.map((dept) => (
                       <div key={dept.id} className={styles.treeItem}>
-                        <div 
+                        <div
                           className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
                           onClick={() => {
                             setSelectedZone(dept as any);
@@ -374,7 +370,7 @@ export default function LocationsPage() {
                 <div className={styles.legendItem}><span className={styles.red} /> Critical</div>
               </div>
             </div>
-            
+
             <div className={styles.heatmapGrid}>
               {[
                 { id: 1, label: "Cleaning Level", value: 94, status: "green", desc: "Maintenance staff actively present. No pending tasks." },
@@ -390,8 +386,8 @@ export default function LocationsPage() {
                 { id: 11, label: "Internet Access", value: 68, status: "yellow", desc: "Minor interference in Gate 12 area. IT investigating." },
                 { id: 12, label: "Power Supply", value: 100, status: "green", desc: "Consistent power flow. Backup generators on standby." }
               ].map((block) => (
-                <div 
-                  key={block.id} 
+                <div
+                  key={block.id}
                   className={`${styles.heatmapBlock} ${styles[block.status]} ${activeTooltip === block.id ? styles.activeBlock : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -442,11 +438,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Plane size={18} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="e.g. Lagos Murtala Muhammed International Airport"
                         value={newLocation.name}
-                        onChange={(e) => setNewLocation({...newLocation, name: e.target.value})}
+                        onChange={(e) => setNewLocation({ ...newLocation, name: e.target.value })}
                         required
                       />
                     </div>
@@ -460,11 +456,11 @@ export default function LocationsPage() {
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <Globe size={18} />
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           placeholder="e.g. LOS"
                           value={newLocation.airportCode}
-                          onChange={(e) => setNewLocation({...newLocation, airportCode: e.target.value.toUpperCase()})}
+                          onChange={(e) => setNewLocation({ ...newLocation, airportCode: e.target.value.toUpperCase() })}
                           required
                         />
                       </div>
@@ -477,11 +473,11 @@ export default function LocationsPage() {
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <Building size={18} />
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           placeholder="e.g. Lagos"
                           value={newLocation.city}
-                          onChange={(e) => setNewLocation({...newLocation, city: e.target.value})}
+                          onChange={(e) => setNewLocation({ ...newLocation, city: e.target.value })}
                           required
                         />
                       </div>
@@ -495,11 +491,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <MapPin size={18} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="e.g. Ikeja, Lagos, Nigeria"
                         value={newLocation.address}
-                        onChange={(e) => setNewLocation({...newLocation, address: e.target.value})}
+                        onChange={(e) => setNewLocation({ ...newLocation, address: e.target.value })}
                       />
                     </div>
                   </div>
@@ -511,11 +507,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Building2 size={18} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="e.g. LAGOS_INTL"
                         value={newLocation.code}
-                        onChange={(e) => setNewLocation({...newLocation, code: e.target.value.toUpperCase()})}
+                        onChange={(e) => setNewLocation({ ...newLocation, code: e.target.value.toUpperCase() })}
                       />
                     </div>
                   </div>
@@ -556,11 +552,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Users size={18} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="e.g. John Doe"
                         value={newAdmin.name}
-                        onChange={(e) => setNewAdmin({...newAdmin, name: e.target.value})}
+                        onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
                         required
                       />
                     </div>
@@ -573,11 +569,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Search size={18} />
-                      <input 
-                        type="email" 
+                      <input
+                        type="email"
                         placeholder="admin@faan.gov.ng"
                         value={newAdmin.email}
-                        onChange={(e) => setNewAdmin({...newAdmin, email: e.target.value})}
+                        onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
                         required
                       />
                     </div>
@@ -590,11 +586,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Filter size={18} />
-                      <input 
-                        type="password" 
+                      <input
+                        type="password"
                         placeholder="••••••••"
                         value={newAdmin.password}
-                        onChange={(e) => setNewAdmin({...newAdmin, password: e.target.value})}
+                        onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
                         required
                       />
                     </div>
@@ -607,9 +603,9 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Star size={18} />
-                      <select 
+                      <select
                         value={newAdmin.role}
-                        onChange={(e) => setNewAdmin({...newAdmin, role: e.target.value as UserRole})}
+                        onChange={(e) => setNewAdmin({ ...newAdmin, role: e.target.value as UserRole })}
                       >
                         <option value={UserRole.LOCATION_ADMIN}>Location Admin</option>
                       </select>
