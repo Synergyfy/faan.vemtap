@@ -34,6 +34,7 @@ import {
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
 import { InternalReport, InternalReportStatus, Priority, ReportType, Department, UserProfile } from "@/types/api";
+import { MultiSelect } from "@/components/displays/MultiSelect";
 
 interface ColumnProps {
   title: string;
@@ -146,15 +147,15 @@ export default function IssueManagementPage() {
   const [draggedIssueId, setDraggedIssueId] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [selectedLocId, setSelectedLocId] = useState("");
-  const [tempLocId, setTempLocId] = useState("");
+  const [selectedLocIds, setSelectedLocIds] = useState<string[]>([]);
+  const [tempLocIds, setTempLocIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
     priority: "MEDIUM",
-    departmentId: "",
+    departmentIds: [] as string[],
     location: ""
   });
 
@@ -200,19 +201,25 @@ export default function IssueManagementPage() {
 
   const handleCreateIssue = (e: React.FormEvent) => {
     e.preventDefault();
-    createIssueMutation.mutate({
-      title: newTask.title,
-      content: newTask.description,
-      priority: newTask.priority as Priority,
-      locationId: currentRole === 'DEPARTMENT_ADMIN' ? (currentLocation || "") : selectedLocId,
-      departmentId: currentRole === 'DEPARTMENT_ADMIN' ? (currentDepartment || "") : newTask.departmentId,
-      reportType: ReportType.INCIDENT
-    }, {
-      onSuccess: () => {
-        setIsCreateModalOpen(false);
-        setNewTask({ title: "", description: "", priority: "MEDIUM", departmentId: "", location: "" });
-      }
+    
+    const locationsToUse = currentRole === 'DEPARTMENT_ADMIN' ? [currentLocation || ""] : selectedLocIds;
+    const deptsToUse = currentRole === 'DEPARTMENT_ADMIN' ? [currentDepartment || ""] : newTask.departmentIds;
+    
+    locationsToUse.forEach(locId => {
+      deptsToUse.forEach(deptId => {
+        createIssueMutation.mutate({
+          title: newTask.title,
+          content: newTask.description,
+          priority: newTask.priority as Priority,
+          locationId: locId,
+          departmentId: deptId,
+          reportType: ReportType.INCIDENT
+        });
+      });
     });
+
+    setIsCreateModalOpen(false);
+    setNewTask({ title: "", description: "", priority: "MEDIUM", departmentIds: [], location: "" });
   };
 
   const handleAddComment = () => {
@@ -472,7 +479,7 @@ export default function IssueManagementPage() {
                   ) : (
                     <>
                       <MapPin size={16} style={{ color: "var(--brand-green)" }} />
-                      <span style={{ color: "#166534", fontWeight: 600, fontSize: '13px' }}>Creating task for: {selectedLocation}</span>
+                      <span style={{ color: "#166534", fontWeight: 600, fontSize: '13px' }}>Creating tasks for: {selectedLocIds.length} location(s)</span>
                     </>
                   )}
                 </div>
@@ -537,23 +544,29 @@ export default function IssueManagementPage() {
                         </label>
                         <span className={styles.fieldDesc}>Responsible team</span>
                       </div>
-                      <div className={styles.modalInputWrapper}>
-                        <Shield size={18} />
+                      <div>
                         {currentRole === 'DEPARTMENT_ADMIN' ? (
-                          <input 
-                            type="text" 
-                            value={currentDepartment || "Security"} 
-                            disabled 
-                            style={{ background: "#f1f5f9", cursor: "not-allowed" }}
-                          />
+                          <div className={styles.modalInputWrapper}>
+                            <Shield size={18} />
+                            <input 
+                              type="text" 
+                              value={currentDepartment || "Security"} 
+                              disabled 
+                              style={{ background: "#f1f5f9", cursor: "not-allowed" }}
+                            />
+                          </div>
                         ) : (
-                          <select 
-                            value={newTask.departmentId}
-                            onChange={(e) => setNewTask({...newTask, departmentId: e.target.value})}
-                          >
-                            <option value="">Select Department</option>
-                            {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                          </select>
+                          <MultiSelect
+                            options={depts.filter(d => 
+                              selectedLocIds.length === 0 || 
+                              selectedLocIds.includes(d.locationId) || 
+                              (d.location?.id && selectedLocIds.includes(d.location.id))
+                            )}
+                            selectedIds={newTask.departmentIds}
+                            onChange={(ids) => setNewTask({...newTask, departmentIds: ids})}
+                            placeholder="Select Departments"
+                            icon={<Shield size={18} />}
+                          />
                         )}
                       </div>
                     </div>
@@ -824,37 +837,26 @@ export default function IssueManagementPage() {
                 <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, color: "#334155", fontSize: '13px' }}>
                   Airport Location
                 </label>
-                <select
-                  value={tempLocId}
-                  onChange={(e) => setTempLocId(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "12px 16px",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "12px",
-                    fontSize: "14px",
-                    background: "white",
-                    color: "#1e293b",
-                  }}
-                >
-                  <option value="">Select an airport</option>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
+                <MultiSelect
+                  options={locations}
+                  selectedIds={tempLocIds}
+                  onChange={(ids) => setTempLocIds(ids)}
+                  placeholder="Select airports"
+                  icon={<Building2 size={18} />}
+                />
               </div>
             </div>
             <div className={styles.modalActions}>
               <button className={styles.cancelBtn} onClick={() => setShowLocationPicker(false)}>Cancel</button>
               <button
                 onClick={() => {
-                  setSelectedLocId(tempLocId);
+                  setSelectedLocIds(tempLocIds);
                   setShowLocationPicker(false);
                   setIsCreateModalOpen(true);
                 }}
-                disabled={!tempLocId}
+                disabled={tempLocIds.length === 0}
                 className={styles.createButton}
-                style={{ opacity: tempLocId ? 1 : 0.5 }}
+                style={{ opacity: tempLocIds.length > 0 ? 1 : 0.5 }}
               >
                 Confirm
               </button>

@@ -117,8 +117,8 @@ export const useArchiveTouchpoint = () => {
 
 export const useDownloadQr = () => {
   return {
-    mutate: (id: string) => {
-      const url = `${process.env.NEXT_PUBLIC_API_URL}/touchpoints/${id}/qr`;
+    mutate: (id: string, format: string = 'png') => {
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/touchpoints/${id}/qr?format=${format}`;
       window.open(url, '_blank');
     }
   };

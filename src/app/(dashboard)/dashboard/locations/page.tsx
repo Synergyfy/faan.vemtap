@@ -19,7 +19,10 @@ import {
   Edit,
   Globe,
   CheckCircle,
-  Building
+  Building,
+  Eye,
+  EyeOff,
+  Shield
 } from "lucide-react";
 import Image from "next/image";
 import styles from "../../Dashboard.module.css";
@@ -41,6 +44,11 @@ export default function LocationsPage() {
   const [activeTooltip, setActiveTooltip] = useState<number | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [locationAdmins, setLocationAdmins] = useState([
+    { id: 1, name: "Engr. Jide Ojo", email: "jide.ojo@faan.gov.ng", status: "Accepted", phone: "+234 802 345 6789" },
+    { id: 2, name: "Mrs. Amina Bello", email: "amina.bello@faan.gov.ng", status: "Pending", phone: "+234 803 111 2222" },
+  ]);
   const [searchTerm, setSearchTerm] = useState("");
 
   const createMutation = useCreateLocation();
@@ -411,6 +419,78 @@ export default function LocationsPage() {
               ))}
             </div>
           </section>
+
+          {/* ADMINS SECTION */}
+          {selectedLocation && (
+            <section className={styles.heatmapSection} style={{ marginTop: '32px', marginBottom: '40px' }}>
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h3 className={styles.sectionTitle}>Location Administrators</h3>
+                  <p className={styles.sectionSubtitle}>Accountable officials for {selectedLocation.name}.</p>
+                </div>
+                <button 
+                  className={styles.createButton} 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsAdminModalOpen(true);
+                  }}
+                  style={{ padding: '8px 16px', height: 'auto' }}
+                >
+                  <Plus size={16} />
+                  <span>Assign Admin</span>
+                </button>
+              </div>
+
+              <div className={styles.resourceItems} style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {locationAdmins.map((admin) => (
+                  <div key={admin.id} className={styles.resourceItem} style={{ padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                    <div className={styles.resourceIcon} style={{ background: 'rgba(21, 115, 71, 0.08)', color: 'var(--brand-green)', width: '40px', height: '40px' }}>
+                      <Shield size={20} />
+                    </div>
+                    <div className={styles.resourceInfo}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <strong style={{ fontSize: '15px', color: '#1e293b' }}>{admin.name}</strong>
+                        <span style={{ 
+                          fontSize: '11px', 
+                          padding: '2px 10px', 
+                          borderRadius: '20px', 
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          background: admin.status === 'Accepted' ? '#dcfce7' : '#fff9c2',
+                          color: admin.status === 'Accepted' ? '#15803d' : '#854d0e',
+                          border: admin.status === 'Accepted' ? '1px solid #b7e4c7' : '1px solid #fde68a'
+                        }}>
+                          {admin.status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px', display: 'flex', gap: '12px' }}>
+                        <span>{admin.email}</span>
+                        <span style={{ color: '#cbd5e1' }}>|</span>
+                        <span>{admin.phone}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button className={styles.resourceRemove} style={{ background: '#f8fafc' }}>
+                        <Edit size={14} />
+                      </button>
+                      <button className={styles.resourceRemove} style={{ color: '#ef4444', background: '#fef2f2' }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {locationAdmins.length === 0 && (
+                  <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '20px', border: '2px dashed #e2e8f0' }}>
+                    <Users size={32} style={{ color: '#94a3b8', marginBottom: '12px' }} />
+                    <p style={{ color: '#64748b', fontWeight: 500 }}>No administrators assigned yet</p>
+                    <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Assign an official to manage this location's operations.</p>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
         </main>
       </div>
 
@@ -585,14 +665,23 @@ export default function LocationsPage() {
                       <span className={styles.fieldDesc}>Initial login password</span>
                     </div>
                     <div className={styles.modalInputWrapper}>
-                      <Filter size={18} />
-                      <input
-                        type="password"
-                        placeholder="••••••••"
-                        value={newAdmin.password}
-                        onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
-                        required
-                      />
+                      <Shield size={18} />
+                      <div className={styles.passwordInputWrapper}>
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          value={newAdmin.password}
+                          onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
+                          required
+                        />
+                        <button 
+                          type="button"
+                          className={styles.eyeBtn}
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
                     </div>
                   </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type CSSProperties } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { 
   Plus, 
   Search, 
@@ -21,10 +21,15 @@ import {
   CheckCircle,
   AlertCircle,
   Inbox,
-  ChevronRight
+  ChevronRight,
+  ChevronLeft,
+  ChevronDown,
+  Copy,
+  Check,
+  ClipboardList
 } from "lucide-react";
 import Image from "next/image";
-import { QRCodeSVG } from "qrcode.react";
+import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { 
@@ -37,6 +42,9 @@ import {
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
 import { TouchpointType, Touchpoint, Location, Department } from "@/types/api";
+import { MultiSelect } from "@/components/displays/MultiSelect";
+import { toast } from "sonner";
+import { AxiosError } from "axios";
 
 const TOUCHPOINT_ACCENTS = [
   { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
@@ -64,31 +72,61 @@ export default function TouchpointsPage() {
   const [showQrPreview, setShowQrPreview] = useState(false);
   const [currentTouchpoint, setCurrentTouchpoint] = useState<Touchpoint | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [selectedLocId, setSelectedLocId] = useState("");
-  const [tempLocId, setTempLocId] = useState("");
+  const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [selectedLocIds, setSelectedLocIds] = useState<string[]>([]);
+  const [tempLocIds, setTempLocIds] = useState<string[]>([]);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
 
   const { data: tpData, isLoading: tpLoading } = useTouchpoints({
-    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : (selectedLocId || undefined)) || undefined
+    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : (selectedLocIds.length > 0 ? selectedLocIds[0] : undefined)) || undefined
   });
 
   const { data: formsData } = useTouchpoints();
   const { data: locationsData } = useLocations();
   const { data: deptsData } = useDepartments({ 
-    locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || undefined) : (selectedLocId || undefined) 
+    locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || undefined) : (selectedLocIds.length > 0 ? selectedLocIds[0] : undefined) 
   });
 
   const createMutation = useCreateTouchpoint();
   const updateMutation = useUpdateTouchpoint();
   const archiveMutation = useArchiveTouchpoint();
-  const { mutate: downloadQr } = useDownloadQr();
+  const qrRef = useRef<HTMLDivElement>(null);
+
+  const handleDownload = (format: 'png' | 'svg' | 'jpg') => {
+    if (!currentTouchpoint) return;
+    
+    const canvas = document.getElementById(`qr-canvas-${currentTouchpoint.uuid}`) as HTMLCanvasElement;
+    const svg = document.getElementById(`qr-svg-${currentTouchpoint.uuid}`) as unknown as SVGElement;
+    
+    if (format === 'svg' && svg) {
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `qr-${currentTouchpoint.title.toLowerCase().replace(/\s+/g, '-')}.svg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else if (canvas) {
+      const url = canvas.toDataURL(format === 'jpg' ? "image/jpeg" : "image/png");
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `qr-${currentTouchpoint.title.toLowerCase().replace(/\s+/g, '-')}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
 
   const [newTouchpoint, setNewTouchpoint] = useState({
     title: "",
     location: "",
-    departmentId: "",
+    departmentIds: [] as string[],
     type: TouchpointType.FEEDBACK,
-    templateId: ""
+    templateIds: [] as string[]
   });
 
   useEffect(() => {
@@ -97,20 +135,46 @@ export default function TouchpointsPage() {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    createMutation.mutate({
-      title: newTouchpoint.title,
-      description: "",
-      type: newTouchpoint.type,
-      departmentId: newTouchpoint.departmentId,
-      locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : selectedLocId,
-      formConfig: []
-    }, {
-      onSuccess: () => {
+    
+    const locationsToUse = currentRole === 'LOCATION_ADMIN' ? [(currentLocation || "")] : selectedLocIds;
+    
+    if (locationsToUse.length === 0) return toast.error("Please select at least one location");
+    if (newTouchpoint.departmentIds.length === 0) return toast.error("Please select at least one department");
+
+    const creations: any[] = [];
+    locationsToUse.forEach(locId => {
+      newTouchpoint.departmentIds.forEach(deptId => {
+        // Find if department belongs to this location
+        const dept = departments.find(d => d.id === deptId);
+        if (dept && (dept.locationId === locId || dept.location?.id === locId)) {
+          creations.push({
+            title: newTouchpoint.title,
+            description: "",
+            type: newTouchpoint.type,
+            departmentId: deptId,
+            locationId: locId,
+            formConfig: []
+          });
+        }
+      });
+    });
+
+    if (creations.length === 0) {
+      return toast.error("No valid Location-Department combinations found.");
+    }
+
+    Promise.all(creations.map(payload => createMutation.mutateAsync(payload)))
+      .then(() => {
+        toast.success(`${creations.length} touchpoint(s) created successfully`);
         setIsModalOpen(false);
         setWizardStep(1);
-        setNewTouchpoint({ title: "", location: "", departmentId: "", type: TouchpointType.FEEDBACK, templateId: "" });
-      }
-    });
+        setNewTouchpoint({ title: "", location: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
+      })
+      .catch((error) => {
+        const axiosError = error as AxiosError<{ message: string | string[] }>;
+        const message = axiosError.response?.data?.message || "Failed to create touchpoints";
+        toast.error(Array.isArray(message) ? message[0] : message);
+      });
   };
 
   const toggleStatus = (id: string, currentStatus: boolean) => {
@@ -125,15 +189,33 @@ export default function TouchpointsPage() {
   const departments = (deptsData?.data || []) as Department[];
   const forms = (formsData?.data || []) as Touchpoint[];
 
+  // Grouping Logic for Touchpoints
+  const groupedTPs = touchpoints.reduce((acc: Record<string, any>, tp) => {
+    const key = `${tp.title}-${tp.type}`;
+    if (!acc[key]) {
+      acc[key] = {
+        ...tp,
+        instances: [tp],
+        totalInteractions: tp.interactions || 0
+      };
+    } else {
+      acc[key].instances.push(tp);
+      acc[key].totalInteractions += tp.interactions || 0;
+    }
+    return acc;
+  }, {});
+
   const getSelectedLocationName = () => {
     if (currentRole === 'LOCATION_ADMIN') return roleLocationName;
-    return locations.find(l => l.id === selectedLocId)?.name || "Selected Location";
+    if (selectedLocIds.length === 1) return locations.find(l => l.id === selectedLocIds[0])?.name || "Selected Location";
+    if (selectedLocIds.length > 1) return `${selectedLocIds.length} Locations Selected`;
+    return "All Selected Locations";
   };
 
   const generatedId = `tp-${Math.random().toString(36).substr(2, 6)}`;
   const dynamicLink = `${origin}/p/${generatedId}`;
 
-  const filteredTouchpoints = touchpoints.filter(t => 
+  const filteredGroupedTPs = Object.values(groupedTPs).filter((t: any) => 
     !searchTerm || t.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -178,7 +260,7 @@ export default function TouchpointsPage() {
             className={styles.createButton}
             onClick={() => {
               if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
-                setSelectedLocId(currentLocation);
+                setSelectedLocIds([currentLocation]);
                 setIsModalOpen(true);
                 setWizardStep(1);
               } else {
@@ -240,7 +322,7 @@ export default function TouchpointsPage() {
               <span>Loading...</span>
             ) : (
               <span>
-                Showing <strong>{filteredTouchpoints.length}</strong> of <strong>{touchpoints.length}</strong>
+                Showing <strong>{filteredGroupedTPs.length}</strong> groups of <strong>{touchpoints.length}</strong> touchpoints
               </span>
             )}
           </div>
@@ -268,7 +350,7 @@ export default function TouchpointsPage() {
             </div>
           ))}
         </div>
-      ) : filteredTouchpoints.length === 0 ? (
+      ) : filteredGroupedTPs.length === 0 ? (
         <div className={styles.deptEmptyState} role="status">
           <div className={styles.deptEmptyIcon} aria-hidden="true">
             <Inbox size={22} />
@@ -291,7 +373,7 @@ export default function TouchpointsPage() {
                 className={styles.createButton}
                 onClick={() => {
                   if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
-                    setSelectedLocId(currentLocation);
+                    setSelectedLocIds([currentLocation]);
                     setIsModalOpen(true);
                     setWizardStep(1);
                   } else {
@@ -306,118 +388,259 @@ export default function TouchpointsPage() {
           </div>
         </div>
       ) : (
-        <div className={styles.deptGrid}>
-          {filteredTouchpoints.map((tp) => {
-            const accent = TOUCHPOINT_ACCENTS[hashToIndex(String(tp.id), TOUCHPOINT_ACCENTS.length)];
-            const accentStyle = {
-              "--accent-bg": accent.bg,
-              "--accent-fg": accent.fg,
-              "--accent-ring": accent.ring,
-            } as CSSProperties;
+        drilldownGroup ? (
+          <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+            <div className={styles.drilldownHeader}>
+              <button className={styles.backButton} onClick={() => setDrilldownGroup(null)}>
+                <ChevronLeft size={20} />
+              </button>
+              <div className={styles.drilldownInfo}>
+                <span className={styles.drilldownTitle}>Grouping View</span>
+                <span className={styles.drilldownName}>{drilldownGroup.title} ({drilldownGroup.instances.length} Instances)</span>
+              </div>
+            </div>
 
-            return (
-              <div key={tp.id} className={styles.deptCard}>
-                <div className={styles.deptCardHeader}>
-                  <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
-                    <QrCode size={24} />
-                  </div>
-                  <div className={styles.cardMenuWrapper}>
-                    <button
-                      className={styles.cardMore}
-                      aria-label={`Actions for ${tp.title}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveDropdown(activeDropdown === tp.id ? null : tp.id);
+            <div className={styles.deptGrid}>
+              {drilldownGroup.instances.map((tp: any) => {
+                const accent = TOUCHPOINT_ACCENTS[hashToIndex(tp.title, TOUCHPOINT_ACCENTS.length)];
+                const accentStyle = {
+                  "--accent-bg": accent.bg,
+                  "--accent-fg": accent.fg,
+                  "--accent-ring": accent.ring,
+                } as CSSProperties;
+
+                return (
+                  <div key={tp.id} className={styles.deptCard}>
+                    <div className={styles.deptCardHeader}>
+                      <div className={styles.deptIconBox} style={accentStyle}>
+                        <QrCode size={24} />
+                      </div>
+                      <div className={styles.cardMenuWrapper}>
+                        <button
+                          className={styles.cardMore}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveDropdown(activeDropdown === tp.id ? null : tp.id);
+                          }}
+                        >
+                          <MoreVertical size={18} />
+                        </button>
+                        {activeDropdown === tp.id && (
+                          <div className={styles.cardDropdown}>
+                            <button
+                              className={styles.dropdownItem}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setNewTouchpoint({
+                                  title: tp.title,
+                                  location: tp.locationId,
+                                  departmentIds: tp.departmentIds || [],
+                                  type: tp.type,
+                                  templateIds: tp.templateIds || []
+                                });
+                                setIsModalOpen(true);
+                                setActiveDropdown(null);
+                              }}
+                            >
+                              <Edit size={14} /> Edit
+                            </button>
+                            <button
+                              className={`${styles.dropdownItem} ${!tp.isActive ? styles.success : styles.danger}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (tp.isActive) {
+                                  if (confirm("Are you sure you want to archive this touchpoint?")) {
+                                    archiveMutation.mutate(tp.id);
+                                  }
+                                } else {
+                                  toggleStatus(tp.id, tp.isActive);
+                                }
+                                setActiveDropdown(null);
+                              }}
+                            >
+                              {tp.isActive ? (
+                                <><Power size={14} /> Archive</>
+                              ) : (
+                                <><CheckCircle size={14} /> Activate</>
+                              )}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className={styles.deptCardInfo}>
+                      <h3 className={styles.deptCardTitle}>{tp.title}</h3>
+                      <p className={styles.deptCardDesc}>
+                        {tp.type === 'FEEDBACK' ? 'Passenger Feedback' : tp.type}
+                      </p>
+                      <div className={styles.deptLocationRow}>
+                        <MapPin size={12} />
+                        <span>{tp.location?.name || roleLocationName || '—'}</span>
+                      </div>
+                    </div>
+
+                    <div className={styles.deptCardMetrics}>
+                      <div className={styles.deptMetric}>
+                        <CheckCircle size={14} />
+                        <span>{tp.isActive ? "Active" : "Inactive"}</span>
+                      </div>
+                      <div className={styles.deptMetric}>
+                        <MousePointer2 size={14} />
+                        <span>{tp.totalInteractions || 0} Interactions</span>
+                      </div>
+                    </div>
+
+                    <button 
+                      className={styles.deptManageBtn}
+                      onClick={() => {
+                        setCurrentTouchpoint(tp);
+                        setShowQrPreview(true);
                       }}
                     >
-                      <MoreVertical size={18} />
+                      View QR Code
+                      <ChevronRight size={16} />
                     </button>
-                    {activeDropdown === tp.id && (
-                      <div className={styles.cardDropdown}>
-                        <button
-                          className={styles.dropdownItem}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCurrentTouchpoint(tp);
-                            setShowQrPreview(true);
-                            setActiveDropdown(null);
-                          }}
-                        >
-                          <QrCode size={14} /> View QR Code
-                        </button>
-                        <button
-                          className={styles.dropdownItem}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            downloadQr(tp.uuid);
-                            setActiveDropdown(null);
-                          }}
-                        >
-                          <Download size={14} /> Download QR
-                        </button>
-                        <div className={styles.dropdownSeparator} />
-                        <button
-                          className={`${styles.dropdownItem} ${styles.danger}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleStatus(tp.id, tp.isActive);
-                            setActiveDropdown(null);
-                          }}
-                        >
-                          <Power size={14} /> {tp.isActive ? 'Disable' : 'Enable'}
-                        </button>
-                      </div>
-                    )}
                   </div>
-                </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className={styles.deptGrid}>
+            {filteredGroupedTPs.map((gtp: any) => {
+              const accent = TOUCHPOINT_ACCENTS[hashToIndex(gtp.title, TOUCHPOINT_ACCENTS.length)];
+              const accentStyle = {
+                "--accent-bg": accent.bg,
+                "--accent-fg": accent.fg,
+                "--accent-ring": accent.ring,
+              } as CSSProperties;
 
-                <div className={styles.deptCardInfo}>
-                  <h3 className={styles.deptCardTitle}>{tp.title}</h3>
-                  <p className={styles.deptCardDesc}>
-                    {tp.type === 'FEEDBACK' ? 'Passenger Feedback' : tp.type}
-                  </p>
-                  <div className={styles.deptLocationRow}>
-                    <MapPin size={12} />
-                    <span>{typeof tp.location === 'string' ? tp.location : (tp.location as any)?.name || 'Unknown'}</span>
-                  </div>
-                </div>
+              const primaryInstance = gtp.instances[0];
+              const primaryLocationName = 
+                typeof primaryInstance.location === 'string' 
+                  ? primaryInstance.location 
+                  : primaryInstance.location?.name || roleLocationName || "—";
+              
+              const locationLabel = gtp.instances.length > 1 
+                ? `${primaryLocationName} +${gtp.instances.length - 1}`
+                : primaryLocationName;
 
-                <div className={styles.deptCardMetrics}>
-                  <div 
-                    className={styles.deptMetric}
-                    style={{ 
-                      background: tp.isActive ? '#dcfce7' : '#f1f5f9', 
-                      color: tp.isActive ? '#16a34a' : '#64748b' 
-                    }}
-                  >
-                    <CheckCircle size={14} />
-                    <span>{tp.isActive ? 'Active' : 'Inactive'}</span>
+              return (
+                <div key={gtp.title + gtp.type} className={styles.deptCard}>
+                  <div className={styles.deptCardHeader}>
+                    <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
+                      <QrCode size={24} />
+                    </div>
+                    <div className={styles.cardMenuWrapper}>
+                      <button
+                        className={styles.cardMore}
+                        aria-label={`Actions for ${gtp.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveDropdown(activeDropdown === gtp.title ? null : gtp.title);
+                        }}
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                      {activeDropdown === gtp.title && (
+                        <div className={styles.cardDropdown}>
+                          <button
+                            className={styles.dropdownItem}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setNewTouchpoint({
+                                title: gtp.title,
+                                location: gtp.location,
+                                departmentIds: gtp.instances.map((i: any) => i.departmentId),
+                                type: gtp.type,
+                                templateIds: gtp.templateIds || []
+                              });
+                              setIsModalOpen(true);
+                              setActiveDropdown(null);
+                            }}
+                          >
+                            <Edit size={14} /> {gtp.instances.length > 1 ? "Edit Group" : "Edit"}
+                          </button>
+                          {gtp.instances.length === 1 && (
+                            <button
+                              className={`${styles.dropdownItem} ${!gtp.instances[0].isActive ? styles.success : styles.danger}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const tp = gtp.instances[0];
+                                if (tp.isActive) {
+                                  if (confirm("Are you sure you want to archive this touchpoint?")) {
+                                    archiveMutation.mutate(tp.id);
+                                  }
+                                } else {
+                                  toggleStatus(tp.id, tp.isActive);
+                                }
+                                setActiveDropdown(null);
+                              }}
+                            >
+                              {gtp.instances[0].isActive ? (
+                                <><Power size={14} /> Archive</>
+                              ) : (
+                                <><CheckCircle size={14} /> Activate</>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className={styles.deptMetric}>
-                    <MousePointer2 size={14} />
-                    <span>{tp.interactions || 0} Interactions</span>
-                  </div>
-                </div>
 
-                <button 
-                  className={styles.deptManageBtn}
-                  onClick={() => {
-                    setCurrentTouchpoint(tp);
-                    setShowQrPreview(true);
-                  }}
-                >
-                  View QR Code
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                  <div className={styles.deptCardInfo}>
+                    <h3 className={styles.deptCardTitle}>{gtp.title}</h3>
+                    <p className={styles.deptCardDesc}>
+                      {gtp.type === 'FEEDBACK' ? 'Passenger Feedback' : gtp.type}
+                    </p>
+                    <div className={styles.deptLocationRow}>
+                      <MapPin size={12} />
+                      <span>{locationLabel}</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.deptCardMetrics}>
+                    <div className={styles.deptMetric}>
+                      <CheckCircle size={14} />
+                      <span>{gtp.instances.filter((i: any) => i.isActive).length} Active</span>
+                    </div>
+                    <div className={styles.deptMetric}>
+                      <MousePointer2 size={14} />
+                      <span>{gtp.totalInteractions} Interactions</span>
+                    </div>
+                  </div>
+
+                  {gtp.instances.length > 1 ? (
+                    <button 
+                      className={styles.groupCardManageBtn}
+                      onClick={() => setDrilldownGroup(gtp)}
+                    >
+                      Manage {gtp.instances.length} Instances
+                    </button>
+                  ) : (
+                    <button 
+                      className={styles.deptManageBtn}
+                      onClick={() => {
+                        setCurrentTouchpoint(gtp.instances[0]);
+                        setShowQrPreview(true);
+                      }}
+                    >
+                      View QR Code
+                      <ChevronRight size={16} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {isModalOpen && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modalContent}>
+          <div className={styles.modalContent} style={{ maxWidth: '850px', width: '96%' }}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
                 <span className={styles.wizardBadge}>Step {wizardStep} of 2</span>
@@ -491,81 +714,136 @@ export default function TouchpointsPage() {
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>Department *</label>
-                        <span className={styles.fieldDesc}>Responsible team</span>
+                        <span className={styles.fieldDesc}>Responsible team(s)</span>
                       </div>
-                      <div className={styles.modalInputWrapper}>
-                        <Briefcase size={18} />
-                        <select 
-                          value={newTouchpoint.departmentId}
-                          onChange={(e) => setNewTouchpoint({...newTouchpoint, departmentId: e.target.value})}
-                        >
-                          <option value="">Select Department</option>
-                          {departments.map(d => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                          ))}
-                        </select>
+                      <div>
+                        <MultiSelect
+                          options={departments.filter(d => 
+                            selectedLocIds.length === 0 || 
+                            selectedLocIds.includes(d.locationId) || 
+                            (d.location?.id && selectedLocIds.includes(d.location.id))
+                          )}
+                          selectedIds={newTouchpoint.departmentIds}
+                          onChange={(ids) => setNewTouchpoint({...newTouchpoint, departmentIds: ids})}
+                          placeholder="Select Departments"
+                          icon={<Briefcase size={18} />}
+                        />
                       </div>
                     </div>
 
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Form Type</label>
-                        <span className={styles.fieldDesc}>Pre-built form template</span>
+                        <label className={styles.formLabel}>Link Forms *</label>
+                        <span className={styles.fieldDesc}>Select one or more forms</span>
                       </div>
-                      <div className={styles.modalInputWrapper}>
-                        <Layers size={18} />
-                        <select 
-                          value={newTouchpoint.templateId}
-                          onChange={(e) => {
-                            const form = forms.find((f: Touchpoint) => f.id === e.target.value);
-                            if (form) {
-                              setNewTouchpoint({...newTouchpoint, templateId: form.id, type: form.type});
-                            }
-                          }}
-                        >
-                          <option value="">Select a Form</option>
-                          {forms.map((form: Touchpoint) => (
-                            <option key={form.id} value={form.id}>{form.title} ({form.type})</option>
-                          ))}
-                        </select>
-                      </div>
+                      <MultiSelect
+                        options={forms.map(f => ({ id: f.id, name: `${f.title} (${f.type})` }))}
+                        selectedIds={newTouchpoint.templateIds}
+                        onChange={(ids) => {
+                          setNewTouchpoint({
+                            ...newTouchpoint, 
+                            templateIds: ids,
+                            type: forms.find(f => f.id === ids[0])?.type || TouchpointType.FEEDBACK
+                          });
+                        }}
+                        placeholder="Select Forms"
+                        icon={<Layers size={18} />}
+                      />
                     </div>
                   </div>
                 </div>
               )}
 
               {wizardStep === 2 && (
-                <div className={styles.modalForm}>
-                  <div className={styles.generatedSection}>
-                    <div className={styles.sectionHeaderGroup}>
-                      <h4 className={styles.sectionHeader}>Final Review</h4>
-                      <p className={styles.sectionDesc}>Confirm details and generate assets</p>
+                <div className={styles.reviewContainer}>
+                  {/* Configuration Card */}
+                  <div className={styles.reviewCard}>
+                    <div className={styles.reviewCardHeader}>
+                      <ClipboardList size={18} style={{ color: "var(--brand-green)" }} />
+                      <h4>Configuration Details</h4>
                     </div>
-                    <div className={styles.reviewSummary}>
-                      <div className={styles.summaryItem}><strong>Name:</strong> {newTouchpoint.title}</div>
-                      <div className={styles.summaryItem}><strong>Location:</strong> {newTouchpoint.location}</div>
-                      <div className={styles.summaryItem}><strong>Department:</strong> {departments.find((d: Department) => d.id === newTouchpoint.departmentId)?.name}</div>
-                      <div className={styles.summaryItem}><strong>Form:</strong> {forms.find((f: Touchpoint) => f.id === newTouchpoint.templateId)?.title || newTouchpoint.type}</div>
-                    </div>
-                    <div className={styles.previewGrid}>
-                      <div className={styles.previewItem}>
-                        <span className={styles.previewLabel}>Access Link (Live)</span>
-                        <div className={styles.previewLink}>
-                          <span>{origin}/p/{newTouchpoint.title.toLowerCase().replace(/\s+/g, '-')}</span>
-                          <ExternalLink size={14} />
+                    <div className={styles.reviewCardBody}>
+                      <div className={styles.reviewInfoGrid}>
+                        <div className={styles.reviewInfoItem}>
+                          <span className={styles.reviewInfoLabel}>Touchpoint Name</span>
+                          <div className={styles.reviewInfoValue}>
+                            <FileText size={16} style={{ color: "#64748b" }} />
+                            {newTouchpoint.title}
+                          </div>
+                        </div>
+                        <div className={styles.reviewInfoItem}>
+                          <span className={styles.reviewInfoLabel}>Locations</span>
+                          <div className={styles.reviewInfoValue}>
+                            <MapPin size={16} style={{ color: "#64748b" }} />
+                            {selectedLocIds.length} Site(s) Selected
+                          </div>
+                        </div>
+                        <div className={styles.reviewInfoItem}>
+                          <span className={styles.reviewInfoLabel}>Responsible Units</span>
+                          <div className={styles.reviewInfoValue}>
+                            <Building2 size={16} style={{ color: "#64748b" }} />
+                            {newTouchpoint.departmentIds.length} Department(s)
+                          </div>
+                        </div>
+                        <div className={styles.reviewInfoItem}>
+                          <span className={styles.reviewInfoLabel}>Linked Forms</span>
+                          <div className={styles.reviewInfoValue}>
+                            <Layers size={16} style={{ color: "#64748b" }} />
+                            {newTouchpoint.templateIds.length} Form(s) Assigned
+                          </div>
                         </div>
                       </div>
-                      <div className={styles.previewItem}>
-                        <span className={styles.previewLabel}>QR Code</span>
-                        <div className={styles.previewQr} onClick={() => setShowQrPreview(true)}>
-                          <QRCodeSVG value={dynamicLink} size={40} />
+                    </div>
+                  </div>
+
+                  {/* Visual Assets Card */}
+                  <div className={styles.reviewCard}>
+                    <div className={styles.reviewCardHeader}>
+                      <QrCode size={18} style={{ color: "var(--brand-green)" }} />
+                      <h4>Deployment & Assets</h4>
+                    </div>
+                    <div className={styles.reviewCardBody}>
+                      <div className={styles.reviewVisualSection}>
+                        <div className={styles.reviewLinkGroup}>
+                          <div 
+                            className={styles.reviewLinkCard}
+                            onClick={() => {
+                              const link = `${origin}/p/${newTouchpoint.title.toLowerCase().replace(/\s+/g, '-')}`;
+                              navigator.clipboard.writeText(link);
+                              toast.success("Access link copied!");
+                            }}
+                          >
+                            <div className={styles.reviewLinkIcon}>
+                              <ExternalLink size={18} />
+                            </div>
+                            <div className={styles.reviewLinkContent}>
+                              <span className={styles.reviewLinkLabel}>Access Link (Live)</span>
+                              <span className={styles.reviewLinkText}>{origin}/p/{newTouchpoint.title.toLowerCase().replace(/\s+/g, '-')}</span>
+                            </div>
+                            <Copy size={16} style={{ color: "#94a3b8" }} />
+                          </div>
+
+                          <div 
+                            className={styles.reviewLinkCard}
+                            onClick={() => {
+                              navigator.clipboard.writeText(dynamicLink);
+                              toast.success("NFC Link copied!");
+                            }}
+                          >
+                            <div className={styles.reviewLinkIcon}>
+                              <Wifi size={18} />
+                            </div>
+                            <div className={styles.reviewLinkContent}>
+                              <span className={styles.reviewLinkLabel}>NFC Payload Link</span>
+                              <span className={styles.reviewLinkText}>{dynamicLink}</span>
+                            </div>
+                            <Copy size={16} style={{ color: "#94a3b8" }} />
+                          </div>
                         </div>
-                      </div>
-                      <div className={styles.previewItem}>
-                        <span className={styles.previewLabel}>NFC Link</span>
-                        <div className={styles.nfcLink}>
-                          <Wifi size={14} />
-                          <span>{dynamicLink}</span>
+
+                        <div className={styles.reviewQrPreview} onClick={() => setShowQrPreview(true)}>
+                          <QRCodeSVG value={dynamicLink} size={150} />
+                          <div style={{ position: 'absolute', bottom: '8px', fontSize: '10px', color: '#94a3b8', fontWeight: 700 }}>PREVIEW ONLY</div>
                         </div>
                       </div>
                     </div>
@@ -582,12 +860,12 @@ export default function TouchpointsPage() {
               )}
               <button type="button" className={styles.cancelBtn} onClick={() => setIsModalOpen(false)}>Cancel</button>
               {wizardStep < 2 ? (
-                <button 
+                  <button 
                   type="button" 
                   className={styles.createButton} 
                   onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={!newTouchpoint.title || !newTouchpoint.location || !newTouchpoint.departmentId}
-                  style={{ opacity: (!newTouchpoint.title || !newTouchpoint.location || !newTouchpoint.departmentId) ? 0.5 : 1 }}
+                  disabled={!newTouchpoint.title || !newTouchpoint.location || newTouchpoint.departmentIds.length === 0}
+                  style={{ opacity: (!newTouchpoint.title || !newTouchpoint.location || newTouchpoint.departmentIds.length === 0) ? 0.5 : 1 }}
                 >
                   Continue
                 </button>
@@ -620,40 +898,29 @@ export default function TouchpointsPage() {
               </p>
               <div style={{ marginBottom: "20px" }}>
                 <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, color: "#334155", fontSize: '13px' }}>
-                  Airport Location
+                  Airport Locations
                 </label>
-                <select
-                  value={tempLocId}
-                  onChange={(e) => setTempLocId(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "12px 16px",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "12px",
-                    fontSize: "14px",
-                    background: "white",
-                    color: "#1e293b",
-                  }}
-                >
-                  <option value="">Select an airport</option>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
+                <MultiSelect
+                  options={locations}
+                  selectedIds={tempLocIds}
+                  onChange={(ids) => setTempLocIds(ids)}
+                  placeholder="Select airports"
+                  icon={<Building2 size={18} />}
+                />
               </div>
             </div>
             <div className={styles.modalActions}>
               <button className={styles.cancelBtn} onClick={() => setShowLocationPicker(false)}>Cancel</button>
               <button
                 onClick={() => {
-                  setSelectedLocId(tempLocId);
+                  setSelectedLocIds(tempLocIds);
                   setShowLocationPicker(false);
                   setIsModalOpen(true);
                   setWizardStep(1);
                 }}
-                disabled={!tempLocId}
+                disabled={tempLocIds.length === 0}
                 className={styles.createButton}
-                style={{ opacity: tempLocId ? 1 : 0.5 }}
+                style={{ opacity: tempLocIds.length > 0 ? 1 : 0.5 }}
               >
                 Confirm
               </button>
@@ -663,21 +930,22 @@ export default function TouchpointsPage() {
       )}
 
       {showQrPreview && currentTouchpoint && (
-        <div className={styles.modalOverlay} onClick={() => setShowQrPreview(false)}>
+        <div className={styles.modalOverlay} onClick={() => { setShowQrPreview(false); setDownloadDropdownOpen(false); }}>
           <div className={styles.previewCard} onClick={(e) => e.stopPropagation()}>
             <div className={styles.previewHeader}>
               <div className={styles.modalTitleGroup}>
                 <h3 className={styles.previewTitle}>QR Code Preview</h3>
                 <p className={styles.modalSubtitle}>{currentTouchpoint.title}</p>
               </div>
-              <button className={styles.closeBtn} onClick={() => setShowQrPreview(false)}>
+              <button className={styles.closeBtn} onClick={() => { setShowQrPreview(false); setDownloadDropdownOpen(false); }}>
                 <X size={20} />
               </button>
             </div>
             <div className={styles.fullQrWrapper}>
-              <div className={styles.qrBackground}>
+              <div className={styles.qrBackground} ref={qrRef}>
                 <QRCodeSVG 
-                  value={`${origin}/p/${currentTouchpoint.uuid || 'sample'}`} 
+                  id={`qr-svg-${currentTouchpoint.uuid}`}
+                  value={`${origin}/p/${currentTouchpoint.slug || currentTouchpoint.uuid || 'sample'}`} 
                   size={200} 
                   includeMargin={true}
                   level="H" 
@@ -689,17 +957,70 @@ export default function TouchpointsPage() {
                     excavate: true,
                   }}
                 />
+                {/* Hidden canvas for PNG/JPG exports */}
+                <div style={{ display: 'none' }}>
+                  <QRCodeCanvas
+                    id={`qr-canvas-${currentTouchpoint.uuid}`}
+                    value={`${origin}/p/${currentTouchpoint.uuid || 'sample'}`}
+                    size={1024} // High res for export
+                    includeMargin={true}
+                    level="H"
+                    imageSettings={{
+                      src: "/Faan.logo_.png",
+                      height: 200,
+                      width: 200,
+                      excavate: true,
+                    }}
+                  />
+                </div>
               </div>
               <div className={styles.qrInfo}>
-                <p className={styles.qrLinkText}>{origin}/p/{currentTouchpoint.uuid || 'sample'}</p>
+                <div 
+                  className={styles.qrLinkContainer}
+                  onClick={() => {
+                    const link = `${origin}/p/${currentTouchpoint.slug || currentTouchpoint.uuid || 'sample'}`;
+                    navigator.clipboard.writeText(link);
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2000);
+                  }}
+                >
+                  <p className={styles.qrLinkText}>{origin}/p/{currentTouchpoint.slug || currentTouchpoint.uuid || 'sample'}</p>
+                  <button className={styles.copyBtn} aria-label="Copy link">
+                    {copySuccess ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                  </button>
+                </div>
                 <span className={styles.qrScanHint}>Scan to test this touchpoint</span>
               </div>
             </div>
-            <div className={styles.previewActions}>
-              <button className={styles.downloadBtn} onClick={() => downloadQr(currentTouchpoint.uuid)}>
-                <Download size={18} />
-                Download PNG
-              </button>
+            <div className={styles.previewActionsCentered}>
+              <div className={styles.downloadDropdownWrapper}>
+                <button 
+                  className={styles.downloadBtn} 
+                  onClick={() => setDownloadDropdownOpen(!downloadDropdownOpen)}
+                >
+                  <Download size={18} />
+                  Download
+                  <ChevronDown size={16} className={`${styles.chevronDn} ${downloadDropdownOpen ? styles.rotated : ''}`} />
+                </button>
+                
+                {downloadDropdownOpen && (
+                  <div className={styles.downloadMenu}>
+                    {(['png', 'svg', 'jpg'] as const).map((format) => (
+                      <button 
+                        key={format}
+                        className={styles.downloadMenuItem}
+                        onClick={() => {
+                          handleDownload(format);
+                          setDownloadDropdownOpen(false);
+                        }}
+                      >
+                        <span className={styles.formatTag}>{format.toUpperCase()}</span>
+                        <span>Format</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

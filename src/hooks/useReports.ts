@@ -51,7 +51,7 @@ export const useReportTemplates = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['report-templates', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<PaginatedResponse<ReportTemplate>>>('/reports/templates', { params });
+      const { data } = await api.get<ApiResponse<PaginatedResponse<ReportTemplate>>>('/report-templates', { params });
       return data.data;
     },
   });
@@ -62,7 +62,7 @@ export const useCreateReportTemplate = () => {
 
   return useMutation({
     mutationFn: async (templateData: Partial<ReportTemplate>) => {
-      const { data } = await api.post<ApiResponse<ReportTemplate>>('/reports/templates', templateData);
+      const { data } = await api.post<ApiResponse<ReportTemplate>>('/report-templates', templateData);
       return data.data;
     },
     onSuccess: () => {
@@ -76,7 +76,7 @@ export const useDeleteReportTemplate = () => {
 
   return useMutation({
     mutationFn: async (uuid: string) => {
-      await api.delete(`/reports/templates/${uuid}`);
+      await api.delete(`/report-templates/${uuid}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['report-templates'] });
