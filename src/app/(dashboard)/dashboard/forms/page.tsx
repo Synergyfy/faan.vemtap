@@ -5,17 +5,11 @@ import {
   FileStack, 
   Plus, 
   Search, 
-  Filter,
-  Download,
   Trash2,
   Edit,
   Copy,
-  Eye,
-  ToggleLeft,
-  ToggleRight,
   X,
   CheckCircle2,
-  Link2,
   FileText,
   Type,
   List,
@@ -24,130 +18,107 @@ import {
   ChevronRight,
   ChevronLeft,
   Star,
-  Phone
+  Layers2,
+  BarChart3,
+  MousePointer2,
+  MapPin,
+  Building2,
+  MoreVertical,
+  ClipboardList,
+  FileCheck
 } from "lucide-react";
+import Image from "next/image";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
-import { UserRole } from "@/types/rbac";
-import { MOCK_LOCATIONS } from "@/data/mockLocations";
-import { MOCK_DEPARTMENTS, getDepartmentsByLocation } from "@/data/mockDepartments";
-
-interface FormField {
-  id: string;
-  type: 'text' | 'dropdown' | 'file' | 'date' | 'rating' | 'textarea';
-  label: string;
-  required: boolean;
-  options?: string[];
-}
-
-interface Form {
-  id: string;
-  name: string;
-  type: 'passenger';
-  locationId: string;
-  locationName: string;
-  departmentId: string;
-  departmentName: string;
-  fields: FormField[];
-  allowAnonymous: boolean;
-  successMessage: string;
-  createdAt: string;
-  submissions: number;
-}
-
-const INITIAL_FORMS: Form[] = [
-  {
-    id: "form-001",
-    name: "Passenger Feedback",
-    type: "passenger",
-    locationId: "abuja",
-    locationName: "Abuja International Airport",
-    departmentId: "customer-service",
-    departmentName: "Customer Service",
-    fields: [
-      { id: "f1", type: "rating", label: "How would you rate your experience?", required: true },
-      { id: "f2", type: "text", label: "What did you like most?", required: false },
-      { id: "f3", type: "textarea", label: "Any additional comments?", required: false },
-    ],
-    allowAnonymous: true,
-    successMessage: "Thank you for your feedback!",
-    createdAt: "2024-04-01",
-    submissions: 342
-  },
-  {
-    id: "form-002",
-    name: "Airport Cleanliness Survey",
-    type: "passenger",
-    locationId: "lagos",
-    locationName: "Lagos Murtala Muhammed",
-    departmentId: "facilities",
-    departmentName: "Facilities & Assets",
-    fields: [
-      { id: "f1", type: "rating", label: "Cleanliness Rating", required: true },
-      { id: "f2", type: "dropdown", label: "Area", required: true, options: ["Restroom", "Lounge", "Food Court", "Gate Area"] },
-      { id: "f3", type: "text", label: "Suggestions", required: false },
-    ],
-    allowAnonymous: true,
-    successMessage: "Thank you for helping us improve!",
-    createdAt: "2024-04-10",
-    submissions: 156
-  }
-];
+import { 
+  useTouchpoints, 
+  useCreateTouchpoint, 
+  useDeleteTouchpoint
+} from "@/hooks/useTouchpoints";
+import { useLocations } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
+import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/types/api";
 
 const FIELD_TYPES = [
-  { value: 'rating', label: '⭐ Rating', icon: Star },
-  { value: 'text', label: 'Text Input', icon: Type },
-  { value: 'textarea', label: 'Long Text', icon: FileText },
-  { value: 'dropdown', label: 'Dropdown', icon: List },
-  { value: 'file', label: 'File Upload', icon: Upload },
-  { value: 'date', label: 'Date', icon: Calendar },
+  { value: 'rating', label: 'Rating', icon: Star, color: '#f59e0b' },
+  { value: 'text', label: 'Text Input', icon: Type, color: '#3b82f6' },
+  { value: 'textarea', label: 'Long Text', icon: FileText, color: '#8b5cf6' },
+  { value: 'dropdown', label: 'Dropdown', icon: List, color: '#ec4899' },
+  { value: 'file', label: 'File Upload', icon: Upload, color: '#10b981' },
+  { value: 'date', label: 'Date', icon: Calendar, color: '#f97316' },
 ];
 
+const FORM_ACCENTS = [
+  { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
+  { bg: "rgba(37, 99, 235, 0.12)", fg: "#2563eb", ring: "rgba(37, 99, 235, 0.22)" },
+  { bg: "rgba(124, 58, 237, 0.12)", fg: "#7c3aed", ring: "rgba(124, 58, 237, 0.22)" },
+  { bg: "rgba(217, 119, 6, 0.14)", fg: "#d97706", ring: "rgba(217, 119, 6, 0.24)" },
+  { bg: "rgba(219, 39, 119, 0.12)", fg: "#db2777", ring: "rgba(219, 39, 119, 0.22)" },
+] as const;
+
+function hashToIndex(input: string, modulo: number) {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash) % modulo;
+}
+
 export default function FormsPage() {
-  const { currentRole, currentLocation } = useRole();
-  
-  const [forms, setForms] = useState<Form[]>(INITIAL_FORMS);
+  const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
+  const { data: touchpointsData, isLoading: formsLoading } = useTouchpoints({ type: 'FEEDBACK' });
+  const { data: locationsData } = useLocations();
+  const { data: departmentsData } = useDepartments();
+
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingFormId, setEditingFormId] = useState<string | null>(null);
-  const [selectedForm, setSelectedForm] = useState<Form | null>(null);
-
-  // Wizard state
+  const [selectedForm, setSelectedForm] = useState<Touchpoint | null>(null);
   const [wizardStep, setWizardStep] = useState(1);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
+  const createMutation = useCreateTouchpoint();
+  const deleteMutation = useDeleteTouchpoint();
+
+  const touchpoints = touchpointsData?.data || [];
+  const locations = locationsData?.data || [];
+  const departments = departmentsData?.data || [];
 
   const [newForm, setNewForm] = useState({
     name: '',
-    locationId: currentLocation || 'abuja',
-    locationName: 'Abuja International Airport',
-    departmentId: 'customer-service',
-    departmentName: 'Customer Service',
+    locationId: currentLocation || '',
+    departmentId: '',
     allowAnonymous: true,
     successMessage: 'Thank you for your feedback!',
     fields: [] as FormField[],
   });
 
-  const filteredForms = forms.filter(form => {
-    if (searchTerm && !form.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    return true;
-  });
+  const filteredForms = touchpoints.filter((tp: Touchpoint) => 
+    !searchTerm || tp.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const totalFields = touchpoints.reduce((sum, tp) => sum + (tp.formConfig?.length || 0), 0);
+  const totalSubmissions = touchpoints.reduce((sum, tp) => sum + (tp.interactions || 0), 0);
+
+  const scopeLabel =
+    currentRole === "LOCATION_ADMIN"
+      ? roleLocationName || "Your Location"
+      : "All Locations";
 
   const handleLocationChange = (locationId: string) => {
-    const location = MOCK_LOCATIONS.find(l => l.id === locationId);
-    const depts = getDepartmentsByLocation(locationId);
     setNewForm({
       ...newForm,
       locationId,
-      locationName: location?.name || '',
-      departmentId: depts[0]?.id || '',
-      departmentName: depts[0]?.name || '',
+      departmentId: '',
     });
   };
 
-  const handleAddField = (type: FormField['type'] = 'text') => {
+  const handleAddField = (type: string = 'text') => {
     const newField: FormField = {
-      id: `field-${Date.now()}`,
-      type,
+      id: Date.now(),
+      type: type as FormField['type'],
       label: 'New Field',
       required: false,
       options: type === 'dropdown' ? ['Option 1', 'Option 2'] : [],
@@ -155,14 +126,14 @@ export default function FormsPage() {
     setNewForm({...newForm, fields: [...newForm.fields, newField]});
   };
 
-  const handleUpdateField = (fieldId: string, updates: Partial<FormField>) => {
+  const handleUpdateField = (fieldId: number | string, updates: Partial<FormField>) => {
     setNewForm({
       ...newForm,
-      fields: newForm.fields.map(f => f.id === fieldId ? {...f, ...updates} : f)
+      fields: newForm.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
     });
   };
 
-  const handleRemoveField = (fieldId: string) => {
+  const handleRemoveField = (fieldId: number | string) => {
     setNewForm({
       ...newForm,
       fields: newForm.fields.filter(f => f.id !== fieldId)
@@ -170,68 +141,41 @@ export default function FormsPage() {
   };
 
   const handleSaveForm = () => {
+    const payload = {
+      title: newForm.name,
+      locationId: newForm.locationId,
+      departmentId: newForm.departmentId,
+      type: 'FEEDBACK' as TouchpointType,
+      formConfig: newForm.fields,
+    };
+
     if (isEditMode && editingFormId) {
-      setForms(forms.map(f => f.id === editingFormId ? { ...f, ...newForm } : f));
+      
     } else {
-      const form: Form = {
-        id: `form-${String(forms.length + 1).padStart(3, '0')}`,
-        name: newForm.name,
-        type: 'passenger',
-        locationId: newForm.locationId,
-        locationName: newForm.locationName,
-        departmentId: newForm.departmentId,
-        departmentName: newForm.departmentName,
-        fields: newForm.fields,
-        allowAnonymous: newForm.allowAnonymous,
-        successMessage: newForm.successMessage,
-        createdAt: new Date().toISOString().split('T')[0],
-        submissions: 0,
-      };
-      setForms([form, ...forms]);
+      createMutation.mutate(payload, {
+        onSuccess: () => {
+          setIsCreateModalOpen(false);
+          setWizardStep(1);
+          resetWizard();
+        }
+      });
     }
-    setIsCreateModalOpen(false);
-    setWizardStep(1);
-    setIsEditMode(false);
-    setEditingFormId(null);
-    setNewForm({
-      name: '',
-      locationId: currentLocation || 'abuja',
-      locationName: MOCK_LOCATIONS.find(l => l.id === (currentLocation || 'abuja'))?.name || '',
-      departmentId: 'customer-service',
-      departmentName: 'Customer Service',
-      allowAnonymous: true,
-      successMessage: 'Thank you for your feedback!',
-      fields: [],
-    });
   };
 
   const handleDeleteForm = (id: string) => {
-    setForms(forms.filter(f => f.id !== id));
-    if (selectedForm?.id === id) setSelectedForm(null);
-  };
-
-  const handleDuplicateForm = (form: Form) => {
-    const duplicate: Form = {
-      ...form,
-      id: `form-${String(forms.length + 1).padStart(3, '0')}`,
-      name: `${form.name} (Copy)`,
-      createdAt: new Date().toISOString().split('T')[0],
-      submissions: 0,
-    };
-    setForms([duplicate, ...forms]);
+    deleteMutation.mutate(id, {
+      onSuccess: () => {
+        if (selectedForm?.id === id) setSelectedForm(null);
+      }
+    });
   };
 
   const resetWizard = () => {
     setWizardStep(1);
-    const locId = currentLocation || 'abuja';
-    const location = MOCK_LOCATIONS.find(l => l.id === locId);
-    const depts = getDepartmentsByLocation(locId);
     setNewForm({
       name: '',
-      locationId: locId,
-      locationName: location?.name || '',
-      departmentId: depts[0]?.id || '',
-      departmentName: depts[0]?.name || '',
+      locationId: currentLocation || '',
+      departmentId: '',
       allowAnonymous: true,
       successMessage: 'Thank you for your feedback!',
       fields: [],
@@ -240,126 +184,288 @@ export default function FormsPage() {
 
   return (
     <div className={styles.touchpointsLayout}>
-      <div className={styles.pageHeader}>
-        <div>
-          <h2 className={styles.pageTitle}>Forms Management</h2>
-          <p className={styles.pageSubtitle}>Create and manage passenger and internal forms.</p>
+      <div className={styles.deptHero}>
+        <div className={styles.deptHeroMain}>
+          <div className={styles.deptHeroTitleRow}>
+            <div className={styles.deptHeroMark} aria-hidden="true">
+              <Image src="/Faan.logo_.png" alt="" width={34} height={34} />
+            </div>
+            <div className={styles.deptHeroText}>
+              <h2 className={styles.deptHeroTitle}>Forms Management</h2>
+              <p className={styles.deptHeroSubtitle}>
+                Design and deploy passenger feedback forms, surveys, and data collection touchpoints across all airport locations.
+              </p>
+            </div>
+          </div>
+          <div className={styles.deptHeroPills}>
+            <span className={styles.deptPill}>
+              <MapPin size={14} />
+              <span>Scope: {scopeLabel}</span>
+            </span>
+            <span className={styles.deptPillMuted}>
+              <Building2 size={14} />
+              <span>{currentRole === "LOCATION_ADMIN" ? "Location Administration" : "System Administration"}</span>
+            </span>
+          </div>
         </div>
-        <div className={styles.headerActions}>
-          <button className={styles.createButton} onClick={() => setIsCreateModalOpen(true)}>
+
+        <div className={styles.deptHeroActions}>
+          <button
+            className={styles.createButton}
+            onClick={() => setIsCreateModalOpen(true)}
+          >
             <Plus size={18} />
             <span>Create Form</span>
           </button>
+          <p className={styles.deptHeroHint}>Build custom forms with ratings, text fields, and dropdowns.</p>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className={styles.tableControls}>
-        <div className={styles.searchBar}>
-          <Search size={18} className={styles.searchIcon} />
-          <input 
-            type="text" 
-            placeholder="Search forms..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      <div className={styles.deptStatsGrid} aria-label="Forms summary">
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} aria-hidden="true">
+            <Layers2 size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Active Forms</div>
+            <div className={styles.deptStatValue}>{touchpoints.length}</div>
+          </div>
+        </div>
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} aria-hidden="true">
+            <FileCheck size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Form Fields</div>
+            <div className={styles.deptStatValue}>{totalFields}</div>
+          </div>
+        </div>
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} aria-hidden="true">
+            <MousePointer2 size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Submissions</div>
+            <div className={styles.deptStatValue}>{totalSubmissions}</div>
+          </div>
         </div>
       </div>
 
-{/* Forms List */}
-      <div className={styles.tableCard}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Form Name</th>
-              <th>Location</th>
-              <th>Department</th>
-              <th>Fields</th>
-              <th>Submissions</th>
-              <th className={styles.textRight}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredForms.map((form) => (
-              <tr key={form.id} className={styles.clickableRow} onClick={() => setSelectedForm(form)}>
-                <td>
-                  <span className={styles.tpName}>{form.name}</span>
-                </td>
-                <td>
-                  <div className={styles.deptCell}>
-                    <span>{form.locationName}</span>
+      <div className={styles.deptControlsCard}>
+        <div className={styles.deptControlsRow}>
+          <div className={`${styles.searchBar} ${styles.deptSearchBar}`}>
+            <Search size={18} className={styles.searchIcon} />
+            <input
+              type="text"
+              placeholder="Search forms by name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={styles.searchInput}
+            />
+          </div>
+          <div className={styles.deptControlsMeta} aria-live="polite">
+            {formsLoading ? (
+              <span>Loading...</span>
+            ) : (
+              <span>
+                Showing <strong>{filteredForms.length}</strong> of <strong>{touchpoints.length}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {formsLoading ? (
+        <div className={styles.deptGrid} aria-label="Loading forms">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={`form-skeleton-${i}`} className={`${styles.deptCard} ${styles.deptSkeletonCard}`}>
+              <div className={styles.deptCardHeader}>
+                <div className={styles.deptSkeletonIcon} />
+                <div className={styles.deptSkeletonMenu} />
+              </div>
+              <div className={styles.deptCardInfo}>
+                <div className={styles.deptSkeletonLine} style={{ width: "70%" }} />
+                <div className={styles.deptSkeletonLine} style={{ width: "95%" }} />
+                <div className={styles.deptSkeletonLine} style={{ width: "60%" }} />
+              </div>
+              <div className={styles.deptCardMetrics}>
+                <div className={styles.deptSkeletonPill} />
+                <div className={styles.deptSkeletonPill} />
+              </div>
+              <div className={styles.deptSkeletonBtn} />
+            </div>
+          ))}
+        </div>
+      ) : filteredForms.length === 0 ? (
+        <div className={styles.deptEmptyState} role="status">
+          <div className={styles.deptEmptyIcon} aria-hidden="true">
+            <ClipboardList size={22} />
+          </div>
+          <h3 className={styles.deptEmptyTitle}>
+            {searchTerm ? "No forms match your search" : "No forms created yet"}
+          </h3>
+          <p className={styles.deptEmptyText}>
+            {searchTerm
+              ? "Try a different keyword or clear the search."
+              : "Create your first form to start collecting passenger feedback and data."}
+          </p>
+          <div className={styles.deptEmptyActions}>
+            {searchTerm ? (
+              <button className={styles.cancelBtn} onClick={() => setSearchTerm("")}>
+                Clear Search
+              </button>
+            ) : (
+              <button
+                className={styles.createButton}
+                onClick={() => setIsCreateModalOpen(true)}
+              >
+                <Plus size={18} />
+                <span>Create Form</span>
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className={styles.deptGrid}>
+          {filteredForms.map((form: Touchpoint) => {
+            const accent = FORM_ACCENTS[hashToIndex(String(form.id), FORM_ACCENTS.length)];
+            const accentStyle = {
+              "--accent-bg": accent.bg,
+              "--accent-fg": accent.fg,
+              "--accent-ring": accent.ring,
+            } as React.CSSProperties;
+
+            const formLocationName =
+              typeof (form as any).location === "string"
+                ? (form as any).location
+                : (form as any).location?.name || roleLocationName || "All Locations";
+
+            return (
+              <div 
+                key={form.id} 
+                className={styles.deptCard}
+                onClick={() => setSelectedForm(form)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className={styles.deptCardHeader}>
+                  <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
+                    <FileStack size={24} />
                   </div>
-                </td>
-                <td>
-                  <div className={styles.deptCell}>
-                    <span>{form.departmentName}</span>
-                  </div>
-                </td>
-                <td>
-                  <span>{form.fields.length} fields</span>
-                </td>
-                <td>
-                  <span className={styles.tpName}>{form.submissions}</span>
-                </td>
-                <td className={styles.textRight}>
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                    <button 
-                      className={styles.viewLink} 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        setNewForm({
-                          name: form.name,
-                          locationId: form.locationId,
-                          locationName: form.locationName,
-                          departmentId: form.departmentId,
-                          departmentName: form.departmentName,
-                          allowAnonymous: form.allowAnonymous,
-                          successMessage: form.successMessage,
-                          fields: form.fields,
-                        });
-                        setIsEditMode(true);
-                        setEditingFormId(form.id);
-                        setIsCreateModalOpen(true);
+                  <div className={styles.cardMenuWrapper}>
+                    <button
+                      className={styles.cardMore}
+                      aria-label={`Form actions for ${form.title}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveDropdown(activeDropdown === form.id ? null : form.id);
                       }}
                     >
-                      <Edit size={14} /> Edit
+                      <MoreVertical size={18} />
                     </button>
-                    <button className={styles.viewLink} onClick={(e) => { e.stopPropagation(); handleDuplicateForm(form); }}>
-                      <Copy size={14} /> Duplicate
-                    </button>
+                    {activeDropdown === form.id && (
+                      <div className={styles.cardDropdown}>
+                        <button
+                          className={styles.dropdownItem}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNewForm({
+                              name: form.title,
+                              locationId: form.locationId,
+                              departmentId: form.departmentId,
+                              allowAnonymous: true,
+                              successMessage: 'Thank you for your feedback!',
+                              fields: form.formConfig || [],
+                            });
+                            setIsEditMode(true);
+                            setEditingFormId(form.id);
+                            setIsCreateModalOpen(true);
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <Edit size={14} /> Edit Form
+                        </button>
+                        <button 
+                          className={styles.dropdownItem}
+                          onClick={(e) => { e.stopPropagation(); setActiveDropdown(null); }}
+                        >
+                          <Copy size={14} /> Duplicate
+                        </button>
+                        <div className={styles.dropdownSeparator} />
+                        <button
+                          className={`${styles.dropdownItem} ${styles.danger}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteForm(form.id);
+                          }}
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </div>
 
-{/* CREATE FORM WIZARD MODAL */}
+                <div className={styles.deptCardInfo}>
+                  <h3 className={styles.deptCardTitle}>{form.title}</h3>
+                  <p className={styles.deptCardDesc}>
+                    {form.department?.name || 'General'} Department Form
+                  </p>
+                  <div className={styles.deptLocationRow}>
+                    <MapPin size={12} />
+                    <span>{formLocationName}</span>
+                  </div>
+                </div>
+
+                <div className={styles.deptCardMetrics}>
+                  <div className={styles.deptMetric}>
+                    <FileCheck size={14} />
+                    <span>{form.formConfig?.length || 0} Fields</span>
+                  </div>
+                  <div className={styles.deptMetric}>
+                    <MousePointer2 size={14} />
+                    <span>{form.interactions || 0} Submissions</span>
+                  </div>
+                </div>
+
+                <button 
+                  className={styles.deptManageBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedForm(form);
+                  }}
+                >
+                  View Details
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {isCreateModalOpen && (
         <div className={styles.modalOverlay}>
           <div className={`${styles.modalContent}`} style={{ maxWidth: '1200px', width: '96%', maxHeight: '92vh' }}>
             <div className={styles.modalHeader}>
-              <div>
-                <h3 className={styles.modalTitle}>{isEditMode ? 'Edit Form' : 'Create New Passenger Form'}</h3>
-                <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Step {wizardStep} of 3</p>
+              <div className={styles.modalTitleGroup}>
+                <span className={styles.wizardBadge}>Step {wizardStep} of 3</span>
+                <h3 className={styles.modalTitle}>{isEditMode ? 'Edit Form' : 'Create New Form'}</h3>
+                <p className={styles.modalSubtitle}>Build a professional passenger feedback form</p>
               </div>
-              <button className={styles.closeBtn} onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}><X size={20} /></button>
+              <button className={styles.closeBtn} onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}>
+                <X size={20} />
+              </button>
             </div>
             
-            {/* Wizard Progress */}
             <div className={styles.wizardProgress}>
               <div className={`${styles.progressStep} ${wizardStep >= 1 ? styles.active : ''}`} />
               <div className={`${styles.progressStep} ${wizardStep >= 2 ? styles.active : ''}`} />
               <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ''}`} />
             </div>
 
-            {/* Wizard Steps Container */}
             <div className={styles.modalBody} style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '0', minHeight: '560px', padding: '0' }}>
               
-              {/* LEFT PANEL: Wizard Content */}
               <div style={{ padding: '32px', borderRight: '1px solid #e2e8f0', overflow: 'auto' }}>
-                {/* Step 1: Form Details */}
                 {wizardStep === 1 && (
                   <div>
                     <div style={{ marginBottom: '32px' }}>
@@ -372,7 +478,10 @@ export default function FormsPage() {
                     </div>
                     
                     <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
-                      <label className={styles.formLabel}>Form Name *</label>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Form Name *</label>
+                        <span className={styles.fieldDesc}>A clear title passengers will see</span>
+                      </div>
                       <div className={styles.modalInputWrapper}>
                         <FileStack size={18} />
                         <input 
@@ -385,33 +494,36 @@ export default function FormsPage() {
                     </div>
 
                     <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
-                      <label className={styles.formLabel}>Success Message</label>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Success Message</label>
+                        <span className={styles.fieldDesc}>Message shown after submission</span>
+                      </div>
                       <div className={styles.modalInputWrapper} style={{ padding: '16px', alignItems: 'flex-start' }}>
-                        <CheckCircle2 size={18} style={{ marginTop: '2px' }} />
+                        <CheckCircle2 size={18} style={{ marginTop: '2px', color: 'var(--brand-green)' }} />
                         <textarea 
-                          placeholder="Message to show after successful submission"
+                          placeholder="Thank you for your feedback!"
                           value={newForm.successMessage}
                           onChange={(e) => setNewForm({...newForm, successMessage: e.target.value})}
-                          style={{ minHeight: '80px', resize: 'none' }}
+                          style={{ minHeight: '80px', resize: 'none', border: 'none', outline: 'none', width: '100%', fontSize: '14px', background: 'transparent' }}
                         />
                       </div>
                     </div>
 
-                    <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '12px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#475569', cursor: 'pointer' }}>
+                    <div style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(21, 115, 71, 0.04), rgba(21, 115, 71, 0.08))', borderRadius: '16px', border: '1px solid rgba(21, 115, 71, 0.12)' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: '#334155', cursor: 'pointer', fontWeight: 500 }}>
                         <input 
                           type="checkbox"
                           checked={newForm.allowAnonymous}
                           onChange={(e) => setNewForm({...newForm, allowAnonymous: e.target.checked})}
-                          style={{ width: '18px', height: '18px' }}
+                          style={{ width: '20px', height: '20px', accentColor: 'var(--brand-green)' }}
                         />
                         Allow anonymous submissions
+                        <span style={{ fontSize: '11px', color: '#64748b', marginLeft: 'auto' }}>Recommended</span>
                       </label>
                     </div>
                   </div>
                 )}
 
-                {/* Step 2: Location & Department */}
                 {wizardStep === 2 && (
                   <div>
                     <div style={{ marginBottom: '32px' }}>
@@ -419,19 +531,23 @@ export default function FormsPage() {
                         Assignment
                       </h4>
                       <p style={{ fontSize: '14px', color: '#64748b' }}>
-                        Select where this form will be available
+                        Select where this form will be deployed
                       </p>
                     </div>
                     
                     <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
-                      <label className={styles.formLabel}>Location *</label>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Location *</label>
+                        <span className={styles.fieldDesc}>Which airport should host this form?</span>
+                      </div>
                       <div className={styles.modalInputWrapper}>
-                        <Plus size={18} />
+                        <MapPin size={18} />
                         <select 
                           value={newForm.locationId}
                           onChange={(e) => handleLocationChange(e.target.value)}
                         >
-                          {MOCK_LOCATIONS.map(loc => (
+                          <option value="">Select Location</option>
+                          {locations.map((loc: Location) => (
                             <option key={loc.id} value={loc.id}>{loc.name}</option>
                           ))}
                         </select>
@@ -439,17 +555,18 @@ export default function FormsPage() {
                     </div>
 
                     <div className={styles.formGroup}>
-                      <label className={styles.formLabel}>Department *</label>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Department *</label>
+                        <span className={styles.fieldDesc}>Responsible department</span>
+                      </div>
                       <div className={styles.modalInputWrapper}>
-                        <List size={18} />
+                        <Building2 size={18} />
                         <select 
                           value={newForm.departmentId}
-                          onChange={(e) => {
-                            const dept = getDepartmentsByLocation(newForm.locationId).find(d => d.id === e.target.value);
-                            setNewForm({...newForm, departmentId: e.target.value, departmentName: dept?.name || ''});
-                          }}
+                          onChange={(e) => setNewForm({...newForm, departmentId: e.target.value})}
                         >
-                          {getDepartmentsByLocation(newForm.locationId).map(dept => (
+                          <option value="">Select Department</option>
+                          {locations.find((l: Location) => l.id === newForm.locationId)?.departments?.map((dept: { id: string; name: string }) => (
                             <option key={dept.id} value={dept.id}>{dept.name}</option>
                           ))}
                         </select>
@@ -458,7 +575,6 @@ export default function FormsPage() {
                   </div>
                 )}
 
-                {/* Step 3: Build Fields */}
                 {wizardStep === 3 && (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
@@ -467,15 +583,11 @@ export default function FormsPage() {
                           Build Fields
                         </h4>
                         <p style={{ fontSize: '14px', color: '#64748b' }}>
-                          Add and configure fields for your form ({newForm.fields.length} added)
+                          Add and configure form fields ({newForm.fields.length} added)
                         </p>
                       </div>
-                      <button className={styles.createButton} onClick={() => handleAddField('text')}>
-                        <Plus size={16} /> Add Field
-                      </button>
                     </div>
 
-                    {/* Field Type Buttons */}
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
                       {FIELD_TYPES.map(ft => {
                         const Icon = ft.icon;
@@ -487,29 +599,30 @@ export default function FormsPage() {
                               display: 'flex',
                               alignItems: 'center',
                               gap: '6px',
-                              padding: '10px 16px',
-                              borderRadius: '10px',
+                              padding: '12px 16px',
+                              borderRadius: '12px',
                               border: '1px solid #e2e8f0',
                               background: 'white',
                               fontSize: '13px',
-                              fontWeight: 500,
+                              fontWeight: 600,
                               color: '#475569',
                               cursor: 'pointer',
                               transition: 'all 0.2s',
                             }}
                           >
-                            <Icon size={14} /> {ft.label}
+                            <Icon size={14} style={{ color: ft.color }} /> {ft.label}
                           </button>
                         );
                       })}
                     </div>
 
-                    {/* Fields List */}
                     {newForm.fields.length === 0 ? (
-                      <div className={styles.emptyStage} style={{ height: '180px', background: '#f8fafc', border: '2px dashed #e2e8f0' }}>
-                        <FileStack size={40} style={{ color: '#cbd5e1' }} />
-                        <p style={{ fontWeight: 600, color: '#64748b', marginTop: '12px' }}>No fields added yet</p>
-                        <p style={{ fontSize: '12px', color: '#94a3b8' }}>Click a field type above to start building</p>
+                      <div className={styles.emptyStage} style={{ height: '220px', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', border: '2px dashed #e2e8f0', borderRadius: '20px' }}>
+                        <div style={{ padding: '16px', background: 'rgba(21, 115, 71, 0.08)', borderRadius: '16px', marginBottom: '12px' }}>
+                          <FileStack size={32} style={{ color: 'var(--brand-green)' }} />
+                        </div>
+                        <p style={{ fontWeight: 700, color: '#0f172a', fontSize: '15px' }}>No fields added yet</p>
+                        <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Click a field type above to start building</p>
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
@@ -517,17 +630,17 @@ export default function FormsPage() {
                           <div key={field.id} style={{ 
                             background: 'white', 
                             border: '1px solid #e2e8f0', 
-                            borderRadius: '12px', 
-                            padding: '16px',
+                            borderRadius: '16px', 
+                            padding: '20px',
                             transition: 'all 0.2s',
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                               <span style={{ 
-                                width: '24px', 
-                                height: '24px', 
-                                borderRadius: '50%', 
-                                background: 'var(--brand-green-light)', 
-                                color: 'var(--brand-green)',
+                                width: '28px', 
+                                height: '28px', 
+                                borderRadius: '8px', 
+                                background: 'var(--brand-green)', 
+                                color: 'white',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -539,7 +652,7 @@ export default function FormsPage() {
                               <select 
                                 value={field.type}
                                 onChange={(e) => handleUpdateField(field.id, { type: e.target.value as FormField['type'] })}
-                                style={{ fontSize: '13px', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}
+                                style={{ fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontWeight: 600, background: '#f8fafc' }}
                               >
                                 {FIELD_TYPES.map(ft => (
                                   <option key={ft.value} value={ft.value}>{ft.label}</option>
@@ -549,8 +662,8 @@ export default function FormsPage() {
                                 onClick={() => handleRemoveField(field.id)}
                                 style={{ 
                                   marginLeft: 'auto', 
-                                  padding: '6px', 
-                                  borderRadius: '6px', 
+                                  padding: '8px', 
+                                  borderRadius: '8px', 
                                   border: 'none', 
                                   background: 'transparent',
                                   color: '#94a3b8',
@@ -562,36 +675,38 @@ export default function FormsPage() {
                             </div>
                             <input 
                               type="text"
-                              placeholder="Field label"
+                              placeholder="Field label (e.g. How would you rate our service?)"
                               value={field.label}
                               onChange={(e) => handleUpdateField(field.id, { label: e.target.value })}
                               style={{ 
                                 width: '100%', 
                                 fontSize: '14px', 
-                                padding: '10px 12px',
-                                borderRadius: '8px',
+                                padding: '12px 14px',
+                                borderRadius: '10px',
                                 border: '1px solid #e2e8f0',
                                 marginBottom: '12px',
+                                fontWeight: 500,
                               }}
                             />
                             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#475569', fontWeight: 500 }}>
                                 <input 
                                   type="checkbox"
                                   checked={field.required}
                                   onChange={(e) => handleUpdateField(field.id, { required: e.target.checked })}
+                                  style={{ accentColor: 'var(--brand-green)' }}
                                 />
-                                Required
+                                Required field
                               </label>
                               {field.type === 'dropdown' && (
                                 <input 
                                   type="text"
-                                  placeholder="Options: A, B, C"
+                                  placeholder="Options: Option 1, Option 2, Option 3"
                                   value={field.options?.join(', ') || ''}
                                   onChange={(e) => handleUpdateField(field.id, { 
                                     options: e.target.value.split(',').map(o => o.trim()).filter(o => o) 
                                   })}
-                                  style={{ flex: 1, fontSize: '12px', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}
+                                  style={{ flex: 1, fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
                                 />
                               )}
                             </div>
@@ -603,7 +718,6 @@ export default function FormsPage() {
                 )}
               </div>
 
-              {/* RIGHT PANEL: Phone Preview */}
               <div style={{ 
                 background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
                 padding: '32px',
@@ -614,16 +728,15 @@ export default function FormsPage() {
               }}>
                 <div style={{ 
                   fontSize: '11px', 
-                  fontWeight: 600, 
-                  color: '#64748b', 
+                  fontWeight: 700, 
+                  color: '#94a3b8', 
                   textTransform: 'uppercase', 
-                  letterSpacing: '1px', 
-                  marginBottom: '16px',
+                  letterSpacing: '1.5px', 
+                  marginBottom: '20px',
                 }}>
-                  📱 Live Preview
+                  LIVE PREVIEW
                 </div>
                 
-                {/* iPhone 14 Pro Style Mockup */}
                 <div style={{
                   width: '280px',
                   height: '560px',
@@ -633,7 +746,6 @@ export default function FormsPage() {
                   position: 'relative',
                   boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
                 }}>
-                  {/* Dynamic Island */}
                   <div style={{
                     width: '90px',
                     height: '28px',
@@ -646,7 +758,6 @@ export default function FormsPage() {
                     zIndex: 10,
                   }} />
                   
-                  {/* Screen */}
                   <div style={{
                     height: '100%',
                     background: '#fff',
@@ -655,7 +766,6 @@ export default function FormsPage() {
                     display: 'flex',
                     flexDirection: 'column',
                   }}>
-                    {/* Status Bar */}
                     <div style={{ 
                       height: '46px', 
                       padding: '0 20px', 
@@ -673,21 +783,19 @@ export default function FormsPage() {
                       </div>
                     </div>
 
-                    {/* App Header */}
                     <div style={{ 
                       padding: '16px 20px', 
                       borderBottom: '1px solid #f1f5f9',
-                      background: '#fafafa',
+                      background: 'linear-gradient(to bottom, #fafafa, #ffffff)',
                     }}>
                       <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
                         {newForm.name || 'Untitled Form'}
                       </div>
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                        {newForm.locationName.split(' ')[0]} • {newForm.departmentName.split(' ')[0]}
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                        {locations.find((l: Location) => l.id === newForm.locationId)?.name || 'FAAN'} • {locations.find((l: Location) => l.id === newForm.locationId)?.departments?.find((d) => d.id === newForm.departmentId)?.name || 'Operations'}
                       </div>
                     </div>
                     
-                    {/* Scrollable Content */}
                     <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
                       {newForm.fields.length === 0 ? (
                         <div style={{ 
@@ -721,6 +829,8 @@ export default function FormsPage() {
                                   placeholder="Enter text..."
                                   style={{ 
                                     height: '36px', 
+                                    width: '100%',
+                                    boxSizing: 'border-box',
                                     background: '#f9fafb', 
                                     border: '1px solid #e5e7eb', 
                                     borderRadius: '8px',
@@ -734,7 +844,9 @@ export default function FormsPage() {
                                   disabled
                                   placeholder="Enter details..."
                                   style={{ 
-                                    height: '60px', 
+                                    height: '60px',
+                                    width: '100%',
+                                    boxSizing: 'border-box', 
                                     background: '#f9fafb', 
                                     border: '1px solid #e5e7eb', 
                                     borderRadius: '8px',
@@ -804,7 +916,6 @@ export default function FormsPage() {
                       )}
                     </div>
                     
-                    {/* Submit Button */}
                     <div style={{
                       padding: '16px 20px',
                       borderTop: '1px solid #f1f5f9',
@@ -826,7 +937,6 @@ export default function FormsPage() {
               </div>
             </div>
 
-            {/* Wizard Actions */}
             <div className={styles.modalActions}>
               {wizardStep > 1 ? (
                 <button 
@@ -869,32 +979,47 @@ export default function FormsPage() {
         </div>
       )}
 
-      {/* VIEW FORM MODAL */}
       {selectedForm && (
         <div className={styles.modalOverlay}>
           <div className={`${styles.modalContent} ${styles.wideModal}`}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
-                <span className={`${styles.typeTag} ${selectedForm.type === 'passenger' ? 'feedback' : 'complaint'}`}>
-                  {selectedForm.type === 'passenger' ? 'Passenger' : 'Internal'}
+                <span className={`${styles.typeTag} feedback`}>
+                  Passenger Form
                 </span>
-                <h3 className={styles.modalTitle}>{selectedForm.name}</h3>
+                <h3 className={styles.modalTitle}>{selectedForm.title}</h3>
+                <p className={styles.modalSubtitle}>Form configuration and field details</p>
               </div>
-              <button className={styles.closeBtn} onClick={() => setSelectedForm(null)}><X size={20} /></button>
+              <button className={styles.closeBtn} onClick={() => setSelectedForm(null)}>
+                <X size={20} />
+              </button>
             </div>
             <div className={styles.modalBody}>
               <div className={styles.detailGrid}>
                 <div className={styles.detailMain}>
                   <section className={styles.messageSection}>
-                    <h4 className={styles.detailLabel}>Form Fields ({selectedForm.fields.length})</h4>
+                    <h4 className={styles.detailLabel}>Form Fields ({selectedForm.formConfig?.length || 0})</h4>
                     <div className={styles.messageCard}>
-                      {selectedForm.fields.map((field, i) => (
-                        <div key={field.id} style={{ padding: '12px 0', borderBottom: i < selectedForm.fields.length - 1 ? '1px solid #e2e8f0' : 'none' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <span style={{ fontWeight: 600, color: '#1e293b' }}>{field.label}</span>
+                      {selectedForm.formConfig?.map((field: FormField, i: number) => (
+                        <div key={field.id} style={{ padding: '16px 0', borderBottom: i < (selectedForm.formConfig?.length || 0) - 1 ? '1px solid #e2e8f0' : 'none' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                            <span style={{ 
+                              fontWeight: 700, 
+                              color: '#1e293b',
+                              fontSize: '15px'
+                            }}>{field.label}</span>
                             {field.required && <span className={styles.priorityTag} style={{ fontSize: '9px' }}>Required</span>}
+                            <span style={{ 
+                              fontSize: '11px', 
+                              color: '#94a3b8',
+                              marginLeft: 'auto',
+                              textTransform: 'capitalize',
+                              background: '#f1f5f9',
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              fontWeight: 600
+                            }}>{field.type}</span>
                           </div>
-                          <span style={{ fontSize: '12px', color: '#64748b' }}>{field.type}</span>
                         </div>
                       ))}
                     </div>
@@ -905,12 +1030,16 @@ export default function FormsPage() {
                     <h4 className={styles.detailLabel}>Quick Stats</h4>
                     <div className={styles.infoCards} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <div className={styles.infoCard}>
-                        <FileStack size={18} />
-                        <div><span>Total Submissions</span><strong>{selectedForm.submissions}</strong></div>
+                        <MousePointer2 size={18} />
+                        <div><span>Total Submissions</span><strong>{selectedForm.interactions || 0}</strong></div>
+                      </div>
+                      <div className={styles.infoCard}>
+                        <FileCheck size={18} />
+                        <div><span>Form Fields</span><strong>{selectedForm.formConfig?.length || 0}</strong></div>
                       </div>
                       <div className={styles.infoCard}>
                         <Calendar size={18} />
-                        <div><span>Created</span><strong>{selectedForm.createdAt}</strong></div>
+                        <div><span>Created</span><strong>{selectedForm.createdAt ? new Date(selectedForm.createdAt).toLocaleDateString() : '-'}</strong></div>
                       </div>
                     </div>
                   </div>

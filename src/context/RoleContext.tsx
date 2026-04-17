@@ -9,8 +9,11 @@ import {
   ROLE_LABELS, 
   ROLE_DESCRIPTIONS 
 } from '@/types/rbac';
-import { MOCK_LOCATIONS, getLocationById, getLocationName } from '@/data/mockLocations';
-import { MOCK_DEPARTMENTS, getDepartmentById, getDepartmentName, getDepartmentsByLocation } from '@/data/mockDepartments';
+import { useProfile } from '@/hooks/useAuth';
+import { useAuthContext } from '@/context/AuthContext';
+import { useLocations } from '@/hooks/useLocations';
+import { useDepartments } from '@/hooks/useDepartments';
+import { Location, Department } from '@/types/api';
 
 interface RoleContextType {
   currentUser: User | null;
@@ -22,8 +25,9 @@ interface RoleContextType {
   roleDescription: string;
   locationName: string;
   departmentName: string;
-  availableLocations: typeof MOCK_LOCATIONS;
-  availableDepartments: typeof MOCK_DEPARTMENTS;
+  availableLocations: Location[];
+  availableDepartments: Department[];
+  isLoading: boolean;
   switchRole: (role: UserRole) => void;
   switchLocation: (locationId: string) => void;
   switchDepartment: (departmentId: string) => void;
@@ -35,38 +39,38 @@ interface RoleContextType {
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 
-const DEFAULT_SUPER_ADMIN_USER: User = {
-  id: 'user-super-1',
-  name: 'HQ Administrator',
-  email: 'admin@faan.gov.ng',
-  role: UserRole.SUPER_ADMIN,
-};
-
-const DEFAULT_LOCATION_ADMIN_USER: User = {
-  id: 'user-loc-1',
-  name: 'Airport Manager',
-  email: 'lagos.admin@faan.gov.ng',
-  role: UserRole.LOCATION_ADMIN,
-  locationId: 'lagos',
-};
-
-const DEFAULT_DEPT_ADMIN_USER: User = {
-  id: 'user-dept-1',
-  name: 'Department Manager',
-  email: 'security.dept@faan.gov.ng',
-  role: UserRole.DEPARTMENT_ADMIN,
-  locationId: 'abuja',
-  departmentId: 'security',
-};
-
 interface RoleProviderProps {
   children: React.ReactNode;
 }
 
 export function RoleProvider({ children }: RoleProviderProps) {
+  const { isAuthenticated } = useAuthContext();
+  const { data: profile, isLoading: profileLoading } = useProfile();
+  const { data: locationsData, isLoading: locationsLoading } = useLocations(undefined, { enabled: isAuthenticated });
+  const { data: deptsData, isLoading: deptsLoading } = useDepartments(undefined, { enabled: isAuthenticated });
+
   const [currentRole, setCurrentRole] = useState<UserRole>(UserRole.SUPER_ADMIN);
   const [currentLocation, setCurrentLocation] = useState<string | null>(null);
   const [currentDepartment, setCurrentDepartment] = useState<string | null>(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
+
+  // Sync profile to current role/loc/dept on first load
+  useEffect(() => {
+    if (profile && !hasInitialized) {
+      setCurrentRole(profile.role as unknown as UserRole);
+      
+      // Derive location from department if present
+      if (profile.department?.location?.id) {
+        setCurrentLocation(profile.department.location.id);
+      } else if (profile.departmentId) {
+        // Fallback if department object isn't fully expanded
+        setCurrentLocation(null); 
+      }
+      
+      setCurrentDepartment(profile.departmentId);
+      setHasInitialized(true);
+    }
+  }, [profile, hasInitialized]);
 
   const permissions = useMemo(() => {
     return PERMISSIONS[currentRole];
@@ -80,53 +84,58 @@ export function RoleProvider({ children }: RoleProviderProps) {
     return ROLE_DESCRIPTIONS[currentRole];
   }, [currentRole]);
 
+  const availableLocations = useMemo(() => {
+    const locations = locationsData?.data || [];
+    if (currentRole === UserRole.SUPER_ADMIN) {
+      return locations;
+    }
+    if (currentRole === UserRole.LOCATION_ADMIN && currentLocation) {
+      return locations.filter((loc: Location) => loc.id === currentLocation);
+    }
+    if (currentRole === UserRole.DEPARTMENT_ADMIN && currentLocation) {
+      return locations.filter((loc: Location) => loc.id === currentLocation);
+    }
+    return [];
+  }, [currentRole, currentLocation, locationsData]);
+
+  const availableDepartments = useMemo(() => {
+    const depts = deptsData?.data || [];
+    if (currentRole === UserRole.SUPER_ADMIN) {
+      return depts;
+    }
+    if (currentRole === UserRole.LOCATION_ADMIN && currentLocation) {
+      return depts.filter((dept: Department) => dept.locationId === currentLocation);
+    }
+    if (currentRole === UserRole.DEPARTMENT_ADMIN && currentDepartment) {
+      return depts.filter((dept: Department) => dept.id === currentDepartment);
+    }
+    return [];
+  }, [currentRole, currentLocation, currentDepartment, deptsData]);
+
   const locationName = useMemo(() => {
     if (!currentLocation) return 'All Locations';
-    return getLocationName(currentLocation);
-  }, [currentLocation]);
+    const loc = (locationsData?.data || []).find((l: Location) => l.id === currentLocation);
+    return loc ? loc.name : 'Unknown Location';
+  }, [currentLocation, locationsData]);
 
   const departmentName = useMemo(() => {
     if (!currentDepartment) return 'All Departments';
-    return getDepartmentName(currentDepartment);
-  }, [currentDepartment]);
+    const dept = (deptsData?.data || []).find((d: Department) => d.id === currentDepartment);
+    return dept ? dept.name : 'Unknown Department';
+  }, [currentDepartment, deptsData]);
 
-  const currentUser = useMemo(() => {
-    const baseUser = currentRole === UserRole.SUPER_ADMIN 
-      ? DEFAULT_SUPER_ADMIN_USER
-      : currentRole === UserRole.LOCATION_ADMIN
-        ? DEFAULT_LOCATION_ADMIN_USER
-        : DEFAULT_DEPT_ADMIN_USER;
+  const currentUser = useMemo((): User | null => {
+    if (!profile) return null;
     
     return {
-      ...baseUser,
+      id: profile.id,
+      name: `${profile.firstName} ${profile.lastName}`,
+      email: profile.email,
       role: currentRole,
       locationId: currentLocation || undefined,
       departmentId: currentDepartment || undefined,
     };
-  }, [currentRole, currentLocation, currentDepartment]);
-
-  const availableLocations = useMemo(() => {
-    if (currentRole === UserRole.SUPER_ADMIN) {
-      return MOCK_LOCATIONS;
-    }
-    if (currentRole === UserRole.LOCATION_ADMIN && currentLocation) {
-      return MOCK_LOCATIONS.filter(loc => loc.id === currentLocation);
-    }
-    return [];
-  }, [currentRole, currentLocation]);
-
-  const availableDepartments = useMemo(() => {
-    if (currentRole === UserRole.SUPER_ADMIN) {
-      return MOCK_DEPARTMENTS;
-    }
-    if (currentRole === UserRole.LOCATION_ADMIN && currentLocation) {
-      return getDepartmentsByLocation(currentLocation);
-    }
-    if (currentRole === UserRole.DEPARTMENT_ADMIN && currentDepartment) {
-      return MOCK_DEPARTMENTS.filter(dept => dept.id === currentDepartment);
-    }
-    return [];
-  }, [currentRole, currentLocation, currentDepartment]);
+  }, [profile, currentRole, currentLocation, currentDepartment]);
 
   const switchRole = useCallback((role: UserRole) => {
     setCurrentRole(role);
@@ -135,20 +144,20 @@ export function RoleProvider({ children }: RoleProviderProps) {
       setCurrentLocation(null);
       setCurrentDepartment(null);
     } else if (role === UserRole.LOCATION_ADMIN) {
-      if (!currentLocation) {
-        setCurrentLocation(MOCK_LOCATIONS[0].id);
+      if (!currentLocation && locationsData?.data?.length) {
+        setCurrentLocation(locationsData.data[0].id);
       }
       setCurrentDepartment(null);
     } else if (role === UserRole.DEPARTMENT_ADMIN) {
-      if (!currentLocation) {
-        setCurrentLocation(MOCK_LOCATIONS[0].id);
+      if (!currentLocation && locationsData?.data?.length) {
+        setCurrentLocation(locationsData.data[0].id);
       }
-      if (!currentDepartment) {
-        const depts = getDepartmentsByLocation(currentLocation || MOCK_LOCATIONS[0].id);
-        setCurrentDepartment(depts[0]?.id || null);
+      if (!currentDepartment && deptsData?.data?.length) {
+        const firstLocDepts = deptsData.data.filter((d: Department) => d.locationId === (currentLocation || locationsData?.data?.[0]?.id));
+        setCurrentDepartment(firstLocDepts[0]?.id || null);
       }
     }
-  }, [currentLocation, currentDepartment]);
+  }, [currentLocation, currentDepartment, locationsData, deptsData]);
 
   const switchLocation = useCallback((locationId: string) => {
     if (!permissions.canSwitchLocations && currentRole !== UserRole.SUPER_ADMIN) {
@@ -168,20 +177,17 @@ export function RoleProvider({ children }: RoleProviderProps) {
 
   const hasAccessToLocation = useCallback((locationId: string): boolean => {
     if (currentRole === UserRole.SUPER_ADMIN) return true;
-    if (currentRole === UserRole.LOCATION_ADMIN) return currentLocation === locationId;
-    if (currentRole === UserRole.DEPARTMENT_ADMIN) return currentLocation === locationId;
-    return false;
+    return currentLocation === locationId;
   }, [currentRole, currentLocation]);
 
   const hasAccessToDepartment = useCallback((departmentId: string): boolean => {
     if (currentRole === UserRole.SUPER_ADMIN) return true;
     if (currentRole === UserRole.LOCATION_ADMIN) {
-      const dept = getDepartmentById(departmentId);
+      const dept = (deptsData?.data || []).find((d: Department) => d.id === departmentId);
       return dept?.locationId === currentLocation;
     }
-    if (currentRole === UserRole.DEPARTMENT_ADMIN) return currentDepartment === departmentId;
-    return false;
-  }, [currentRole, currentLocation, currentDepartment]);
+    return currentDepartment === departmentId;
+  }, [currentRole, currentLocation, currentDepartment, deptsData]);
 
   const canAccessRoute = useCallback((route: string): boolean => {
     const routePermissions: Record<string, (keyof Permission)[]> = {
@@ -212,6 +218,7 @@ export function RoleProvider({ children }: RoleProviderProps) {
     departmentName,
     availableLocations,
     availableDepartments,
+    isLoading: profileLoading || locationsLoading || deptsLoading,
     switchRole,
     switchLocation,
     switchDepartment,
@@ -231,6 +238,9 @@ export function RoleProvider({ children }: RoleProviderProps) {
     departmentName,
     availableLocations,
     availableDepartments,
+    profileLoading,
+    locationsLoading,
+    deptsLoading,
     switchRole,
     switchLocation,
     switchDepartment,

@@ -24,10 +24,11 @@ import {
 } from "lucide-react";
 import styles from "./Dashboard.module.css";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRole } from "@/context/RoleContext";
 import { UserRole } from "@/types/rbac";
 import DemoRoleSwitcher from "@/components/debug/DemoRoleSwitcher";
+import { useProfile, useLogout } from "@/hooks/useAuth";
 
 interface MenuItem {
   icon: React.ComponentType<{ size?: number }>;
@@ -120,8 +121,18 @@ export default function DashboardLayout({
     switchRole
   } = useRole();
   
+  const { data: profile } = useProfile();
+  const logoutMutation = useLogout();
+  
   const [locationDropdownOpen, setLocationDropdownOpen] = useState(false);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+
+  // Sync real profile role to mock switcher on initial load
+  useEffect(() => {
+    if (profile?.role) {
+      switchRole(profile.role as any);
+    }
+  }, [profile?.role, switchRole]);
 
   const filteredMenuItems = MENU_ITEMS.filter((item) => {
     if (!item.allowedRoles) return true;
@@ -215,9 +226,13 @@ export default function DashboardLayout({
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <button className={styles.logoutButton}>
+          <button 
+            className={styles.logoutButton} 
+            onClick={() => logoutMutation.mutate()}
+            disabled={logoutMutation.isPending}
+          >
             <LogOut size={20} />
-            <span>Logout</span>
+            <span>{logoutMutation.isPending ? 'Logging out...' : 'Logout'}</span>
           </button>
         </div>
       </aside>
@@ -270,7 +285,7 @@ export default function DashboardLayout({
             </button>
             <div className={styles.userProfile}>
               <div className={styles.userInfo}>
-                <span className={styles.userName}>{currentUser?.name || 'User'}</span>
+                <span className={styles.userName}>{profile ? `${profile.firstName} ${profile.lastName}` : 'Loading...'}</span>
                 <span className={styles.userRole}>{getRoleDisplayName()}</span>
               </div>
               <div className={styles.userAvatar}>

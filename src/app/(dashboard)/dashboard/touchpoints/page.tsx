@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { 
   Plus, 
   Search, 
-  Filter, 
-  MoreHorizontal, 
+  MoreVertical, 
   QrCode, 
   Download, 
   Edit, 
@@ -16,250 +15,420 @@ import {
   Briefcase,
   Layers,
   FileText,
-  Wifi
+  Wifi,
+  Building2,
+  MousePointer2,
+  CheckCircle,
+  AlertCircle,
+  Inbox,
+  ChevronRight
 } from "lucide-react";
+import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
+import { 
+  useTouchpoints, 
+  useCreateTouchpoint, 
+  useUpdateTouchpoint, 
+  useArchiveTouchpoint,
+  useDownloadQr
+} from "@/hooks/useTouchpoints";
+import { useLocations } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
+import { TouchpointType, Touchpoint, Location, Department } from "@/types/api";
 
-// Mock Data
-const MOCK_LOCATIONS = [
-  { id: "abuja", name: "Abuja International Airport" },
-  { id: "lagos", name: "Lagos Murtala Muhammed" },
-  { id: "kano", name: "Kano Mallam Aminu" },
-  { id: "port-harcourt", name: "Port Harcourt Intl" },
-  { id: "enugu", name: "Enugu Airport" },
-];
+const TOUCHPOINT_ACCENTS = [
+  { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
+  { bg: "rgba(37, 99, 235, 0.12)", fg: "#2563eb", ring: "rgba(37, 99, 235, 0.22)" },
+  { bg: "rgba(124, 58, 237, 0.12)", fg: "#7c3aed", ring: "rgba(124, 58, 237, 0.22)" },
+  { bg: "rgba(217, 119, 6, 0.14)", fg: "#d97706", ring: "rgba(217, 119, 6, 0.24)" },
+  { bg: "rgba(219, 39, 119, 0.12)", fg: "#db2777", ring: "rgba(219, 39, 119, 0.22)" },
+] as const;
 
-const INITIAL_FORMS = [
-  { id: "form-001", name: "Passenger Feedback", type: "Feedback" },
-  { id: "form-002", name: "Airport Cleanliness Survey", type: "Feedback" },
-  { id: "form-003", name: "Security Complaint Form", type: "Complaint" },
-  { id: "form-004", name: "Baggage Incident Report", type: "Incident" },
-];
-
-const INITIAL_TOUCHPOINTS = [
-  { id: "tp-071dau", name: "Restroom Feedback - T1", location: "Abuja International Airport", type: "Feedback", status: "Active", interactions: 1250 },
-  { id: 2, name: "Security Complaint - Gate 4", location: "Lagos Murtala Muhammed", type: "Complaint", status: "Inactive", interactions: 450 },
-  { id: 3, name: "Baggage Incident - Arrival", location: "Abuja International Airport", type: "Incident", status: "Active", interactions: 120 },
-  { id: 4, name: "Lounge satisfaction - VIP", location: "Abuja International Airport", type: "Feedback", status: "Active", interactions: 890 },
-];
-
-// Mock Submissions Data
-const MOCK_SUBMISSIONS: any = {
-  "tp-071dau": [
-    { 
-      id: "sub-1", 
-      user: "Anonymous", 
-      timestamp: "2024-04-14 10:20 AM", 
-      rating: 5,
-      data: { "rating": 5, "comment": "Excellent service at the check-in counter!" }
-    },
-    { 
-      id: "sub-2", 
-      user: "John Doe", 
-      timestamp: "2024-04-14 11:45 AM", 
-      rating: 2,
-      data: { "rating": 2, "comment": "Long wait time at security.", "name": "John Doe", "email": "john@example.com" }
-    }
-  ]
-};
+function hashToIndex(input: string, modulo: number) {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash) % modulo;
+}
 
 export default function TouchpointsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
-  const [touchpoints, setTouchpoints] = useState(INITIAL_TOUCHPOINTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [origin, setOrigin] = useState("");
   const [showQrPreview, setShowQrPreview] = useState(false);
-  const [currentTouchpoint, setCurrentTouchpoint] = useState<any>(null);
+  const [currentTouchpoint, setCurrentTouchpoint] = useState<Touchpoint | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState("");
-  const [tempLocation, setTempLocation] = useState("");
+  const [selectedLocId, setSelectedLocId] = useState("");
+  const [tempLocId, setTempLocId] = useState("");
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
 
-  // Submission State
-  const [showResponses, setShowResponses] = useState(false);
-  const [activeResponses, setActiveResponses] = useState<any[]>([]);
-  const [selectedResponse, setSelectedResponse] = useState<any>(null);
+  const { data: tpData, isLoading: tpLoading } = useTouchpoints({
+    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : (selectedLocId || undefined)) || undefined
+  });
 
-  const handleViewResponses = (tp: any) => {
-    setActiveResponses(MOCK_SUBMISSIONS[tp.id] || []);
-    setShowResponses(true);
-    setCurrentTouchpoint(tp);
-  };
+  const { data: formsData } = useTouchpoints();
+  const { data: locationsData } = useLocations();
+  const { data: deptsData } = useDepartments({ 
+    locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || undefined) : (selectedLocId || undefined) 
+  });
 
-  // Form Builder State
+  const createMutation = useCreateTouchpoint();
+  const updateMutation = useUpdateTouchpoint();
+  const archiveMutation = useArchiveTouchpoint();
+  const { mutate: downloadQr } = useDownloadQr();
+
   const [newTouchpoint, setNewTouchpoint] = useState({
     title: "",
     location: "",
-    department: "",
-    type: "Feedback",
-    template: "Standard Survey"
+    departmentId: "",
+    type: TouchpointType.FEEDBACK,
+    templateId: ""
   });
-
-  const [formFields, setFormFields] = useState<any[]>([
-    { id: 1, type: "rating", label: "Overall Experience", required: true }
-  ]);
 
   useEffect(() => {
     setOrigin(window.location.origin);
   }, []);
 
-  const addField = (type: string) => {
-    const newField = {
-      id: Date.now(),
-      type: type,
-      label: type === "rating" ? "Rate your experience" : `New ${type} question`,
-      required: true,
-      options: type === "select" ? ["Option 1", "Option 2"] : undefined
-    };
-    setFormFields([...formFields, newField]);
-  };
-
-  const removeField = (id: number) => {
-    setFormFields(formFields.filter(f => f.id !== id));
-  };
-
-  const updateField = (id: number, updates: any) => {
-    setFormFields(formFields.map(f => f.id === id ? { ...f, ...updates } : f));
-  };
-
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    const created = {
-      id: touchpoints.length + 1,
-      name: newTouchpoint.title,
-      location: newTouchpoint.location,
+    createMutation.mutate({
+      title: newTouchpoint.title,
+      description: "",
       type: newTouchpoint.type,
-      status: "Active",
-      interactions: 0,
-      config: formFields
-    };
-    setTouchpoints([created, ...touchpoints]);
-    setIsModalOpen(false);
-    setWizardStep(1);
-    setFormFields([{ id: 1, type: "rating", label: "Overall Experience", required: true }]);
-    setNewTouchpoint({ title: "", location: "", department: "", type: "Feedback", template: "Standard Survey" });
+      departmentId: newTouchpoint.departmentId,
+      locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : selectedLocId,
+      formConfig: []
+    }, {
+      onSuccess: () => {
+        setIsModalOpen(false);
+        setWizardStep(1);
+        setNewTouchpoint({ title: "", location: "", departmentId: "", type: TouchpointType.FEEDBACK, templateId: "" });
+      }
+    });
   };
 
-  const toggleStatus = (id: any) => {
-    setTouchpoints(touchpoints.map(tp => 
-      tp.id === id ? { ...tp, status: tp.status === "Active" ? "Inactive" : "Active" } : tp
-    ));
+  const toggleStatus = (id: string, currentStatus: boolean) => {
+    updateMutation.mutate({ 
+      uuid: id, 
+      data: { isActive: !currentStatus }
+    });
+  };
+
+  const touchpoints = (tpData?.data || []) as Touchpoint[];
+  const locations = (locationsData?.data || []) as Location[];
+  const departments = (deptsData?.data || []) as Department[];
+  const forms = (formsData?.data || []) as Touchpoint[];
+
+  const getSelectedLocationName = () => {
+    if (currentRole === 'LOCATION_ADMIN') return roleLocationName;
+    return locations.find(l => l.id === selectedLocId)?.name || "Selected Location";
   };
 
   const generatedId = `tp-${Math.random().toString(36).substr(2, 6)}`;
   const dynamicLink = `${origin}/p/${generatedId}`;
 
+  const filteredTouchpoints = touchpoints.filter(t => 
+    !searchTerm || t.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const activeCount = touchpoints.filter(t => t.isActive).length;
+  const inactiveCount = touchpoints.filter(t => !t.isActive).length;
+  const totalInteractions = touchpoints.reduce((sum, t) => sum + (t.interactions || 0), 0);
+
+  const scopeLabel =
+    currentRole === "LOCATION_ADMIN"
+      ? roleLocationName || "Your Location"
+      : "All Locations";
+
   return (
     <div className={styles.touchpointsLayout}>
-      {/* ... prev header code ... */}
-      <div className={styles.pageHeader}>
-        <div>
-          <h2 className={styles.pageTitle}>Touchpoints Management</h2>
-          <p className={styles.pageSubtitle}>Monitor and manage all QR & NFC passenger engagement points.</p>
+      <div className={styles.deptHero}>
+        <div className={styles.deptHeroMain}>
+          <div className={styles.deptHeroTitleRow}>
+            <div className={styles.deptHeroMark} aria-hidden="true">
+              <Image src="/Faan.logo_.png" alt="" width={34} height={34} />
+            </div>
+            <div className={styles.deptHeroText}>
+              <h2 className={styles.deptHeroTitle}>Touchpoints Management</h2>
+              <p className={styles.deptHeroSubtitle}>
+                Create and manage QR & NFC engagement points across airport locations. Track interactions and monitor passenger feedback in real-time.
+              </p>
+            </div>
+          </div>
+          <div className={styles.deptHeroPills}>
+            <span className={styles.deptPill}>
+              <MapPin size={14} />
+              <span>Scope: {scopeLabel}</span>
+            </span>
+            <span className={styles.deptPillMuted}>
+              <Building2 size={14} />
+              <span>{currentRole === 'LOCATION_ADMIN' ? 'Location Admin' : 'System Admin'}</span>
+            </span>
+          </div>
         </div>
-        <button className={styles.createButton} onClick={() => {
-          if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
-            setSelectedLocation(roleLocationName || currentLocation);
-            setIsModalOpen(true);
-            setWizardStep(1);
-          } else {
-            setShowLocationPicker(true);
-          }
-        }}>
-          <Plus size={18} />
-          <span>Create New Touchpoint</span>
-        </button>
-      </div>
 
-      {/* ... prev table controls & table ... */}
-      <div className={styles.tableControls}>
-        <div className={styles.searchBar}>
-          <Search size={18} className={styles.searchIcon} />
-          <input 
-            type="text" 
-            placeholder="Search touchpoints..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <div className={styles.filterGroup}>
-          <button className={styles.filterButton}>
-            <Filter size={18} />
-            <span>Filters</span>
+        <div className={styles.deptHeroActions}>
+          <button
+            className={styles.createButton}
+            onClick={() => {
+              if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
+                setSelectedLocId(currentLocation);
+                setIsModalOpen(true);
+                setWizardStep(1);
+              } else {
+                setShowLocationPicker(true);
+              }
+            }}
+          >
+            <Plus size={18} />
+            <span>Create Touchpoint</span>
           </button>
+          <p className={styles.deptHeroHint}>Deploy new QR/NFC engagement points.</p>
         </div>
       </div>
 
-      <div className={styles.tableCard}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Location</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Interactions</th>
-              <th className={styles.textRight}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {touchpoints.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase())).map((tp) => (
-              <tr key={tp.id}>
-                <td>
-                  <div className={styles.nameCell}>
-                    <span className={styles.tpName}>{tp.name}</span>
-                    <span className={styles.tpId}>ID: TP-00{tp.id}</span>
-                  </div>
-                </td>
-                <td>{tp.location}</td>
-                <td>
-                  <span className={`${styles.typeTag} ${styles[tp.type.toLowerCase()]}`}>
-                    {tp.type}
-                  </span>
-                </td>
-                <td>
-                  <div className={styles.statusCell}>
-                    <div className={`${styles.statusDot} ${tp.status === "Active" ? styles.green : styles.gray}`} />
-                    <span>{tp.status}</span>
-                  </div>
-                </td>
-                <td>{tp.interactions.toLocaleString()}</td>
-                <td className={styles.textRight}>
-                  <div className={styles.actionButtons}>
-                    <button className={styles.actionIcon} title="View QR" onClick={() => setShowQrPreview(true)}><QrCode size={18} /></button>
-                    <button className={styles.actionIcon} title="Download"><Download size={18} /></button>
-                    <button className={styles.actionIcon} title="Edit"><Edit size={18} /></button>
-                    <button 
-                      className={`${styles.actionIcon} ${styles.disableIcon} ${tp.status === "Inactive" ? styles.disabled : ""}`} 
-                      title={tp.status === "Active" ? "Disable" : "Enable"}
-                      onClick={() => toggleStatus(tp.id)}
-                    >
-                      <Power size={18} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className={styles.deptStatsGrid} aria-label="Touchpoints summary">
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} style={{ background: 'rgba(21, 115, 71, 0.12)', border: '1px solid rgba(21, 115, 71, 0.22)', color: '#157347' }} aria-hidden="true">
+            <CheckCircle size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Active</div>
+            <div className={styles.deptStatValue}>{activeCount}</div>
+          </div>
+        </div>
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} style={{ background: 'rgba(100, 116, 139, 0.12)', border: '1px solid rgba(100, 116, 139, 0.22)', color: '#64748b' }} aria-hidden="true">
+            <AlertCircle size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Inactive</div>
+            <div className={styles.deptStatValue}>{inactiveCount}</div>
+          </div>
+        </div>
+        <div className={styles.deptStatCard}>
+          <div className={styles.deptStatIcon} style={{ background: 'rgba(37, 99, 235, 0.12)', border: '1px solid rgba(37, 99, 235, 0.22)', color: '#2563eb' }} aria-hidden="true">
+            <MousePointer2 size={18} />
+          </div>
+          <div className={styles.deptStatBody}>
+            <div className={styles.deptStatLabel}>Total Interactions</div>
+            <div className={styles.deptStatValue}>{totalInteractions}</div>
+          </div>
+        </div>
       </div>
 
-      {/* CREATE WIZARD MODAL */}
+      <div className={styles.deptControlsCard}>
+        <div className={styles.deptControlsRow}>
+          <div className={`${styles.searchBar} ${styles.deptSearchBar}`}>
+            <Search size={18} className={styles.searchIcon} />
+            <input
+              type="text"
+              placeholder="Search touchpoints..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={styles.searchInput}
+            />
+          </div>
+          <div className={styles.deptControlsMeta} aria-live="polite">
+            {tpLoading ? (
+              <span>Loading...</span>
+            ) : (
+              <span>
+                Showing <strong>{filteredTouchpoints.length}</strong> of <strong>{touchpoints.length}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {tpLoading ? (
+        <div className={styles.deptGrid} aria-label="Loading touchpoints">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={`tp-skeleton-${i}`} className={`${styles.deptCard} ${styles.deptSkeletonCard}`}>
+              <div className={styles.deptCardHeader}>
+                <div className={styles.deptSkeletonIcon} />
+                <div className={styles.deptSkeletonMenu} />
+              </div>
+              <div className={styles.deptCardInfo}>
+                <div className={styles.deptSkeletonLine} style={{ width: "70%" }} />
+                <div className={styles.deptSkeletonLine} style={{ width: "95%" }} />
+                <div className={styles.deptSkeletonLine} style={{ width: "60%" }} />
+              </div>
+              <div className={styles.deptCardMetrics}>
+                <div className={styles.deptSkeletonPill} />
+                <div className={styles.deptSkeletonPill} />
+              </div>
+              <div className={styles.deptSkeletonBtn} />
+            </div>
+          ))}
+        </div>
+      ) : filteredTouchpoints.length === 0 ? (
+        <div className={styles.deptEmptyState} role="status">
+          <div className={styles.deptEmptyIcon} aria-hidden="true">
+            <Inbox size={22} />
+          </div>
+          <h3 className={styles.deptEmptyTitle}>
+            {searchTerm ? "No touchpoints match your search" : "No touchpoints created yet"}
+          </h3>
+          <p className={styles.deptEmptyText}>
+            {searchTerm
+              ? "Try a different keyword or clear the search."
+              : "Create your first QR/NFC touchpoint to start collecting passenger feedback."}
+          </p>
+          <div className={styles.deptEmptyActions}>
+            {searchTerm ? (
+              <button className={styles.cancelBtn} onClick={() => setSearchTerm("")}>
+                Clear Search
+              </button>
+            ) : (
+              <button
+                className={styles.createButton}
+                onClick={() => {
+                  if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
+                    setSelectedLocId(currentLocation);
+                    setIsModalOpen(true);
+                    setWizardStep(1);
+                  } else {
+                    setShowLocationPicker(true);
+                  }
+                }}
+              >
+                <Plus size={18} />
+                <span>Create Touchpoint</span>
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className={styles.deptGrid}>
+          {filteredTouchpoints.map((tp) => {
+            const accent = TOUCHPOINT_ACCENTS[hashToIndex(String(tp.id), TOUCHPOINT_ACCENTS.length)];
+            const accentStyle = {
+              "--accent-bg": accent.bg,
+              "--accent-fg": accent.fg,
+              "--accent-ring": accent.ring,
+            } as CSSProperties;
+
+            return (
+              <div key={tp.id} className={styles.deptCard}>
+                <div className={styles.deptCardHeader}>
+                  <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
+                    <QrCode size={24} />
+                  </div>
+                  <div className={styles.cardMenuWrapper}>
+                    <button
+                      className={styles.cardMore}
+                      aria-label={`Actions for ${tp.title}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveDropdown(activeDropdown === tp.id ? null : tp.id);
+                      }}
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+                    {activeDropdown === tp.id && (
+                      <div className={styles.cardDropdown}>
+                        <button
+                          className={styles.dropdownItem}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCurrentTouchpoint(tp);
+                            setShowQrPreview(true);
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <QrCode size={14} /> View QR Code
+                        </button>
+                        <button
+                          className={styles.dropdownItem}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadQr(tp.uuid);
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <Download size={14} /> Download QR
+                        </button>
+                        <div className={styles.dropdownSeparator} />
+                        <button
+                          className={`${styles.dropdownItem} ${styles.danger}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleStatus(tp.id, tp.isActive);
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <Power size={14} /> {tp.isActive ? 'Disable' : 'Enable'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className={styles.deptCardInfo}>
+                  <h3 className={styles.deptCardTitle}>{tp.title}</h3>
+                  <p className={styles.deptCardDesc}>
+                    {tp.type === 'FEEDBACK' ? 'Passenger Feedback' : tp.type}
+                  </p>
+                  <div className={styles.deptLocationRow}>
+                    <MapPin size={12} />
+                    <span>{typeof tp.location === 'string' ? tp.location : (tp.location as any)?.name || 'Unknown'}</span>
+                  </div>
+                </div>
+
+                <div className={styles.deptCardMetrics}>
+                  <div 
+                    className={styles.deptMetric}
+                    style={{ 
+                      background: tp.isActive ? '#dcfce7' : '#f1f5f9', 
+                      color: tp.isActive ? '#16a34a' : '#64748b' 
+                    }}
+                  >
+                    <CheckCircle size={14} />
+                    <span>{tp.isActive ? 'Active' : 'Inactive'}</span>
+                  </div>
+                  <div className={styles.deptMetric}>
+                    <MousePointer2 size={14} />
+                    <span>{tp.interactions || 0} Interactions</span>
+                  </div>
+                </div>
+
+                <button 
+                  className={styles.deptManageBtn}
+                  onClick={() => {
+                    setCurrentTouchpoint(tp);
+                    setShowQrPreview(true);
+                  }}
+                >
+                  View QR Code
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {isModalOpen && (
         <div className={styles.modalOverlay}>
-          <div className={`${styles.modalContent}`}>
+          <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
-                <div className={styles.wizardBadge}>Step {wizardStep} of 2</div>
+                <span className={styles.wizardBadge}>Step {wizardStep} of 2</span>
                 <h3 className={styles.modalTitle}>
-                  {wizardStep === 1 && "Create Touchpoint"}
-                  {wizardStep === 2 && "Review & Generate"}
+                  {wizardStep === 1 ? "Create Touchpoint" : "Review & Generate"}
                 </h3>
+                <p className={styles.modalSubtitle}>Set up a new QR/NFC engagement point</p>
               </div>
-              <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)}><X size={20} /></button>
+              <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)}>
+                <X size={20} />
+              </button>
             </div>
 
             <div className={styles.wizardProgress}>
@@ -268,94 +437,95 @@ export default function TouchpointsPage() {
             </div>
             
             <div className={styles.modalBody}>
-              {/* STEP 1: BASICS */}
               {wizardStep === 1 && (
                 <div className={styles.modalForm}>
                   <div style={{ 
-                    background: "#f0fdf4", 
-                    border: "1px solid #bbf7d0", 
-                    borderRadius: "8px", 
-                    padding: "12px 16px", 
-                    marginBottom: "20px",
+                    background: "linear-gradient(135deg, rgba(21, 115, 71, 0.04), rgba(21, 115, 71, 0.08))", 
+                    border: "1px solid rgba(21, 115, 71, 0.12)", 
+                    borderRadius: "12px", 
+                    padding: "14px 16px", 
+                    marginBottom: "24px",
                     display: "flex",
                     alignItems: "center",
-                    gap: "8px"
+                    gap: "10px"
                   }}>
-                    <MapPin size={16} style={{ color: "#16a34a" }} />
-                    <span style={{ color: "#166534", fontWeight: 500 }}>Creating touchpoint for: {selectedLocation}</span>
+                    <MapPin size={16} style={{ color: "var(--brand-green)" }} />
+                    <span style={{ color: "#166534", fontWeight: 600, fontSize: '13px' }}>Creating touchpoint for: {getSelectedLocationName()}</span>
                   </div>
+                  
+                  <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Touchpoint Title *</label>
+                      <span className={styles.fieldDesc}>Internal name for tracking</span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <FileText size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Restroom 4 Feedback" 
+                        required 
+                        value={newTouchpoint.title}
+                        onChange={(e) => setNewTouchpoint({...newTouchpoint, title: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Specific Location *</label>
+                      <span className={styles.fieldDesc}>Area within the airport</span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <MapPin size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Gate A - Restroom" 
+                        required 
+                        value={newTouchpoint.location}
+                        onChange={(e) => setNewTouchpoint({...newTouchpoint, location: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
                   <div className={styles.formGrid}>
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Touchpoint Title</label>
-                        <span className={styles.fieldDesc}>A descriptive name for internal tracking.</span>
-                      </div>
-                      <div className={styles.modalInputWrapper}>
-                        <FileText size={18} />
-                        <input 
-                          type="text" 
-                          placeholder="e.g. Restroom 4 Feedback" 
-                          required 
-                          value={newTouchpoint.title}
-                          onChange={(e) => setNewTouchpoint({...newTouchpoint, title: e.target.value})}
-                        />
-                      </div>
-                    </div>
-
-                    <div className={styles.formGroup}>
-                      <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Touchpoint Location</label>
-                        <span className={styles.fieldDesc}>The specific area within the {selectedLocation}.</span>
-                      </div>
-                      <div className={styles.modalInputWrapper}>
-                        <MapPin size={18} />
-                        <input 
-                          type="text" 
-                          placeholder="e.g. Gate A - Restroom" 
-                          required 
-                          value={newTouchpoint.location}
-                          onChange={(e) => setNewTouchpoint({...newTouchpoint, location: e.target.value})}
-                        />
-                      </div>
-                    </div>
-
-                    <div className={styles.formGroup}>
-                      <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Responsible Department</label>
-                        <span className={styles.fieldDesc}>The team in charge of managing this point.</span>
+                        <label className={styles.formLabel}>Department *</label>
+                        <span className={styles.fieldDesc}>Responsible team</span>
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <Briefcase size={18} />
                         <select 
-                          value={newTouchpoint.department}
-                          onChange={(e) => setNewTouchpoint({...newTouchpoint, department: e.target.value})}
+                          value={newTouchpoint.departmentId}
+                          onChange={(e) => setNewTouchpoint({...newTouchpoint, departmentId: e.target.value})}
                         >
                           <option value="">Select Department</option>
-                          <option value="Operations">Operations</option>
-                          <option value="Security">Security</option>
-                          <option value="Maintenance">Maintenance</option>
-                          <option value="Facilities">Facilities</option>
+                          {departments.map(d => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
                         </select>
                       </div>
                     </div>
 
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Select Form</label>
-                        <span className={styles.fieldDesc}>Choose a pre-built form for this touchpoint.</span>
+                        <label className={styles.formLabel}>Form Type</label>
+                        <span className={styles.fieldDesc}>Pre-built form template</span>
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <Layers size={18} />
                         <select 
-                          value={newTouchpoint.type}
+                          value={newTouchpoint.templateId}
                           onChange={(e) => {
-                            const form = INITIAL_FORMS.find(f => f.id === e.target.value);
-                            setNewTouchpoint({...newTouchpoint, type: form?.type || "Feedback"});
+                            const form = forms.find((f: Touchpoint) => f.id === e.target.value);
+                            if (form) {
+                              setNewTouchpoint({...newTouchpoint, templateId: form.id, type: form.type});
+                            }
                           }}
                         >
                           <option value="">Select a Form</option>
-                          {INITIAL_FORMS.map(form => (
-                            <option key={form.id} value={form.id}>{form.name} ({form.type})</option>
+                          {forms.map((form: Touchpoint) => (
+                            <option key={form.id} value={form.id}>{form.title} ({form.type})</option>
                           ))}
                         </select>
                       </div>
@@ -364,27 +534,26 @@ export default function TouchpointsPage() {
                 </div>
               )}
 
-              {/* STEP 2: REVIEW */}
               {wizardStep === 2 && (
                 <div className={styles.modalForm}>
                   <div className={styles.generatedSection}>
                     <div className={styles.sectionHeaderGroup}>
-                      <h4 className={styles.sectionHeader}>Final Touchpoint Review</h4>
-                      <p className={styles.sectionDesc}>Confirm details and generated assets.</p>
+                      <h4 className={styles.sectionHeader}>Final Review</h4>
+                      <p className={styles.sectionDesc}>Confirm details and generate assets</p>
                     </div>
                     <div className={styles.reviewSummary}>
                       <div className={styles.summaryItem}><strong>Name:</strong> {newTouchpoint.title}</div>
                       <div className={styles.summaryItem}><strong>Location:</strong> {newTouchpoint.location}</div>
-                      <div className={styles.summaryItem}><strong>Department:</strong> {newTouchpoint.department}</div>
-                      <div className={styles.summaryItem}><strong>Form:</strong> {INITIAL_FORMS.find(f => f.id === newTouchpoint.type)?.name || newTouchpoint.type}</div>
+                      <div className={styles.summaryItem}><strong>Department:</strong> {departments.find((d: Department) => d.id === newTouchpoint.departmentId)?.name}</div>
+                      <div className={styles.summaryItem}><strong>Form:</strong> {forms.find((f: Touchpoint) => f.id === newTouchpoint.templateId)?.title || newTouchpoint.type}</div>
                     </div>
                     <div className={styles.previewGrid}>
                       <div className={styles.previewItem}>
                         <span className={styles.previewLabel}>Access Link (Live)</span>
-                        <a href={dynamicLink} target="_blank" className={styles.previewLink} onClick={(e) => e.stopPropagation()}>
-                          <span>{dynamicLink.length > 30 ? dynamicLink.substring(0, 27) + "..." : dynamicLink}</span>
+                        <div className={styles.previewLink}>
+                          <span>{origin}/p/{newTouchpoint.title.toLowerCase().replace(/\s+/g, '-')}</span>
                           <ExternalLink size={14} />
-                        </a>
+                        </div>
                       </div>
                       <div className={styles.previewItem}>
                         <span className={styles.previewLabel}>QR Code</span>
@@ -407,20 +576,24 @@ export default function TouchpointsPage() {
 
             <div className={styles.modalActions}>
               {wizardStep > 1 && (
-                <button type="button" className={styles.cancelBtn} onClick={() => setWizardStep(wizardStep - 1)}>Back</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => setWizardStep(wizardStep - 1)} style={{ marginRight: 'auto' }}>
+                  Back
+                </button>
               )}
+              <button type="button" className={styles.cancelBtn} onClick={() => setIsModalOpen(false)}>Cancel</button>
               {wizardStep < 2 ? (
                 <button 
                   type="button" 
-                  className={styles.submitBtn} 
+                  className={styles.createButton} 
                   onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={!newTouchpoint.title || !newTouchpoint.location || !newTouchpoint.department || !newTouchpoint.type}
+                  disabled={!newTouchpoint.title || !newTouchpoint.location || !newTouchpoint.departmentId}
+                  style={{ opacity: (!newTouchpoint.title || !newTouchpoint.location || !newTouchpoint.departmentId) ? 0.5 : 1 }}
                 >
-                  Continue to Review
+                  Continue
                 </button>
               ) : (
-                <button type="button" className={styles.submitBtn} onClick={handleCreate}>
-                  Finish & Publish
+                <button type="button" className={styles.createButton} onClick={handleCreate}>
+                  <CheckCircle size={18} /> Finish & Publish
                 </button>
               )}
             </div>
@@ -428,60 +601,59 @@ export default function TouchpointsPage() {
         </div>
       )}
 
-      {/* LOCATION PICKER MODAL */}
       {showLocationPicker && (
         <div className={styles.modalOverlay} onClick={() => setShowLocationPicker(false)}>
-          <div className={styles.previewCard} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.previewHeader}>
-              <h3 className={styles.previewTitle}>Select Location</h3>
-              <button className={styles.closeBtn} onClick={() => setShowLocationPicker(false)}><X size={20} /></button>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className={styles.modalHeader}>
+              <div className={styles.modalTitleGroup}>
+                <span className={styles.wizardBadge}>Location</span>
+                <h3 className={styles.modalTitle}>Select Airport</h3>
+                <p className={styles.modalSubtitle}>Choose location for this touchpoint</p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setShowLocationPicker(false)}>
+                <X size={20} />
+              </button>
             </div>
-            <div style={{ padding: "20px" }}>
+            <div className={styles.modalBody}>
               <p style={{ marginBottom: "16px", color: "#64748b", fontSize: "14px" }}>
-                Choose the airport location where you want to create a touchpoint.
+                Select the airport location where you want to create a touchpoint.
               </p>
               <div style={{ marginBottom: "20px" }}>
-                <label style={{ display: "block", marginBottom: "8px", fontWeight: 500, color: "#374151" }}>
+                <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, color: "#334155", fontSize: '13px' }}>
                   Airport Location
                 </label>
                 <select
-                  value={tempLocation}
-                  onChange={(e) => setTempLocation(e.target.value)}
+                  value={tempLocId}
+                  onChange={(e) => setTempLocId(e.target.value)}
                   style={{
                     width: "100%",
                     padding: "12px 16px",
                     border: "1px solid #e2e8f0",
-                    borderRadius: "8px",
-                    fontSize: "15px",
+                    borderRadius: "12px",
+                    fontSize: "14px",
                     background: "white",
                     color: "#1e293b",
                   }}
                 >
                   <option value="">Select an airport</option>
-                  {MOCK_LOCATIONS.map((loc) => (
-                    <option key={loc.id} value={loc.name}>{loc.name}</option>
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
                   ))}
                 </select>
               </div>
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => setShowLocationPicker(false)}>Cancel</button>
               <button
                 onClick={() => {
-                  setSelectedLocation(tempLocation);
+                  setSelectedLocId(tempLocId);
                   setShowLocationPicker(false);
                   setIsModalOpen(true);
                   setWizardStep(1);
                 }}
-                disabled={!tempLocation}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  background: tempLocation ? "#2563eb" : "#94a3b8",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "8px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: tempLocation ? "pointer" : "not-allowed",
-                }}
+                disabled={!tempLocId}
+                className={styles.createButton}
+                style={{ opacity: tempLocId ? 1 : 0.5 }}
               >
                 Confirm
               </button>
@@ -489,17 +661,23 @@ export default function TouchpointsPage() {
           </div>
         </div>
       )}
-      {showQrPreview && (
+
+      {showQrPreview && currentTouchpoint && (
         <div className={styles.modalOverlay} onClick={() => setShowQrPreview(false)}>
           <div className={styles.previewCard} onClick={(e) => e.stopPropagation()}>
             <div className={styles.previewHeader}>
-              <h3 className={styles.previewTitle}>QR Code Preview</h3>
-              <button className={styles.closeBtn} onClick={() => setShowQrPreview(false)}><X size={20} /></button>
+              <div className={styles.modalTitleGroup}>
+                <h3 className={styles.previewTitle}>QR Code Preview</h3>
+                <p className={styles.modalSubtitle}>{currentTouchpoint.title}</p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setShowQrPreview(false)}>
+                <X size={20} />
+              </button>
             </div>
             <div className={styles.fullQrWrapper}>
               <div className={styles.qrBackground}>
                 <QRCodeSVG 
-                  value={dynamicLink} 
+                  value={`${origin}/p/${currentTouchpoint.uuid || 'sample'}`} 
                   size={200} 
                   includeMargin={true}
                   level="H" 
@@ -513,12 +691,12 @@ export default function TouchpointsPage() {
                 />
               </div>
               <div className={styles.qrInfo}>
-                <p className={styles.qrLinkText}>{dynamicLink}</p>
+                <p className={styles.qrLinkText}>{origin}/p/{currentTouchpoint.uuid || 'sample'}</p>
                 <span className={styles.qrScanHint}>Scan to test this touchpoint</span>
               </div>
             </div>
             <div className={styles.previewActions}>
-              <button className={styles.downloadBtn} onClick={() => alert("Downloading QR Code...")}>
+              <button className={styles.downloadBtn} onClick={() => downloadQr(currentTouchpoint.uuid)}>
                 <Download size={18} />
                 Download PNG
               </button>
