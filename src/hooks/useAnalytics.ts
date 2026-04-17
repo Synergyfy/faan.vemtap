@@ -29,8 +29,8 @@ export const useSatisfactionTrend = (params?: Record<string, unknown>) => {
   return useQuery<ChartData>({
     queryKey: ['charts-satisfaction', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<ChartData>>('/analytics/charts/satisfaction-trend', { params });
-      return data.data;
+      const { data } = await api.get<ApiResponse<{ data: ChartData }>>('/analytics/charts/satisfaction-trend', { params });
+      return data.data.data;
     },
   });
 };
@@ -39,8 +39,8 @@ export const usePeakActivity = (params?: Record<string, unknown>) => {
   return useQuery<ChartData>({
     queryKey: ['charts-peak', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<ChartData>>('/analytics/charts/peak-activity', { params });
-      return data.data;
+      const { data } = await api.get<ApiResponse<{ data: ChartData }>>('/analytics/charts/peak-activity', { params });
+      return data.data.data;
     },
   });
 };
@@ -49,8 +49,8 @@ export const useHotspots = (params?: Record<string, unknown>) => {
   return useQuery<ChartData>({
     queryKey: ['charts-hotspots', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<ChartData>>('/analytics/charts/hotspots', { params });
-      return data.data;
+      const { data } = await api.get<ApiResponse<{ data: ChartData }>>('/analytics/charts/hotspots', { params });
+      return data.data.data;
     },
   });
 };
@@ -59,8 +59,8 @@ export const useDeptPerformanceChart = (params?: Record<string, unknown>) => {
   return useQuery<ChartData>({
     queryKey: ['charts-dept-perf', params],
     queryFn: async () => {
-      const { data } = await api.get<ApiResponse<ChartData>>('/analytics/charts/dept-performance', { params });
-      return data.data;
+      const { data } = await api.get<ApiResponse<{ data: ChartData }>>('/analytics/charts/dept-performance', { params });
+      return data.data.data;
     },
   });
 };

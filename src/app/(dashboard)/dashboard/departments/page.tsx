@@ -45,13 +45,16 @@ import styles from "../../Dashboard.module.css";
 import Image from "next/image";
 import { useRole } from "@/context/RoleContext";
 
-import { 
-  useDepartments, 
-  useCreateDepartment, 
-  useUpdateDepartment, 
-  useArchiveDepartment 
+import {
+  useDepartments,
+  useCreateDepartment,
+  useUpdateDepartment,
+  useArchiveDepartment,
+  useAssignDepartmentAdmin
 } from "@/hooks/useDepartments";
 import { useLocations } from "@/hooks/useLocations";
+import { toast } from "sonner";
+import { AxiosError } from "axios";
 
 const DEPT_ACCENTS = [
   { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
@@ -81,6 +84,7 @@ export default function DepartmentsPage() {
 
   const [newDept, setNewDept] = useState({
     name: '',
+    code: '',
     locationId: '',
     responsibility: '',
     locationName: '',
@@ -90,11 +94,11 @@ export default function DepartmentsPage() {
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [deptAdmins, setDeptAdmins] = useState<DeptAdmin[]>([]);
   const [newAdmin, setNewAdmin] = useState({ name: "", email: "", password: "" });
-  
+
   const [isAssigning, setIsAssigning] = useState(false);
   const [tempStaff, setTempStaff] = useState<StaffMember[]>([]);
   const [newStaffDetails, setNewStaffDetails] = useState({ name: "", role: "Duty Officer" });
-  
+
   const [isLinking, setIsLinking] = useState(false);
   const [tempQR, setTempQR] = useState<QRLink[]>([]);
   const [newQRDetails, setNewQRDetails] = useState({ name: "", airport: "Abuja International" });
@@ -110,12 +114,25 @@ export default function DepartmentsPage() {
   const createMutation = useCreateDepartment();
   const updateMutation = useUpdateDepartment();
   const archiveMutation = useArchiveDepartment();
+  const assignAdminMutation = useAssignDepartmentAdmin();
 
   const handleAddDept = (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validation
+    if (!newDept.name.trim()) return toast.error("Department name is required");
+    
+    const code = newDept.code.trim();
+    if (!code) return toast.error("Department code is required");
+    if (code.length > 50) return toast.error("Code must be 50 characters or less");
+    const codeRegex = /^[A-Z0-9_]+$/;
+    if (!codeRegex.test(code)) {
+      return toast.error("Code must be uppercase alphanumeric with underscores (e.g., TECH_OPS)");
+    }
+
     const payload = {
       name: newDept.name,
+      code: code,
       locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : newDept.locationId,
       responsibility: newDept.responsibility,
     };
@@ -123,15 +140,36 @@ export default function DepartmentsPage() {
     if (editingDept) {
       updateMutation.mutate({ uuid: editingDept.id as string, data: payload }, {
         onSuccess: () => {
+          toast.success("Department updated successfully");
           setIsAddModalOpen(false);
           setEditingDept(null);
+          setNewDept({ name: '', code: '', locationId: '', responsibility: '', locationName: '' });
+        },
+        onError: (error: any) => {
+          const axiosError = error as AxiosError<{ message: string | string[] }>;
+          const message = axiosError.response?.data?.message || "Failed to update department";
+          if (Array.isArray(message)) {
+            message.forEach(msg => toast.error(msg));
+          } else {
+            toast.error(message);
+          }
         }
       });
     } else {
       createMutation.mutate(payload, {
         onSuccess: () => {
+          toast.success("Department created successfully");
           setIsAddModalOpen(false);
-          setNewDept({ name: '', locationId: '', responsibility: '', locationName: '' });
+          setNewDept({ name: '', code: '', locationId: '', responsibility: '', locationName: '' });
+        },
+        onError: (error: any) => {
+          const axiosError = error as AxiosError<{ message: string | string[] }>;
+          const message = axiosError.response?.data?.message || "Failed to create department";
+          if (Array.isArray(message)) {
+            message.forEach(msg => toast.error(msg));
+          } else {
+            toast.error(message);
+          }
         }
       });
     }
@@ -167,20 +205,41 @@ export default function DepartmentsPage() {
       : "All Locations";
 
   const handleAddDeptAdmin = () => {
-    if (!newAdmin.name || !newAdmin.email || !newAdmin.password || !selectedDept) return;
-    
-    const admin = {
-      id: Date.now(),
-      name: newAdmin.name,
-      email: newAdmin.email,
-      role: "DEPARTMENT_ADMIN",
-      departmentId: selectedDept.id,
-      departmentName: selectedDept.name,
-    };
-    
-    setDeptAdmins([...deptAdmins, admin]);
-    setIsAdminModalOpen(false);
-    setNewAdmin({ name: "", email: "", password: "" });
+    if (!newAdmin.name || !newAdmin.email || !newAdmin.password || !selectedDept) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    // Split name into first and last
+    const nameParts = newAdmin.name.trim().split(" ");
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(" ") || "Admin";
+
+    assignAdminMutation.mutate({
+      id: selectedDept.id,
+      data: {
+        firstName,
+        lastName,
+        email: newAdmin.email,
+        password: newAdmin.password,
+      }
+    }, {
+      onSuccess: () => {
+        toast.success(`Admin assigned to ${selectedDept.name} successfully`);
+        setIsAdminModalOpen(false);
+        setNewAdmin({ name: "", email: "", password: "" });
+      },
+      onError: (error: any) => {
+        const axiosError = error as AxiosError<{ message: string | string[] }>;
+        const message = axiosError.response?.data?.message || "Failed to assign admin";
+
+        if (Array.isArray(message)) {
+          message.forEach(msg => toast.error(msg));
+        } else {
+          toast.error(message);
+        }
+      }
+    });
   };
 
 
@@ -206,11 +265,11 @@ export default function DepartmentsPage() {
       if (d.id === selectedDept.id) {
         const currentUsers = Array.isArray(d.users) ? d.users.length : (typeof d.users === 'number' ? d.users : 0);
         const currentTPs = typeof d.touchpointCount === 'number' ? d.touchpointCount : (d._count?.touchpoints || 0);
-        
-        return { 
-          ...d, 
-          users: currentUsers + tempStaff.length, 
-          touchpointCount: currentTPs + tempQR.length 
+
+        return {
+          ...d,
+          users: currentUsers + tempStaff.length,
+          touchpointCount: currentTPs + tempQR.length
         };
       }
       return d;
@@ -418,6 +477,7 @@ export default function DepartmentsPage() {
                             setEditingDept(dept);
                             setNewDept({
                               name: dept.name,
+                              code: dept.code,
                               locationId: (dept as any).locationId,
                               responsibility: dept.responsibility || "",
                               locationName: "",
@@ -478,93 +538,117 @@ export default function DepartmentsPage() {
       {isAddModalOpen && (
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent}>
-             <div className={styles.modalHeader}>
-                <div className={styles.modalTitleGroup}>
-                   <h3 className={styles.modalTitle}>{editingDept ? 'Edit' : 'Register New'} Department</h3>
-                   <p className={styles.modalSubtitle}>{editingDept ? 'Update department details.' : 'Create a new administrative unit for airport operations.'}</p>
-                </div>
-                <button className={styles.closeBtn} onClick={() => { 
-                  setIsAddModalOpen(false); 
-                  setEditingDept(null);
-                  setNewDept({ name: '', locationId: 'abuja', locationName: 'Abuja International Airport', responsibility: '' });
-                }}><X size={20} /></button>
-             </div>
-             <form onSubmit={handleAddDept}>
-                <div className={styles.modalBody}>
-                   <div className={styles.modalForm}>
-                      <div className={styles.formGroup}>
-                        <div className={styles.labelGroup}>
-                           <label className={styles.formLabel}>Department Name *</label>
-                           <span className={styles.fieldDesc}>Name of the department (e.g. Customer Service).</span>
-                        </div>
-                        <div className={styles.modalInputWrapper}>
-                           <Shield size={18} />
-                           <input 
-                            type="text" 
-                            placeholder="e.g. Customer Service" 
-                            value={newDept.name}
-                            onChange={(e) => setNewDept({ ...newDept, name: e.target.value })}
-                            required 
-                           />
-                        </div>
-                      </div>
+            <div className={styles.modalHeader}>
+              <div className={styles.modalTitleGroup}>
+                <h3 className={styles.modalTitle}>{editingDept ? 'Edit' : 'Register New'} Department</h3>
+                <p className={styles.modalSubtitle}>{editingDept ? 'Update department details.' : 'Create a new administrative unit for airport operations.'}</p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => {
+                setIsAddModalOpen(false);
+                setEditingDept(null);
+                setNewDept({ name: '', code: '', locationId: '', locationName: '', responsibility: '' });
+              }}><X size={20} /></button>
+            </div>
+            <form onSubmit={handleAddDept}>
+              <div className={styles.modalBody}>
+                <div className={styles.modalForm}>
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Department Name *</label>
+                      <span className={styles.fieldDesc}>Name of the department (e.g. Customer Service).</span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <Shield size={18} />
+                      <input
+                        type="text"
+                        placeholder="e.g. Customer Service"
+                        value={newDept.name}
+                        onChange={(e) => setNewDept({ ...newDept, name: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
 
-<div className={styles.formGroup}>
-                         <div className={styles.labelGroup}>
-                            <label className={styles.formLabel}>
-                              {currentRole === 'LOCATION_ADMIN' ? 'Location (Auto-assigned)' : 'Assign to this Location *'}
-                            </label>
-                            <span className={styles.fieldDesc}>
-                              {currentRole === 'LOCATION_ADMIN' ? 'This department will be created for your airport.' : 'Which airport does this department belong to?'}
-                            </span>
-                         </div>
-                         <div className={styles.modalInputWrapper}>
-                            <Plus size={18} />
-                            {currentRole === 'LOCATION_ADMIN' ? (
-                              <input 
-                                type="text" 
-                                value={roleLocationName || currentLocation || ''} 
-                                disabled 
-                                style={{ background: "#f1f5f9", cursor: "not-allowed" }}
-                              />
-                            ) : (
-                               <select 
-                                 value={newDept.locationId}
-                                 onChange={(e) => setNewDept({ ...newDept, locationId: e.target.value })}
-                               >
-                                 <option value="">Select Location</option>
-                                 {locations.map(loc => (
-                                   <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                 ))}
-                               </select>
-                            )}
-                         </div>
-</div>
-                       <div className={styles.formGroup}>
-                         <div className={styles.labelGroup}>
-                            <label className={styles.formLabel}>Operations Charter</label>
-                            <span className={styles.fieldDesc}>Summarize the core responsibility of this unit.</span>
-                         </div>
-                        <textarea 
-                          placeholder="e.g. Responsible for passenger inquiries..." 
-                          value={newDept.responsibility}
-                          onChange={(e) => setNewDept({ ...newDept, responsibility: e.target.value })} 
-                          required 
-                          className={styles.modalTextarea} 
-                          style={{ height: "100px", marginTop: "8px" }} 
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Department Code *</label>
+                      <span className={styles.fieldDesc}>Unique identifier (e.g. CUST_SERV). Uppercase alphanumeric with underscores.</span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <Box size={18} />
+                      <input
+                        type="text"
+                        placeholder="e.g. CUST_SERV"
+                        value={newDept.code}
+                        onChange={(e) => setNewDept({ ...newDept, code: e.target.value.toUpperCase().replace(/\s+/g, '_') })}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>
+                        {currentRole === 'LOCATION_ADMIN' ? 'Location (Auto-assigned)' : 'Assign to this Location *'}
+                      </label>
+                      <span className={styles.fieldDesc}>
+                        {currentRole === 'LOCATION_ADMIN' ? 'This department will be created for your airport.' : 'Which airport does this department belong to?'}
+                      </span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <Plus size={18} />
+                      {currentRole === 'LOCATION_ADMIN' ? (
+                        <input
+                          type="text"
+                          value={roleLocationName || currentLocation || ''}
+                          disabled
+                          style={{ background: "#f1f5f9", cursor: "not-allowed" }}
                         />
-                      </div>
-                   </div>
+                      ) : (
+                        <select
+                          value={newDept.locationId}
+                          onChange={(e) => setNewDept({ ...newDept, locationId: e.target.value })}
+                        >
+                          <option value="">Select Location</option>
+                          {locations.map(loc => (
+                            <option key={loc.id} value={loc.id}>{loc.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Operations Charter</label>
+                      <span className={styles.fieldDesc}>Summarize the core responsibility of this unit.</span>
+                    </div>
+                    <textarea
+                      placeholder="e.g. Responsible for passenger inquiries..."
+                      value={newDept.responsibility}
+                      onChange={(e) => setNewDept({ ...newDept, responsibility: e.target.value })}
+                      required
+                      className={styles.modalTextarea}
+                      style={{ height: "100px", marginTop: "8px" }}
+                    />
+                  </div>
                 </div>
-                <div className={styles.modalActions}>
-                   <button type="button" className={styles.cancelBtn} onClick={() => { 
-                     setIsAddModalOpen(false); 
-                     setEditingDept(null);
-                     setNewDept({ name: '', locationId: 'abuja', locationName: 'Abuja International Airport', responsibility: '' });
-                   }}>Discard</button>
-                   <button type="submit" className={styles.createButton}>Confirm & Save</button>
-                </div>
-             </form>
+              </div>
+              <div className={styles.modalActions}>
+                <button type="button" className={styles.cancelBtn} onClick={() => {
+                  setIsAddModalOpen(false);
+                  setEditingDept(null);
+                  setNewDept({ name: '', code: '', locationId: '', locationName: '', responsibility: '' });
+                }}>Discard</button>
+                <button 
+                  type="submit" 
+                  className={styles.createButton}
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  style={{ opacity: (createMutation.isPending || updateMutation.isPending) ? 0.7 : 1, cursor: (createMutation.isPending || updateMutation.isPending) ? 'not-allowed' : 'pointer' }}
+                >
+                  {(createMutation.isPending || updateMutation.isPending) ? 'Saving...' : 'Confirm & Save'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -573,185 +657,185 @@ export default function DepartmentsPage() {
       {selectedDept && (
         <div className={styles.modalOverlay}>
           <div className={`${styles.modalContent} ${styles.wideModal}`}>
-             <div className={styles.modalHeader}>
-                <div className={styles.modalTitleGroup}>
-                  <h3 className={styles.modalTitle}>{selectedDept.name} Resources</h3>
-                  <p className={styles.modalSubtitle}>Mapping staff and physical touchpoints to this unit.</p>
+            <div className={styles.modalHeader}>
+              <div className={styles.modalTitleGroup}>
+                <h3 className={styles.modalTitle}>{selectedDept.name} Resources</h3>
+                <p className={styles.modalSubtitle}>Mapping staff and physical touchpoints to this unit.</p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setSelectedDept(null)}><X size={20} /></button>
+            </div>
+
+            <div className={styles.tabsContainer}>
+              <button
+                className={`${styles.tabLink} ${activeTab === "admins" ? styles.tabLinkActive : ""}`}
+                onClick={() => setActiveTab("admins")}
+              >
+                <Shield size={18} />
+                Admins
+              </button>
+              <button
+                className={`${styles.tabLink} ${activeTab === "users" ? styles.tabLinkActive : ""}`}
+                onClick={() => setActiveTab("users")}
+              >
+                <Users size={18} />
+                Personnel
+              </button>
+              <button
+                className={`${styles.tabLink} ${activeTab === "touchpoints" ? styles.tabLinkActive : ""}`}
+                onClick={() => setActiveTab("touchpoints")}
+              >
+                <MousePointer2 size={18} />
+                Touchpoints
+              </button>
+            </div>
+
+            {activeTab === "admins" && (
+              <div style={{ padding: '16px 0', borderBottom: '1px solid #e2e8f0' }}>
+                <button className={styles.createButton} onClick={() => setIsAdminModalOpen(true)}>
+                  <Plus size={16} /> Add Admin
+                </button>
+              </div>
+            )}
+
+            <div className={styles.modalBody} style={{ minHeight: "300px" }}>
+              {activeTab === "admins" ? (
+                <div className={styles.resourceList}>
+                  <div className={styles.resourceHeader}>
+                    <h4 className={styles.builderLabel}>Department Admins</h4>
+                  </div>
+                  <div className={styles.resourceItems}>
+                    {deptAdmins.filter(a => a.departmentId === selectedDept?.id).length === 0 ? (
+                      <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                        <Shield size={32} />
+                        <p style={{ marginTop: '8px' }}>No admins assigned yet</p>
+                        <p style={{ fontSize: '12px' }}>Click &quot;Add Admin&quot; to assign a department administrator</p>
+                      </div>
+                    ) : (
+                      deptAdmins.filter(a => a.departmentId === selectedDept?.id).map(admin => (
+                        <div key={admin.id} className={`${styles.resourceItem} ${styles.newResource}`}>
+                          <div className={styles.resourceIcon}><Shield size={16} /></div>
+                          <div className={styles.resourceInfo}>
+                            <strong>{admin.name}</strong>
+                            <span>{admin.email}</span>
+                          </div>
+                          <button
+                            className={styles.resourceRemove}
+                            onClick={() => setDeptAdmins(deptAdmins.filter(a => a.id !== admin.id))}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
-                <button className={styles.closeBtn} onClick={() => setSelectedDept(null)}><X size={20} /></button>
-             </div>
+              ) : activeTab === "users" ? (
+                <div className={styles.resourceList}>
+                  <div className={styles.resourceHeader}>
+                    <h4 className={styles.builderLabel}>Registered Staff ({(selectedDept.users?.length || 0) + tempStaff.length})</h4>
+                    <button className={styles.inlineAddBtn} onClick={() => setIsAssigning(!isAssigning)}>
+                      <Plus size={14} /> Assign Official
+                    </button>
+                  </div>
 
-             <div className={styles.tabsContainer}>
-                <button 
-                  className={`${styles.tabLink} ${activeTab === "admins" ? styles.tabLinkActive : ""}`}
-                  onClick={() => setActiveTab("admins")}
-                >
-                  <Shield size={18} />
-                  Admins
-                </button>
-                <button 
-                  className={`${styles.tabLink} ${activeTab === "users" ? styles.tabLinkActive : ""}`}
-                  onClick={() => setActiveTab("users")}
-                >
-                  <Users size={18} />
-                  Personnel
-                </button>
-                <button 
-                  className={`${styles.tabLink} ${activeTab === "touchpoints" ? styles.tabLinkActive : ""}`}
-                  onClick={() => setActiveTab("touchpoints")}
-                >
-                  <MousePointer2 size={18} />
-                  Touchpoints
-                </button>
-             </div>
-
-             {activeTab === "admins" && (
-               <div style={{ padding: '16px 0', borderBottom: '1px solid #e2e8f0' }}>
-                 <button className={styles.createButton} onClick={() => setIsAdminModalOpen(true)}>
-                   <Plus size={16} /> Add Admin
-                 </button>
-               </div>
-             )}
-
-             <div className={styles.modalBody} style={{ minHeight: "300px" }}>
-               {activeTab === "admins" ? (
-                 <div className={styles.resourceList}>
-                   <div className={styles.resourceHeader}>
-                     <h4 className={styles.builderLabel}>Department Admins</h4>
-                   </div>
-                   <div className={styles.resourceItems}>
-                     {deptAdmins.filter(a => a.departmentId === selectedDept?.id).length === 0 ? (
-                       <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
-                         <Shield size={32} />
-                         <p style={{ marginTop: '8px' }}>No admins assigned yet</p>
-                         <p style={{ fontSize: '12px' }}>Click &quot;Add Admin&quot; to assign a department administrator</p>
-                       </div>
-                     ) : (
-                       deptAdmins.filter(a => a.departmentId === selectedDept?.id).map(admin => (
-                         <div key={admin.id} className={`${styles.resourceItem} ${styles.newResource}`}>
-                           <div className={styles.resourceIcon}><Shield size={16} /></div>
-                           <div className={styles.resourceInfo}>
-                             <strong>{admin.name}</strong>
-                             <span>{admin.email}</span>
-                           </div>
-                           <button 
-                             className={styles.resourceRemove}
-                             onClick={() => setDeptAdmins(deptAdmins.filter(a => a.id !== admin.id))}
-                           >
-                             <X size={14} />
-                           </button>
-                         </div>
-                       ))
-                     )}
-                   </div>
-                 </div>
-               ) : activeTab === "users" ? (
-                 <div className={styles.resourceList}>
-                    <div className={styles.resourceHeader}>
-                       <h4 className={styles.builderLabel}>Registered Staff ({(selectedDept.users?.length || 0) + tempStaff.length})</h4>
-                       <button className={styles.inlineAddBtn} onClick={() => setIsAssigning(!isAssigning)}>
-                         <Plus size={14} /> Assign Official
-                       </button>
+                  {isAssigning && (
+                    <div className={styles.resourceConfigBox}>
+                      <input type="text" placeholder="Official Name" value={newStaffDetails.name} onChange={e => setNewStaffDetails({ ...newStaffDetails, name: e.target.value })} className={styles.miniInput} />
+                      <select value={newStaffDetails.role} onChange={e => setNewStaffDetails({ ...newStaffDetails, role: e.target.value })} className={styles.miniSelect}>
+                        <option value="Duty Officer">Duty Officer</option>
+                        <option value="Manager">Manager</option>
+                        <option value="Supervisor">Supervisor</option>
+                      </select>
+                      <button className={styles.createButton} onClick={handleAddStaff} style={{ padding: "8px 12px", height: "auto" }}>Add</button>
                     </div>
-
-                    {isAssigning && (
-                      <div className={styles.resourceConfigBox}>
-                         <input type="text" placeholder="Official Name" value={newStaffDetails.name} onChange={e => setNewStaffDetails({...newStaffDetails, name: e.target.value})} className={styles.miniInput}/>
-                         <select value={newStaffDetails.role} onChange={e => setNewStaffDetails({...newStaffDetails, role: e.target.value})} className={styles.miniSelect}>
-                           <option value="Duty Officer">Duty Officer</option>
-                           <option value="Manager">Manager</option>
-                           <option value="Supervisor">Supervisor</option>
-                         </select>
-                         <button className={styles.createButton} onClick={handleAddStaff} style={{ padding: "8px 12px", height: "auto" }}>Add</button>
+                  )}
+                  <div className={styles.resourceItems}>
+                    {[1, 2, 3].map(i => (
+                      <div key={`existing-staff-${i}`} className={styles.resourceItem}>
+                        <div className={styles.resourceIcon}><User size={16} /></div>
+                        <div className={styles.resourceInfo}>
+                          <strong>Official FAAN-00{i}</strong>
+                          <span>Duty Officer | Shift A</span>
+                        </div>
+                        <button className={styles.resourceRemove}><X size={14} /></button>
                       </div>
-                    )}
-                    <div className={styles.resourceItems}>
-                       {[1,2,3].map(i => (
-                         <div key={`existing-staff-${i}`} className={styles.resourceItem}>
-                            <div className={styles.resourceIcon}><User size={16} /></div>
-                            <div className={styles.resourceInfo}>
-                               <strong>Official FAAN-00{i}</strong>
-                               <span>Duty Officer | Shift A</span>
-                            </div>
-                            <button className={styles.resourceRemove}><X size={14} /></button>
-                         </div>
-                       ))}
-                       {tempStaff.map(staff => (
-                         <div key={staff.id} className={`${styles.resourceItem} ${styles.newResource}`}>
-                            <div className={styles.resourceIcon}><User size={16} /></div>
-                            <div className={styles.resourceInfo}>
-                               <strong>{staff.name}</strong>
-                               <span>{staff.role} | Just Added</span>
-                            </div>
-                            <button 
-                              className={styles.resourceRemove} 
-                              onClick={() => setTempStaff(tempStaff.filter(s => s.id !== staff.id))}
-                            >
-                              <X size={14} />
-                            </button>
-                         </div>
-                       ))}
-                    </div>
-                 </div>
-               ) : (
-                 <div className={styles.resourceList}>
-                    <div className={styles.resourceHeader}>
-                       <h4 className={styles.builderLabel}>Operational Touchpoints ({(selectedDept._count?.touchpoints || 0) + tempQR.length})</h4>
-                       <button className={styles.inlineAddBtn} onClick={() => setIsLinking(!isLinking)}>
-                         <Plus size={14} /> Link QR Code
-                       </button>
-                    </div>
-
-                    {isLinking && (
-                      <div className={styles.resourceConfigBox}>
-                         <input type="text" placeholder="Touchpoint Location" value={newQRDetails.name} onChange={e => setNewQRDetails({...newQRDetails, name: e.target.value})} className={styles.miniInput}/>
-                         <select value={newQRDetails.airport} onChange={e => setNewQRDetails({...newQRDetails, airport: e.target.value})} className={styles.miniSelect}>
-                           <option value="Abuja International">Abuja International</option>
-                           <option value="Lagos Murtala Muhammed">Lagos Murtala Muhammed</option>
-                           <option value="Kano Mallam Aminu">Kano Mallam Aminu</option>
-                         </select>
-                         <button className={styles.createButton} onClick={handleLinkQR} style={{ padding: "8px 12px", height: "auto" }}>Link</button>
+                    ))}
+                    {tempStaff.map(staff => (
+                      <div key={staff.id} className={`${styles.resourceItem} ${styles.newResource}`}>
+                        <div className={styles.resourceIcon}><User size={16} /></div>
+                        <div className={styles.resourceInfo}>
+                          <strong>{staff.name}</strong>
+                          <span>{staff.role} | Just Added</span>
+                        </div>
+                        <button
+                          className={styles.resourceRemove}
+                          onClick={() => setTempStaff(tempStaff.filter(s => s.id !== staff.id))}
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
-                    )}
-                    <div className={styles.resourceItems}>
-                       {[1,2].map(i => (
-                         <div key={`existing-qr-${i}`} className={styles.resourceItem}>
-                            <div className={styles.resourceIcon}><Box size={16} /></div>
-                            <div className={styles.resourceInfo}>
-                               <strong>Terminal 2 - Gate {i} Feedback</strong>
-                               <span>Abuja International Airport</span>
-                            </div>
-                            <button className={styles.resourceRemove}><X size={14} /></button>
-                         </div>
-                       ))}
-                       {tempQR.map(qr => (
-                         <div key={qr.id} className={`${styles.resourceItem} ${styles.newResource}`}>
-                            <div className={styles.resourceIcon}><Image src="/Faan.logo_.png" alt="FAAN" width={20} height={20} /></div>
-                            <div className={styles.resourceInfo}>
-                               <strong>{qr.name}</strong>
-                               <span>{qr.airport} | Just Linked</span>
-                            </div>
-                            <button 
-                              className={styles.resourceRemove}
-                              onClick={() => setTempQR(tempQR.filter(q => q.id !== qr.id))}
-                            >
-                              <X size={14} />
-                            </button>
-                         </div>
-                       ))}
-                    </div>
-                 </div>
-               )}
-             </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.resourceList}>
+                  <div className={styles.resourceHeader}>
+                    <h4 className={styles.builderLabel}>Operational Touchpoints ({(selectedDept._count?.touchpoints || 0) + tempQR.length})</h4>
+                    <button className={styles.inlineAddBtn} onClick={() => setIsLinking(!isLinking)}>
+                      <Plus size={14} /> Link QR Code
+                    </button>
+                  </div>
 
-             <div className={styles.modalActions}>
-               <button className={styles.cancelBtn} onClick={() => {
-                 setSelectedDept(null);
-                 setTempStaff([]);
-                 setTempQR([]);
-               }}>Close</button>
-               <button className={styles.createButton} onClick={handleSaveResources}>Save Changes</button>
-             </div>
+                  {isLinking && (
+                    <div className={styles.resourceConfigBox}>
+                      <input type="text" placeholder="Touchpoint Location" value={newQRDetails.name} onChange={e => setNewQRDetails({ ...newQRDetails, name: e.target.value })} className={styles.miniInput} />
+                      <select value={newQRDetails.airport} onChange={e => setNewQRDetails({ ...newQRDetails, airport: e.target.value })} className={styles.miniSelect}>
+                        <option value="Abuja International">Abuja International</option>
+                        <option value="Lagos Murtala Muhammed">Lagos Murtala Muhammed</option>
+                        <option value="Kano Mallam Aminu">Kano Mallam Aminu</option>
+                      </select>
+                      <button className={styles.createButton} onClick={handleLinkQR} style={{ padding: "8px 12px", height: "auto" }}>Link</button>
+                    </div>
+                  )}
+                  <div className={styles.resourceItems}>
+                    {[1, 2].map(i => (
+                      <div key={`existing-qr-${i}`} className={styles.resourceItem}>
+                        <div className={styles.resourceIcon}><Box size={16} /></div>
+                        <div className={styles.resourceInfo}>
+                          <strong>Terminal 2 - Gate {i} Feedback</strong>
+                          <span>Abuja International Airport</span>
+                        </div>
+                        <button className={styles.resourceRemove}><X size={14} /></button>
+                      </div>
+                    ))}
+                    {tempQR.map(qr => (
+                      <div key={qr.id} className={`${styles.resourceItem} ${styles.newResource}`}>
+                        <div className={styles.resourceIcon}><Image src="/Faan.logo_.png" alt="FAAN" width={20} height={20} /></div>
+                        <div className={styles.resourceInfo}>
+                          <strong>{qr.name}</strong>
+                          <span>{qr.airport} | Just Linked</span>
+                        </div>
+                        <button
+                          className={styles.resourceRemove}
+                          onClick={() => setTempQR(tempQR.filter(q => q.id !== qr.id))}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => {
+                setSelectedDept(null);
+                setTempStaff([]);
+                setTempQR([]);
+              }}>Close</button>
+              <button className={styles.createButton} onClick={handleSaveResources}>Save Changes</button>
+            </div>
           </div>
         </div>
       )}
@@ -774,12 +858,12 @@ export default function DepartmentsPage() {
                     <label className={styles.formLabel}>Name *</label>
                     <div className={styles.modalInputWrapper}>
                       <User size={18} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="Admin Name"
                         value={newAdmin.name}
-                        onChange={(e) => setNewAdmin({...newAdmin, name: e.target.value})}
-                        required 
+                        onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
+                        required
                       />
                     </div>
                   </div>
@@ -788,12 +872,12 @@ export default function DepartmentsPage() {
                     <label className={styles.formLabel}>Email *</label>
                     <div className={styles.modalInputWrapper}>
                       <Search size={18} />
-                      <input 
-                        type="email" 
+                      <input
+                        type="email"
                         placeholder="admin@faan.gov.ng"
                         value={newAdmin.email}
-                        onChange={(e) => setNewAdmin({...newAdmin, email: e.target.value})}
-                        required 
+                        onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
+                        required
                       />
                     </div>
                   </div>
@@ -802,12 +886,12 @@ export default function DepartmentsPage() {
                     <label className={styles.formLabel}>Password *</label>
                     <div className={styles.modalInputWrapper}>
                       <Shield size={18} />
-                      <input 
-                        type="password" 
+                      <input
+                        type="password"
                         placeholder="••••••••"
                         value={newAdmin.password}
-                        onChange={(e) => setNewAdmin({...newAdmin, password: e.target.value})}
-                        required 
+                        onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
+                        required
                       />
                     </div>
                   </div>
@@ -824,8 +908,22 @@ export default function DepartmentsPage() {
                 </div>
               </div>
               <div className={styles.modalActions}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setIsAdminModalOpen(false)}>Cancel</button>
-                <button type="submit" className={styles.createButton}>Save Admin</button>
+                <button
+                  type="button"
+                  className={styles.cancelBtn}
+                  onClick={() => setIsAdminModalOpen(false)}
+                  disabled={assignAdminMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={styles.createButton}
+                  disabled={assignAdminMutation.isPending}
+                  style={{ opacity: assignAdminMutation.isPending ? 0.7 : 1, cursor: assignAdminMutation.isPending ? 'not-allowed' : 'pointer' }}
+                >
+                  {assignAdminMutation.isPending ? 'Saving...' : 'Save Admin'}
+                </button>
               </div>
             </form>
           </div>

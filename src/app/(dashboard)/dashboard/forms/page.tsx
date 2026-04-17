@@ -33,11 +33,14 @@ import { useRole } from "@/context/RoleContext";
 import { 
   useTouchpoints, 
   useCreateTouchpoint, 
+  useUpdateTouchpoint,
   useDeleteTouchpoint
 } from "@/hooks/useTouchpoints";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
 import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/types/api";
+import { toast } from "sonner";
+import { AxiosError } from "axios";
 
 const FIELD_TYPES = [
   { value: 'rating', label: 'Rating', icon: Star, color: '#f59e0b' },
@@ -80,6 +83,7 @@ export default function FormsPage() {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
 
   const createMutation = useCreateTouchpoint();
+  const updateMutation = useUpdateTouchpoint();
   const deleteMutation = useDeleteTouchpoint();
 
   const touchpoints = touchpointsData?.data || [];
@@ -117,7 +121,7 @@ export default function FormsPage() {
 
   const handleAddField = (type: string = 'text') => {
     const newField: FormField = {
-      id: Date.now(),
+      id: String(Date.now()),
       type: type as FormField['type'],
       label: 'New Field',
       required: false,
@@ -126,14 +130,14 @@ export default function FormsPage() {
     setNewForm({...newForm, fields: [...newForm.fields, newField]});
   };
 
-  const handleUpdateField = (fieldId: number | string, updates: Partial<FormField>) => {
+  const handleUpdateField = (fieldId: string, updates: Partial<FormField>) => {
     setNewForm({
       ...newForm,
       fields: newForm.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
     });
   };
 
-  const handleRemoveField = (fieldId: number | string) => {
+  const handleRemoveField = (fieldId: string) => {
     setNewForm({
       ...newForm,
       fields: newForm.fields.filter(f => f.id !== fieldId)
@@ -141,6 +145,12 @@ export default function FormsPage() {
   };
 
   const handleSaveForm = () => {
+    // Validation
+    if (!newForm.name.trim()) return toast.error("Form name is required");
+    if (!newForm.locationId) return toast.error("Please select a location");
+    if (!newForm.departmentId) return toast.error("Please select a department");
+    if (newForm.fields.length === 0) return toast.error("Please add at least one field to the form");
+
     const payload = {
       title: newForm.name,
       locationId: newForm.locationId,
@@ -150,13 +160,29 @@ export default function FormsPage() {
     };
 
     if (isEditMode && editingFormId) {
-      
+      updateMutation.mutate({ uuid: editingFormId, data: payload }, {
+        onSuccess: () => {
+          toast.success("Form updated successfully");
+          setIsCreateModalOpen(false);
+          resetWizard();
+        },
+        onError: (error) => {
+          const axiosError = error as AxiosError<{ message: string | string[] }>;
+          const message = axiosError.response?.data?.message || "Failed to update form";
+          toast.error(Array.isArray(message) ? message[0] : message);
+        }
+      });
     } else {
       createMutation.mutate(payload, {
         onSuccess: () => {
+          toast.success("Form created successfully");
           setIsCreateModalOpen(false);
-          setWizardStep(1);
           resetWizard();
+        },
+        onError: (error) => {
+          const axiosError = error as AxiosError<{ message: string | string[] }>;
+          const message = axiosError.response?.data?.message || "Failed to create form";
+          toast.error(Array.isArray(message) ? message[0] : message);
         }
       });
     }
@@ -566,9 +592,15 @@ export default function FormsPage() {
                           onChange={(e) => setNewForm({...newForm, departmentId: e.target.value})}
                         >
                           <option value="">Select Department</option>
-                          {locations.find((l: Location) => l.id === newForm.locationId)?.departments?.map((dept: { id: string; name: string }) => (
-                            <option key={dept.id} value={dept.id}>{dept.name}</option>
-                          ))}
+                          {departments
+                            .filter((dept: Department) => 
+                              (dept.locationId === newForm.locationId) || 
+                              (dept.location?.id === newForm.locationId)
+                            )
+                            .map((dept: Department) => (
+                              <option key={dept.id} value={dept.id}>{dept.name}</option>
+                            ))
+                          }
                         </select>
                       </div>
                     </div>
@@ -792,7 +824,7 @@ export default function FormsPage() {
                         {newForm.name || 'Untitled Form'}
                       </div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                        {locations.find((l: Location) => l.id === newForm.locationId)?.name || 'FAAN'} • {locations.find((l: Location) => l.id === newForm.locationId)?.departments?.find((d) => d.id === newForm.departmentId)?.name || 'Operations'}
+                        {locations.find((l: Location) => l.id === newForm.locationId)?.name || 'FAAN'} • {departments.find((d) => d.id === newForm.departmentId)?.name || 'Operations'}
                       </div>
                     </div>
                     
@@ -959,8 +991,16 @@ export default function FormsPage() {
                 <button 
                   className={styles.createButton}
                   onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={wizardStep === 1 && !newForm.name}
-                  style={{ opacity: wizardStep === 1 && !newForm.name ? 0.5 : 1 }}
+                  disabled={
+                    (wizardStep === 1 && !newForm.name) || 
+                    (wizardStep === 2 && (!newForm.locationId || !newForm.departmentId))
+                  }
+                  style={{ 
+                    opacity: (
+                      (wizardStep === 1 && !newForm.name) || 
+                      (wizardStep === 2 && (!newForm.locationId || !newForm.departmentId))
+                    ) ? 0.5 : 1 
+                  }}
                 >
                   Next <ChevronRight size={16} />
                 </button>
@@ -968,10 +1008,16 @@ export default function FormsPage() {
                 <button 
                   className={styles.createButton}
                   onClick={handleSaveForm}
-                  disabled={newForm.fields.length === 0}
-                  style={{ opacity: newForm.fields.length === 0 ? 0.5 : 1 }}
+                  disabled={newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending}
+                  style={{ opacity: (newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending) ? 0.5 : 1 }}
                 >
-                  <CheckCircle2 size={18} /> {isEditMode ? 'Update Form' : 'Save Form'}
+                  {(createMutation.isPending || updateMutation.isPending) ? (
+                    'Saving...'
+                  ) : (
+                    <>
+                      <CheckCircle2 size={18} /> {isEditMode ? 'Update Form' : 'Save Form'}
+                    </>
+                  )}
                 </button>
               )}
             </div>
