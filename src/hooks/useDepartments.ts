@@ -38,16 +38,17 @@ export const useCreateDepartment = () => {
   });
 };
 
-export const useAssignDepartmentAdmin = (id: string) => {
+export const useAssignDepartmentAdmin = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (adminData: { firstName?: string; lastName?: string; email?: string; password?: string; userId?: string }) => {
+    mutationFn: async ({ id, data: adminData }: { id: string; data: { firstName: string; lastName: string; email: string; password?: string; userId?: string } }) => {
       const { data } = await api.post(`/departments/${id}/admins`, adminData);
       return data.data;
     },
-    onSuccess: () => {
+    onSuccess: (data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['department', id] });
+      queryClient.invalidateQueries({ queryKey: ['departments'] });
     },
   });
 };

@@ -4,6 +4,7 @@ import "./globals.css";
 import { RoleProvider } from "@/context/RoleContext";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { AuthProvider } from "@/context/AuthContext";
+import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>
+      <body suppressHydrationWarning>
         <QueryProvider>
           <AuthProvider>
             <RoleProvider>
@@ -35,6 +36,7 @@ export default function RootLayout({
             </RoleProvider>
           </AuthProvider>
         </QueryProvider>
+        <Toaster richColors position="top-right" />
       </body>
     </html>
   );

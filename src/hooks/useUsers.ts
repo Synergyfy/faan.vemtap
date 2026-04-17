@@ -27,7 +27,7 @@ export const useCreateUser = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (userData: Partial<UserProfile>) => {
+    mutationFn: async (userData: Partial<UserProfile> & { password?: string }) => {
       const { data } = await api.post<ApiResponse<UserProfile>>('/users', userData);
       return data.data;
     },

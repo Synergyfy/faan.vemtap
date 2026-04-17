@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { 
-  ChevronRight, 
-  ChevronDown, 
-  Plane, 
-  Building2, 
+import {
+  ChevronRight,
+  ChevronDown,
+  Plane,
+  Building2,
   MapPin,
   Users,
   Star,
@@ -17,88 +17,23 @@ import {
   X,
   Trash2,
   Edit,
+  Globe,
   CheckCircle,
-  Building,
-  Map,
-  Globe
+  Building
 } from "lucide-react";
 import Image from "next/image";
 import styles from "../../Dashboard.module.css";
 import RoleGuard from "@/components/auth/RoleGuard";
 import { UserRole } from "@/types/rbac";
 import { useRole } from "@/context/RoleContext";
-
-interface Terminal {
-  id: string;
-  name: string;
-  zones: { id: string; name: string; status: string; interactions?: number; satisfaction?: number; issues?: number; topComplaint?: string; }[];
-}
-
-interface Admin {
-  name: string;
-  email: string;
-  role: UserRole;
-}
-
-interface LocationData {
-  id: string;
-  name: string;
-  type: string;
-  address: string;
-  terminals: Terminal[];
-  admins?: Admin[];
-}
-
-const INITIAL_LOCATIONS: LocationData[] = [
-  {
-    id: "abuja",
-    name: "Abuja International Airport",
-    type: "International",
-    address: "Abuja, Nigeria",
-    admins: [],
-    terminals: [
-      {
-        id: "abv-t1",
-        name: "Terminal 1",
-        zones: [
-          { id: "abv-t1-g1", name: "Departure Gate A", interactions: 120, satisfaction: 4.8, issues: 2, topComplaint: "Seating", status: "green" },
-          { id: "abv-t1-l1", name: "VIP Lounge", interactions: 45, satisfaction: 4.9, issues: 0, topComplaint: "None", status: "green" },
-          { id: "abv-t1-r1", name: "Restroom - East Wing", interactions: 230, satisfaction: 3.2, issues: 8, topComplaint: "Cleanliness", status: "red" },
-        ]
-      },
-      {
-        id: "abv-t2",
-        name: "Terminal 2",
-        zones: [
-          { id: "abv-t2-s1", name: "Security Area", interactions: 500, satisfaction: 4.1, issues: 5, topComplaint: "Wait Time", status: "yellow" },
-        ]
-      }
-    ]
-  },
-  {
-    id: "lagos",
-    name: "Lagos Murtala Muhammed",
-    type: "International",
-    address: "Lagos, Nigeria",
-    admins: [],
-    terminals: [
-      {
-        id: "los-intl",
-        name: "International Terminal",
-        zones: [
-          { id: "los-intl-g1", name: "Gate 1", interactions: 300, satisfaction: 4.5, issues: 3, topComplaint: "Staff", status: "green" },
-          { id: "los-intl-b1", name: "Baggage Area", interactions: 600, satisfaction: 3.8, issues: 12, topComplaint: "Baggage Delay", status: "yellow" },
-        ]
-      }
-    ]
-  }
-];
-
+import { toast } from "sonner";
+import { AxiosError } from "axios";
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
-import { Location, Department } from "@/types/api";
+import { useCreateUser } from "@/hooks/useUsers";
+import { Location, Department, Role } from "@/types/api";
 
 export default function LocationsPage() {
-  const { currentRole, currentLocation, hasAccessToLocation } = useRole();
+  const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const { data: locationsData, isLoading } = useLocations();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [selectedZone, setSelectedZone] = useState<Department | null>(null);
@@ -110,6 +45,7 @@ export default function LocationsPage() {
 
   const createMutation = useCreateLocation();
   const deleteMutation = useDeleteLocation();
+  const createUserMutation = useCreateUser();
 
   const locations = locationsData?.data || [];
 
@@ -125,12 +61,13 @@ export default function LocationsPage() {
     type: 'International',
     address: '',
     city: '',
+    state: '',
     airportCode: '',
     code: '',
   });
 
   const toggleExpand = (id: string) => {
-    setExpanded(prev => 
+    setExpanded(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
@@ -140,41 +77,96 @@ export default function LocationsPage() {
   };
 
   const handleAddAdmin = () => {
-    setIsAdminModalOpen(false);
+    if (!newAdmin.name || !newAdmin.email || !newAdmin.password || !selectedLocation) {
+      toast.error("Please fill in all required fields and select a location");
+      return;
+    }
+
+    const departmentId = selectedLocation.departments?.[0]?.id;
+
+    const nameParts = newAdmin.name.trim().split(" ");
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(" ") || "Admin";
+
+    createUserMutation.mutate({
+      firstName,
+      lastName,
+      email: newAdmin.email,
+      password: newAdmin.password,
+      role: Role.LOCATION_ADMIN,
+      departmentId,
+    }, {
+      onSuccess: () => {
+        toast.success(`Admin assigned to ${selectedLocation.name} successfully`);
+        setIsAdminModalOpen(false);
+        setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
+      },
+      onError: (error: unknown) => {
+        const axiosError = error as AxiosError<{ message: string | string[] }>;
+        const message = axiosError.response?.data?.message || "Failed to create admin";
+        if (Array.isArray(message)) {
+          message.forEach(msg => toast.error(msg));
+        } else {
+          toast.error(message);
+        }
+      }
+    });
   };
 
   const handleCreateLocation = () => {
+    if (!newLocation.name.trim()) return toast.error("Location name is required");
+    if (!newLocation.airportCode.trim()) return toast.error("Airport code is required");
+    if (newLocation.airportCode.length > 10) return toast.error("Airport code must be 10 characters or less");
+
+    const locationCode = newLocation.code.trim() || newLocation.airportCode.trim();
+    if (!locationCode) return toast.error("Location code is required");
+
+    const codeRegex = /^[A-Z0-9_]+$/;
+    if (!codeRegex.test(locationCode)) {
+      return toast.error("Code must be uppercase alphanumeric with underscores (e.g., LOS_INTL)");
+    }
+
+    if (!newLocation.city.trim()) return toast.error("City is required");
+
     createMutation.mutate({
       name: newLocation.name,
       airportCode: newLocation.airportCode,
       city: newLocation.city,
-      address: newLocation.address,
-      code: newLocation.code || newLocation.airportCode,
+      state: newLocation.city, // Using city as state for fallback if not provided
+      address: newLocation.address || newLocation.city,
+      code: locationCode,
     }, {
       onSuccess: () => {
+        toast.success("Location created successfully");
         setIsCreateModalOpen(false);
-        setNewLocation({ name: '', type: 'International', address: '', city: '', airportCode: '', code: '' });
+        setNewLocation({ name: '', type: 'International', address: '', city: '', state: '', airportCode: '', code: '' });
+      },
+      onError: (error: any) => {
+        const axiosError = error as AxiosError<{ message: string | string[] }>;
+        const message = axiosError.response?.data?.message || "Failed to create location";
+
+        if (Array.isArray(message)) {
+          message.forEach(msg => toast.error(msg));
+        } else {
+          toast.error(message);
+        }
       }
     });
   };
 
-  const handleDeleteLocation = (id: string) => {
-    deleteMutation.mutate(id, {
-      onSuccess: () => {
-        if (selectedLocation?.id === id) setSelectedLocation(null);
-      }
-    });
-  };
-
-  const filteredLocations = (currentRole === UserRole.SUPER_ADMIN 
-    ? locations 
+  const filteredLocations = (currentRole === UserRole.SUPER_ADMIN
+    ? locations
     : locations.filter((loc: Location) => loc.id === currentLocation)) as Location[];
 
-  const totalLocations = filteredLocations.length;
-  const totalDepartments = filteredLocations.reduce((sum, loc) => sum + ((loc as any).departments?.length || 0), 0);
+  const terminalFiltered = filteredLocations.filter(loc =>
+    !searchTerm || loc.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const totalLocations = locations.length;
+  const totalDepartments = locations.reduce((sum, loc) => sum + (loc.departments?.length || 0), 0);
 
   return (
-    <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN]}>
+    <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]}>
       <div className={styles.locationsLayout} onClick={() => setActiveTooltip(null)}>
         {/* LEFT PANEL - TREE VIEW */}
         <aside className={styles.treePanel} onClick={(e) => e.stopPropagation()}>
@@ -182,9 +174,9 @@ export default function LocationsPage() {
             <h3 className={styles.panelTitle}>Locations Tree</h3>
             <div className={styles.panelSearch}>
               <Search size={16} />
-              <input 
-                type="text" 
-                placeholder="Search locations..." 
+              <input
+                type="text"
+                placeholder="Search locations..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -192,10 +184,10 @@ export default function LocationsPage() {
           </div>
 
           <div className={styles.treeView}>
-            {filteredLocations.filter(loc => !searchTerm || loc.name.toLowerCase().includes(searchTerm.toLowerCase())).map((airport) => (
+            {terminalFiltered.map((airport) => (
               <div key={airport.id} className={styles.treeItem}>
-                <div 
-                  className={`${styles.treeHeader} ${selectedLocation?.id === airport.id ? styles.selected : ""}`} 
+                <div
+                  className={`${styles.treeHeader} ${selectedLocation?.id === airport.id ? styles.selected : ""}`}
                   onClick={() => {
                     toggleExpand(airport.id);
                     setSelectedLocation(airport);
@@ -211,7 +203,7 @@ export default function LocationsPage() {
                   <div className={styles.treeSubItems}>
                     {airport.departments?.map((dept) => (
                       <div key={dept.id} className={styles.treeItem}>
-                        <div 
+                        <div
                           className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
                           onClick={() => {
                             setSelectedZone(dept as any);
@@ -254,7 +246,7 @@ export default function LocationsPage() {
                 </span>
                 <span className={styles.deptPillMuted}>
                   <Building size={14} />
-                  <span>Super Admin Access</span>
+                  <span>{currentRole === UserRole.SUPER_ADMIN ? "Super Admin Access" : "Location Admin Access"}</span>
                 </span>
               </div>
             </div>
@@ -271,7 +263,7 @@ export default function LocationsPage() {
             </div>
           </div>
 
-          {/* Stats Grid */}
+          {/* Stats Grid top */}
           <div className={styles.deptStatsGrid} aria-label="Locations summary">
             <div className={styles.deptStatCard}>
               <div className={styles.deptStatIcon} aria-hidden="true">
@@ -378,7 +370,7 @@ export default function LocationsPage() {
                 <div className={styles.legendItem}><span className={styles.red} /> Critical</div>
               </div>
             </div>
-            
+
             <div className={styles.heatmapGrid}>
               {[
                 { id: 1, label: "Cleaning Level", value: 94, status: "green", desc: "Maintenance staff actively present. No pending tasks." },
@@ -394,8 +386,8 @@ export default function LocationsPage() {
                 { id: 11, label: "Internet Access", value: 68, status: "yellow", desc: "Minor interference in Gate 12 area. IT investigating." },
                 { id: 12, label: "Power Supply", value: 100, status: "green", desc: "Consistent power flow. Backup generators on standby." }
               ].map((block) => (
-                <div 
-                  key={block.id} 
+                <div
+                  key={block.id}
                   className={`${styles.heatmapBlock} ${styles[block.status]} ${activeTooltip === block.id ? styles.activeBlock : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -446,11 +438,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Plane size={18} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="e.g. Lagos Murtala Muhammed International Airport"
                         value={newLocation.name}
-                        onChange={(e) => setNewLocation({...newLocation, name: e.target.value})}
+                        onChange={(e) => setNewLocation({ ...newLocation, name: e.target.value })}
                         required
                       />
                     </div>
@@ -464,11 +456,11 @@ export default function LocationsPage() {
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <Globe size={18} />
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           placeholder="e.g. LOS"
                           value={newLocation.airportCode}
-                          onChange={(e) => setNewLocation({...newLocation, airportCode: e.target.value})}
+                          onChange={(e) => setNewLocation({ ...newLocation, airportCode: e.target.value.toUpperCase() })}
                           required
                         />
                       </div>
@@ -481,11 +473,11 @@ export default function LocationsPage() {
                       </div>
                       <div className={styles.modalInputWrapper}>
                         <Building size={18} />
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           placeholder="e.g. Lagos"
                           value={newLocation.city}
-                          onChange={(e) => setNewLocation({...newLocation, city: e.target.value})}
+                          onChange={(e) => setNewLocation({ ...newLocation, city: e.target.value })}
                           required
                         />
                       </div>
@@ -499,12 +491,27 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <MapPin size={18} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="e.g. Ikeja, Lagos, Nigeria"
                         value={newLocation.address}
-                        onChange={(e) => setNewLocation({...newLocation, address: e.target.value})}
-                        required
+                        onChange={(e) => setNewLocation({ ...newLocation, address: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Location Code</label>
+                      <span className={styles.fieldDesc}>Internal identifier (e.g. LOS_INTL)</span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <Building2 size={18} />
+                      <input
+                        type="text"
+                        placeholder="e.g. LAGOS_INTL"
+                        value={newLocation.code}
+                        onChange={(e) => setNewLocation({ ...newLocation, code: e.target.value.toUpperCase() })}
                       />
                     </div>
                   </div>
@@ -512,8 +519,8 @@ export default function LocationsPage() {
               </div>
               <div className={styles.modalActions}>
                 <button type="button" className={styles.cancelBtn} onClick={() => setIsCreateModalOpen(false)}>Cancel</button>
-                <button type="submit" className={styles.createButton}>
-                  <CheckCircle size={18} /> Save Location
+                <button type="submit" className={styles.createButton} disabled={createMutation.isPending}>
+                  <CheckCircle size={18} /> {createMutation.isPending ? "Saving..." : "Save Location"}
                 </button>
               </div>
             </form>
@@ -541,15 +548,15 @@ export default function LocationsPage() {
                   <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
                     <div className={styles.labelGroup}>
                       <label className={styles.formLabel}>Full Name *</label>
-                      <span className={styles.fieldDesc}>Administrator's full name</span>
+                      <span className={styles.fieldDesc}>Administrator&apos;s full name</span>
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Users size={18} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="e.g. John Doe"
                         value={newAdmin.name}
-                        onChange={(e) => setNewAdmin({...newAdmin, name: e.target.value})}
+                        onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
                         required
                       />
                     </div>
@@ -562,11 +569,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Search size={18} />
-                      <input 
-                        type="email" 
+                      <input
+                        type="email"
                         placeholder="admin@faan.gov.ng"
                         value={newAdmin.email}
-                        onChange={(e) => setNewAdmin({...newAdmin, email: e.target.value})}
+                        onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
                         required
                       />
                     </div>
@@ -579,11 +586,11 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Filter size={18} />
-                      <input 
-                        type="password" 
+                      <input
+                        type="password"
                         placeholder="••••••••"
                         value={newAdmin.password}
-                        onChange={(e) => setNewAdmin({...newAdmin, password: e.target.value})}
+                        onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
                         required
                       />
                     </div>
@@ -596,9 +603,9 @@ export default function LocationsPage() {
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Star size={18} />
-                      <select 
+                      <select
                         value={newAdmin.role}
-                        onChange={(e) => setNewAdmin({...newAdmin, role: e.target.value as UserRole})}
+                        onChange={(e) => setNewAdmin({ ...newAdmin, role: e.target.value as UserRole })}
                       >
                         <option value={UserRole.LOCATION_ADMIN}>Location Admin</option>
                       </select>
@@ -608,8 +615,8 @@ export default function LocationsPage() {
               </div>
               <div className={styles.modalActions}>
                 <button type="button" className={styles.cancelBtn} onClick={() => setIsAdminModalOpen(false)}>Cancel</button>
-                <button type="submit" className={styles.createButton}>
-                  <Users size={18} /> Create Admin
+                <button type="submit" className={styles.createButton} disabled={createUserMutation.isPending}>
+                  <Users size={18} /> {createUserMutation.isPending ? "Creating..." : "Create Admin"}
                 </button>
               </div>
             </form>

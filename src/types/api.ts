@@ -242,7 +242,7 @@ export interface Department {
 // --- Module: Touchpoints ---
 
 export interface FormField {
-  id: number;
+  id: string;
   type: 'text' | 'dropdown' | 'file' | 'date' | 'rating' | 'textarea' | 'email' | 'number';
   label: string;
   name?: string;

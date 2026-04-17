@@ -27,7 +27,6 @@ import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useRole } from "@/context/RoleContext";
 import { UserRole } from "@/types/rbac";
-import DemoRoleSwitcher from "@/components/debug/DemoRoleSwitcher";
 import { useProfile, useLogout } from "@/hooks/useAuth";
 
 interface MenuItem {
@@ -183,30 +182,6 @@ export default function DashboardLayout({
           )}
         </div>
         
-        <div style={{ padding: '0 16px 16px 16px' }}>
-          <button 
-            onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              padding: '10px',
-              backgroundColor: '#1e293b',
-              border: 'none',
-              borderRadius: '8px',
-              color: 'white',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              opacity: 0.9,
-            }}
-          >
-            <Eye size={12} />
-            Switch Role (Demo)
-          </button>
-        </div>
 
         <nav className={styles.nav}>
           {filteredMenuItems.map((item) => {
@@ -300,7 +275,6 @@ export default function DashboardLayout({
         </main>
       </div>
 
-      <DemoRoleSwitcher />
     </div>
   );
 }
