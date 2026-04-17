@@ -25,12 +25,17 @@ import {
   FileCheck,
   Layers2,
   Clock,
-  BarChart3
+  BarChart3,
+  CheckSquare,
+  Square
 } from "lucide-react";
 import Image from "next/image";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { UserRole } from "@/types/rbac";
+import { MultiSelect } from "@/components/displays/MultiSelect";
+import { toast } from "sonner";
+import { AxiosError } from "axios";
 import { 
   InternalReport, 
   ReportType, 
@@ -45,8 +50,9 @@ const FIELD_TYPES = [
   { value: 'text', label: 'Text Input', icon: Type, color: '#3b82f6' },
   { value: 'number', label: 'Number', icon: Wrench, color: '#8b5cf6' },
   { value: 'date', label: 'Date', icon: Calendar, color: '#f97316' },
-  { value: 'dropdown', label: 'Dropdown', icon: List, color: '#ec4899' },
-  { value: 'textarea', label: 'Text Area', icon: FileText, color: '#10b981' },
+  { value: 'dropdown', label: 'Dropdown (Single)', icon: List, color: '#ec4899' },
+  { value: 'checkbox', label: 'Checkbox (Multi)', icon: CheckSquare, color: '#10b981' },
+  { value: 'textarea', label: 'Text Area', icon: FileText, color: '#6366f1' },
 ];
 
 const REPORT_ACCENTS = [
@@ -86,6 +92,7 @@ export default function ReportsPage() {
   const [filterDateFrom, setFilterDateFrom] = useState<string>("");
   const [filterDateTo, setFilterDateTo] = useState<string>("");
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
   
   const [isCreateTemplateOpen, setIsCreateTemplateOpen] = useState(false);
   const [isSubmitReportOpen, setIsSubmitReportOpen] = useState(false);
@@ -94,11 +101,15 @@ export default function ReportsPage() {
   const { data: reportsData, isLoading: reportsLoading } = useReports({
     status: filterStatus !== 'all' ? filterStatus : undefined,
     departmentId: filterDepartment !== 'all' ? filterDepartment : undefined,
+    locationId: currentRole !== 'SUPER_ADMIN' ? (currentLocation || undefined) : undefined,
     from: filterDateFrom || undefined,
     to: filterDateTo || undefined,
   });
-  const { data: templatesData, isLoading: templatesLoading } = useReportTemplates();
+  const { data: templatesData, isLoading: templatesLoading } = useReportTemplates({
+    locationId: currentRole !== 'SUPER_ADMIN' ? (currentLocation || undefined) : undefined,
+  });
   const { data: locationsData } = useLocations();
+  const { data: departmentsData } = useDepartments();
 
   const createReportMutation = useCreateReport();
   const createTemplateMutation = useCreateReportTemplate();
@@ -110,21 +121,28 @@ export default function ReportsPage() {
 
   const [newTemplate, setNewTemplate] = useState({
     name: '',
-    locationId: currentLocation || '',
-    departmentId: '',
+    locationIds: (currentLocation ? [currentLocation] : []) as string[],
+    departmentIds: [] as string[],
     fields: [] as ReportTemplateField[],
   });
 
-  const previewLocationName = useMemo(() => 
-    locations.find((l: ApiLocation) => (l as any).id === newTemplate.locationId)?.name || 'Unknown Location',
-    [locations, newTemplate.locationId]
-  );
+  const [previewFormData, setPreviewFormData] = useState<Record<string, any>>({});
+  const [openPreviewDropdown, setOpenPreviewDropdown] = useState<string | null>(null);
+
+  const previewLocationName = useMemo(() => {
+    if (newTemplate.locationIds.length === 1) {
+      return locations.find((l: ApiLocation) => (l as any).id === newTemplate.locationIds[0])?.name || 'Unknown Location';
+    }
+    return `${newTemplate.locationIds.length} Locations Selected`;
+  }, [locations, newTemplate.locationIds]);
 
   const previewDepartmentName = useMemo(() => {
-    const loc = locations.find((l: ApiLocation) => (l as any).id === newTemplate.locationId);
-    const depts = (loc as any)?.departments || [];
-    return depts.find((d: Department) => d.id === newTemplate.departmentId)?.name || 'General Department';
-  }, [locations, newTemplate.locationId, newTemplate.departmentId]);
+    if (newTemplate.departmentIds.length === 1) {
+      const dept = departmentsData?.data?.find((d: Department) => d.id === newTemplate.departmentIds[0]);
+      return dept?.name || 'General Department';
+    }
+    return `${newTemplate.departmentIds.length} Departments Selected`;
+  }, [newTemplate.departmentIds, departmentsData]);
 
   const [newReport, setNewReport] = useState({
     templateId: '',
@@ -138,21 +156,22 @@ export default function ReportsPage() {
     [templates, newReport.templateId]
   );
 
-  const handleLocationChange = (locationId: string) => {
+  const handleLocationChange = (ids: string[]) => {
     setNewTemplate(prev => ({
       ...prev,
-      locationId,
-      departmentId: '',
+      locationIds: ids,
+      departmentIds: [],
     }));
   };
 
-  const handleAddField = (type: string) => {
-    const newField = {
+  const handleAddField = () => {
+    const newField: ReportTemplateField = {
       id: `field-${Date.now()}`,
-      type: type as ReportTemplateField['type'],
+      type: 'text',
       label: 'New Field',
+      name: 'new_field',
       required: false,
-      options: type === 'dropdown' ? ['Option 1', 'Option 2'] : undefined,
+      options: undefined,
     };
     setNewTemplate({ ...newTemplate, fields: [...newTemplate.fields, newField] });
   };
@@ -172,18 +191,56 @@ export default function ReportsPage() {
   };
 
   const handleCreateTemplate = () => {
-    createTemplateMutation.mutate({
-      name: newTemplate.name,
-      locationId: newTemplate.locationId,
-      departmentId: newTemplate.departmentId,
-      fields: newTemplate.fields,
-    }, {
-      onSuccess: () => {
+    // Validation
+    if (!newTemplate.name.trim()) return toast.error("Template name is required");
+    if (newTemplate.locationIds.length === 0) return toast.error("Please select at least one location");
+    if (newTemplate.departmentIds.length === 0) return toast.error("Please select at least one department");
+    if (newTemplate.fields.length === 0) return toast.error("Please add at least one field to the template");
+
+    const creations: any[] = [];
+    newTemplate.locationIds.forEach(locId => {
+      newTemplate.departmentIds.forEach(deptId => {
+        // Find if department belongs to this location
+        const loc = locations.find(l => (l as any).id === locId);
+        const depts = (loc as any)?.departments || [];
+        const deptIdx = departmentsData?.data?.findIndex((d: Department) => d.id === deptId && (d.locationId === locId || d.location?.id === locId));
+        
+        // If department belongs to location or it's a super-admin bypass
+        if (deptIdx !== -1 || currentRole === 'SUPER_ADMIN') {
+          creations.push({
+            name: newTemplate.name,
+            description: `Template for ${newTemplate.name}`,
+            locationId: locId,
+            departmentId: deptId,
+            schema: newTemplate.fields.map((f, idx) => ({
+              id: `field_${idx + 1}`,
+              type: f.type === 'dropdown' ? 'select' : f.type,
+              label: f.label,
+              name: f.label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
+              required: f.required || false,
+              options: f.options?.map(o => o.trim()).filter(Boolean)
+            })),
+          });
+        }
+      });
+    });
+
+    if (creations.length === 0) {
+      return toast.error("No valid Location-Department combinations found.");
+    }
+
+    Promise.all(creations.map(payload => createTemplateMutation.mutateAsync(payload)))
+      .then(() => {
+        toast.success(`${creations.length} template(s) created successfully`);
         setIsCreateTemplateOpen(false);
         setWizardStep(1);
-        setNewTemplate({ name: '', locationId: currentLocation || '', departmentId: '', fields: [] });
-      }
-    });
+        setNewTemplate({ name: '', locationIds: currentLocation ? [currentLocation] : [], departmentIds: [], fields: [] });
+      })
+      .catch((error) => {
+        const axiosError = error as AxiosError<{ message: string | string[] }>;
+        const message = axiosError.response?.data?.message || "Failed to create templates";
+        toast.error(Array.isArray(message) ? message[0] : message);
+      });
   };
 
   const handleSubmitReport = () => {
@@ -230,15 +287,23 @@ export default function ReportsPage() {
     return true;
   });
 
-  const filteredTemplates = templates.filter(t => !searchTerm || t.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const groupedTemplates = templates.reduce((acc: any, template: any) => {
+    const key = template.name;
+    if (!acc[key]) {
+      acc[key] = {
+        ...template,
+        instances: []
+      };
+    }
+    acc[key].instances.push(template);
+    return acc;
+  }, {});
 
-  const locationDepartments = useMemo(() => {
-    if (!newTemplate.locationId) return [];
-    const loc = locations.find((l: ApiLocation) => (l as any).id === newTemplate.locationId);
-    return (loc as any)?.departments || [];
-  }, [newTemplate.locationId, locations]);
+  const filteredGroupedTemplates = Object.values(groupedTemplates).filter((t: any) => 
+    !searchTerm || t.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const totalFields = templates.reduce((sum, t) => sum + (t.fields?.length || 0), 0);
+  const totalFields = templates.reduce((sum, t) => sum + (t.schema?.length || 0), 0);
   const recentReports = reports.filter((r: any) => {
     const date = new Date(r.createdAt);
     const now = new Date();
@@ -336,7 +401,7 @@ export default function ReportsPage() {
           className={`${styles.tabLink} ${activeView === 'templates' ? styles.tabLinkActive : ''}`}
           onClick={() => setActiveView('templates')}
         >
-          <LayoutTemplate size={18} /> Templates ({filteredTemplates.length})
+          <LayoutTemplate size={18} /> Templates ({filteredGroupedTemplates.length})
         </button>
       </div>
 
@@ -357,7 +422,7 @@ export default function ReportsPage() {
               <span>Loading...</span>
             ) : (
               <span>
-                Showing <strong>{activeView === 'reports' ? filteredReports.length : filteredTemplates.length}</strong>
+                Showing <strong>{activeView === 'reports' ? filteredReports.length : filteredGroupedTemplates.length}</strong>
               </span>
             )}
           </div>
@@ -535,7 +600,7 @@ export default function ReportsPage() {
               </div>
             ))}
           </div>
-        ) : filteredTemplates.length === 0 ? (
+        ) : filteredGroupedTemplates.length === 0 ? (
           <div className={styles.deptEmptyState} role="status">
             <div className={styles.deptEmptyIcon} aria-hidden="true">
               <LayoutTemplate size={22} />
@@ -565,131 +630,211 @@ export default function ReportsPage() {
             </div>
           </div>
         ) : (
-          <div className={styles.deptGrid}>
-            {filteredTemplates.map((template) => {
-              const accent = REPORT_ACCENTS[hashToIndex(String(template.id || template.uuid), REPORT_ACCENTS.length)];
-              const accentStyle = {
-                "--accent-bg": accent.bg,
-                "--accent-fg": accent.fg,
-                "--accent-ring": accent.ring,
-              } as CSSProperties;
+          drilldownGroup ? (
+            <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+              <div className={styles.drilldownHeader}>
+                <button className={styles.backButton} onClick={() => setDrilldownGroup(null)}>
+                  <ChevronLeft size={20} />
+                </button>
+                <div className={styles.drilldownInfo}>
+                  <span className={styles.drilldownTitle}>Grouping View</span>
+                  <span className={styles.drilldownName}>{drilldownGroup.name} ({drilldownGroup.instances.length} Instances)</span>
+                </div>
+              </div>
 
-              return (
-                <div key={template.id || template.uuid} className={styles.deptCard}>
-                  <div className={styles.deptCardHeader}>
-                    <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
-                      <LayoutTemplate size={24} />
-                    </div>
-                    <div className={styles.cardMenuWrapper}>
-                      <button
-                        className={styles.cardMore}
-                        aria-label={`Actions for ${template.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveDropdown(activeDropdown === template.id ? null : template.id);
+              <div className={styles.deptGrid}>
+                {drilldownGroup.instances.map((inst: any) => {
+                  const accent = REPORT_ACCENTS[hashToIndex(inst.name, REPORT_ACCENTS.length)];
+                  const accentStyle = {
+                    "--accent-bg": accent.bg,
+                    "--accent-fg": accent.fg,
+                    "--accent-ring": accent.ring,
+                  } as CSSProperties;
+
+                  return (
+                    <div key={inst.id} className={styles.deptCard}>
+                      <div className={styles.deptCardHeader}>
+                        <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
+                          <LayoutTemplate size={24} />
+                        </div>
+                        <div className={styles.cardMenuWrapper}>
+                          <button
+                            className={styles.cardMore}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveDropdown(activeDropdown === inst.id ? null : inst.id);
+                            }}
+                          >
+                            <MoreVertical size={18} />
+                          </button>
+                          {activeDropdown === inst.id && (
+                            <div className={styles.cardDropdown}>
+                              <button
+                                className={`${styles.dropdownItem} ${styles.danger}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteTemplate(inst.id);
+                                }}
+                              >
+                                <Trash2 size={14} /> Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className={styles.deptCardInfo}>
+                        <h3 className={styles.deptCardTitle}>{inst.name}</h3>
+                        <p className={styles.deptCardDesc}>
+                          {inst.departmentName || 'General'} Department
+                        </p>
+                        <div className={styles.deptLocationRow}>
+                          <MapPin size={12} />
+                          <span>{inst.locationName || roleLocationName || '—'}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.deptCardMetrics}>
+                        <div className={styles.deptMetric}>
+                          <Layers2 size={14} />
+                          <span>{inst.schema?.length || 0} Fields</span>
+                        </div>
+                      </div>
+
+                      <button 
+                        className={styles.deptManageBtn}
+                        onClick={() => {
+                          setNewReport({
+                            templateId: inst.uuid || inst.id,
+                            templateName: inst.name,
+                            title: '',
+                            fieldValues: {},
+                          });
+                          setIsSubmitReportOpen(true);
                         }}
                       >
-                        <MoreVertical size={18} />
+                        Use Template
+                        <ChevronRight size={16} />
                       </button>
-                      {activeDropdown === template.id && (
-                        <div className={styles.cardDropdown}>
-                          <button
-                            className={styles.dropdownItem}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setNewReport({
-                                templateId: template.uuid || template.id,
-                                templateName: template.name,
-                                title: '',
-                                fieldValues: {},
-                              });
-                              setIsSubmitReportOpen(true);
-                              setActiveDropdown(null);
-                            }}
-                          >
-                            <FileText size={14} /> Use Template
-                          </button>
-                          <div className={styles.dropdownSeparator} />
-                          <button
-                            className={`${styles.dropdownItem} ${styles.danger}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteTemplate(template.id);
-                            }}
-                          >
-                            <Trash2 size={14} /> Delete
-                          </button>
-                        </div>
-                      )}
                     </div>
-                  </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className={styles.deptGrid}>
+              {filteredGroupedTemplates.map((template: any) => {
+                const accent = REPORT_ACCENTS[hashToIndex(template.name, REPORT_ACCENTS.length)];
+                const accentStyle = {
+                  "--accent-bg": accent.bg,
+                  "--accent-fg": accent.fg,
+                  "--accent-ring": accent.ring,
+                } as CSSProperties;
 
-                  <div className={styles.deptCardInfo}>
-                    <h3 className={styles.deptCardTitle}>{template.name}</h3>
-                    <p className={styles.deptCardDesc}>
-                      {template.departmentName || 'General'} Department
-                    </p>
-                    <div className={styles.deptLocationRow}>
-                      <MapPin size={12} />
-                      <span>{template.locationName || 'All Locations'}</span>
-                    </div>
-                  </div>
+                const primaryInstance = template.instances[0];
+                const primaryLocationName = primaryInstance.locationName || roleLocationName || '—';
+                const locationLabel = template.instances.length > 1 
+                  ? `${primaryLocationName} +${template.instances.length - 1}`
+                  : primaryLocationName;
 
-                  <div className={styles.deptCardMetrics}>
-                    <div className={styles.deptMetric}>
-                      <Layers2 size={14} />
-                      <span>{template.fields?.length || 0} Fields</span>
+                return (
+                  <div key={template.id || template.uuid} className={styles.deptCard}>
+                    <div className={styles.deptCardHeader}>
+                      <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
+                        <LayoutTemplate size={24} />
+                      </div>
                     </div>
-                    <div className={styles.deptMetric}>
-                      <FileCheck size={14} />
-                      <span>0 Uses</span>
-                    </div>
-                  </div>
 
-                  <button 
-                    className={styles.deptManageBtn}
-                    onClick={() => {
-                      setNewReport({
-                        templateId: template.uuid || template.id,
-                        templateName: template.name,
-                        title: '',
-                        fieldValues: {},
-                      });
-                      setIsSubmitReportOpen(true);
-                    }}
-                  >
-                    Use Template
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    <div className={styles.deptCardInfo}>
+                      <h3 className={styles.deptCardTitle}>{template.name}</h3>
+                      <p className={styles.deptCardDesc}>
+                        {template.instances.length} Active Deployments
+                      </p>
+                      <div className={styles.deptLocationRow}>
+                        <MapPin size={12} />
+                        <span>{locationLabel}</span>
+                      </div>
+                    </div>
+
+                    <div className={styles.deptCardMetrics}>
+                      <div className={styles.deptMetric}>
+                        <Layers2 size={14} />
+                        <span>{template.schema?.length || 0} Fields</span>
+                      </div>
+                    </div>
+
+                    {template.instances.length > 1 ? (
+                      <button 
+                        className={styles.groupCardManageBtn}
+                        onClick={() => setDrilldownGroup(template)}
+                      >
+                        Manage {template.instances.length} Instances
+                      </button>
+                    ) : (
+                      <button 
+                        className={styles.deptManageBtn}
+                        onClick={() => {
+                          setNewReport({
+                            templateId: primaryInstance.uuid || primaryInstance.id,
+                            templateName: primaryInstance.name,
+                            title: '',
+                            fieldValues: {},
+                          });
+                          setIsSubmitReportOpen(true);
+                        }}
+                      >
+                        Use Template
+                        <ChevronRight size={16} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
         )
       )}
 
       {isCreateTemplateOpen && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: '1200px', width: '96%', maxHeight: '92vh' }}>
-            <div className={styles.modalHeader}>
-              <div className={styles.modalTitleGroup}>
-                <span className={styles.wizardBadge}>Step {wizardStep} of 3</span>
-                <h3 className={styles.modalTitle}>Create Report Template</h3>
-                <p className={styles.modalSubtitle}>Design a structured report form</p>
+          <div className={styles.modalContent} style={{ 
+            maxWidth: '1240px', 
+            width: '96%', 
+            height: '92vh',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'row',
+            overflow: 'hidden',
+            background: '#fff'
+          }}>
+            {/* Left Panel: Form Builder */}
+            <div style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              borderRight: '1px solid #f1f5f9',
+              background: '#fff',
+              minWidth: 0
+            }}>
+              <div className={styles.modalHeader} style={{ borderBottom: '1px solid #f1f5f9', padding: '24px 32px' }}>
+                <div className={styles.modalTitleGroup}>
+                  <h3 className={styles.modalTitle}>Create Report Template</h3>
+                  <p className={styles.modalSubtitle}>Design a structured report form</p>
+                </div>
               </div>
-              <button className={styles.closeBtn} onClick={() => { setIsCreateTemplateOpen(false); setWizardStep(1); }}>
-                <X size={20} />
-              </button>
-            </div>
 
-            <div className={styles.wizardProgress}>
-              <div className={`${styles.progressStep} ${wizardStep >= 1 ? styles.active : ''}`} />
-              <div className={`${styles.progressStep} ${wizardStep >= 2 ? styles.active : ''}`} />
-              <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ''}`} />
-            </div>
+              <div className={styles.wizardProgress} style={{ padding: '0 32px 24px 32px', borderBottom: 'none', background: '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                   <span className={styles.wizardBadge} style={{ margin: 0 }}>Step {wizardStep} of 3</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div className={`${styles.progressStep} ${wizardStep >= 1 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                  <div className={`${styles.progressStep} ${wizardStep >= 2 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                  <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                </div>
+              </div>
 
-            <div className={styles.modalBody} style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '0', minHeight: '520px', padding: '0' }}>
-              <div style={{ padding: '32px', borderRight: '1px solid #e2e8f0', overflow: 'auto' }}>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
                 {wizardStep === 1 && (
                   <div>
                     <div style={{ marginBottom: '32px' }}>
@@ -725,12 +870,26 @@ export default function ReportsPage() {
                         <label className={styles.formLabel}>Location *</label>
                         <span className={styles.fieldDesc}>Which airport will use this?</span>
                       </div>
-                      <div className={styles.modalInputWrapper}>
-                        <MapPin size={18} />
-                        <select value={newTemplate.locationId} onChange={(e) => handleLocationChange(e.target.value)}>
-                          <option value="">Select Location</option>
-                          {locations.map(loc => (<option key={(loc as any).id} value={(loc as any).id}>{(loc as any).name}</option>))}
-                        </select>
+                      <div>
+                        {currentRole === 'LOCATION_ADMIN' ? (
+                          <div className={styles.modalInputWrapper}>
+                            <MapPin size={18} />
+                            <input 
+                              type="text" 
+                              value={roleLocationName || currentLocation || ''}
+                              disabled
+                              style={{ background: "#f1f5f9", cursor: "not-allowed" }}
+                            />
+                          </div>
+                        ) : (
+                          <MultiSelect
+                            options={locations}
+                            selectedIds={newTemplate.locationIds}
+                            onChange={(ids) => handleLocationChange(ids)}
+                            placeholder="Select Locations"
+                            icon={<MapPin size={18} />}
+                          />
+                        )}
                       </div>
                     </div>
                     <div className={styles.formGroup}>
@@ -738,17 +897,18 @@ export default function ReportsPage() {
                         <label className={styles.formLabel}>Department *</label>
                         <span className={styles.fieldDesc}>Responsible department</span>
                       </div>
-                      <div className={styles.modalInputWrapper}>
-                        <Shield size={18} />
-                        <select 
-                          value={newTemplate.departmentId} 
-                          onChange={(e) => setNewTemplate({ ...newTemplate, departmentId: e.target.value })}
-                        >
-                          <option value="">Select Department</option>
-                          {locationDepartments?.map((dept: Department) => (
-                            <option key={dept.id} value={dept.id}>{dept.name}</option>
-                          ))}
-                        </select>
+                      <div>
+                        <MultiSelect
+                          options={(departmentsData?.data || []).filter((dept: Department) => 
+                            newTemplate.locationIds.length === 0 || 
+                            newTemplate.locationIds.includes(dept.locationId) || 
+                            (dept.location?.id && newTemplate.locationIds.includes(dept.location.id))
+                          )}
+                          selectedIds={newTemplate.departmentIds}
+                          onChange={(ids) => setNewTemplate({ ...newTemplate, departmentIds: ids })}
+                          placeholder="Select Departments"
+                          icon={<Shield size={18} />}
+                        />
                       </div>
                     </div>
                   </div>
@@ -762,39 +922,35 @@ export default function ReportsPage() {
                         <p style={{ fontSize: '14px', color: '#64748b' }}>Add fields ({newTemplate.fields.length} added)</p>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
-                      {FIELD_TYPES.map(ft => { 
-                        const Icon = ft.icon; 
-                        return (
-                          <button 
-                            key={ft.value} 
-                            onClick={() => handleAddField(ft.value as ReportTemplateField['type'])} 
-                            style={{ 
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              gap: '6px', 
-                              padding: '12px 16px', 
-                              borderRadius: '12px', 
-                              border: '1px solid #e2e8f0', 
-                              background: 'white', 
-                              fontSize: '13px', 
-                              fontWeight: 600, 
-                              color: '#475569', 
-                              cursor: 'pointer' 
-                            }}
-                          >
-                            <Icon size={14} style={{ color: ft.color }} /> {ft.label}
-                          </button>
-                        ); 
-                      })}
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '32px' }}>
+                      <button 
+                        onClick={handleAddField}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '10px', 
+                          padding: '12px 24px', 
+                          borderRadius: '12px', 
+                          border: '2px solid var(--brand-green)', 
+                          background: 'rgba(21, 115, 71, 0.05)', 
+                          color: 'var(--brand-green)', 
+                          fontWeight: 700, 
+                          fontSize: '15px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <Plus size={20} /> Add New Field
+                      </button>
                     </div>
+
                     {newTemplate.fields.length === 0 ? (
                       <div className={styles.emptyStage} style={{ height: '220px', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', border: '2px dashed #e2e8f0', borderRadius: '20px' }}>
                         <div style={{ padding: '16px', background: 'rgba(21, 115, 71, 0.08)', borderRadius: '16px', marginBottom: '12px' }}>
                           <FileStack size={32} style={{ color: 'var(--brand-green)' }} />
                         </div>
-                        <p style={{ fontWeight: 700, color: '#0f172a', fontSize: '15px' }}>No fields added yet</p>
-                        <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Click a field type above to start building</p>
+                        <p style={{ fontWeight: 700, color: '#0f172a', fontSize: '15px' }}>Let&apos;s build your form</p>
+                        <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Click the button above to add your first question</p>
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
@@ -813,8 +969,14 @@ export default function ReportsPage() {
                                 <input type="checkbox" checked={field.required} onChange={(e) => handleUpdateField(field.id, { required: e.target.checked })} style={{ accentColor: 'var(--brand-green)' }} />
                                 Required field
                               </label>
-                              {field.type === 'dropdown' && (
-                                <input type="text" placeholder="Options: Option 1, Option 2" value={field.options?.join(', ') || ''} onChange={(e) => handleUpdateField(field.id, { options: e.target.value.split(',').map(o => o.trim()).filter(o => o) })} style={{ flex: 1, fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                              {(field.type === 'dropdown' || field.type === 'checkbox') && (
+                                <input 
+                                  type="text" 
+                                  placeholder="Options (comma separated): High, Medium, Low" 
+                                  value={field.options?.join(', ') || ''} 
+                                  onChange={(e) => handleUpdateField(field.id, { options: e.target.value.split(',').map(o => o.trimStart()) })} 
+                                  style={{ flex: 1, fontSize: '13px', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#fff' }} 
+                                />
                               )}
                             </div>
                           </div>
@@ -825,58 +987,277 @@ export default function ReportsPage() {
                 )}
               </div>
 
-              <div style={{ background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', padding: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '20px' }}>
+              {/* Wizard Footer */}
+              <div style={{ 
+                padding: '24px 32px', 
+                borderTop: '1px solid #f1f5f9', 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                gap: '12px',
+                background: '#fff',
+                marginTop: 'auto'
+              }}>
+                <button 
+                  className={styles.cancelBtn} 
+                  onClick={() => { setIsCreateTemplateOpen(false); setWizardStep(1); }}
+                  style={{ color: '#64748b', border: '1px solid #e2e8f0', padding: '10px 24px', fontSize: '14px', fontWeight: 600 }}
+                >
+                  Cancel
+                </button>
+                {wizardStep > 1 && (
+                  <button 
+                    className={styles.cancelBtn} 
+                    onClick={() => setWizardStep(wizardStep - 1)}
+                    style={{ color: '#0f172a', border: '1px solid #e2e8f0', padding: '10px 24px', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    <ChevronLeft size={16} /> Back
+                  </button>
+                )}
+                {wizardStep < 3 ? (
+                  <button 
+                    className={styles.createButton} 
+                    onClick={() => setWizardStep(wizardStep + 1)} 
+                    disabled={wizardStep === 1 && !newTemplate.name}
+                    style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600, opacity: wizardStep === 1 && !newTemplate.name ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    Next <ChevronRight size={16} />
+                  </button>
+                ) : (
+                  <button 
+                    className={styles.createButton} 
+                    onClick={handleCreateTemplate} 
+                    disabled={newTemplate.fields.length === 0}
+                    style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600, opacity: newTemplate.fields.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    <CheckCircle2 size={18} /> Save Template
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Right Panel: Live Preview */}
+            <div style={{ 
+              width: '420px', 
+              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
+              display: 'flex', 
+              flexDirection: 'column',
+              position: 'relative'
+            }}>
+              {/* Header Bar on Preview Side */}
+              <div style={{ 
+                height: '80px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'flex-end', 
+                padding: '0 24px', 
+                gap: '12px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
+              }}>
+                <button 
+                  className={styles.closeBtn} 
+                  onClick={() => { setIsCreateTemplateOpen(false); setWizardStep(1); }}
+                  style={{ color: '#fff', marginLeft: '8px', background: 'rgba(255, 255, 255, 0.1)' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Preview Content */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px 0 40px 0' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(148, 163, 184, 0.6)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '24px' }}>
                   LIVE PREVIEW
                 </div>
-                <div style={{ width: '280px', height: '520px', background: '#000', borderRadius: '44px', padding: '10px', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
-                  <div style={{ width: '90px', height: '28px', background: '#000', borderRadius: '16px', position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }} />
+                
+                {/* Phone Component */}
+                <div style={{ 
+                  width: '300px', 
+                  height: '620px', 
+                  flexShrink: 0, 
+                  background: '#000', 
+                  borderRadius: '44px', 
+                  padding: '12px', 
+                  position: 'relative', 
+                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+                  border: '4px solid #334155'
+                }}>
+                  <div style={{ width: '100px', height: '30px', background: '#000', borderRadius: '16px', position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }} />
                   <div style={{ height: '100%', background: '#fff', borderRadius: '34px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ height: '46px', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}><span>9:41</span><div style={{ display: 'flex', gap: '4px' }}><div style={{ width: '16px', height: '10px', background: '#1e293b', borderRadius: '2px' }} /><div style={{ width: '14px', height: '10px', background: '#1e293b', borderRadius: '2px' }} /></div></div>
-                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: 'linear-gradient(to bottom, #fafafa, #ffffff)' }}>
-                      <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{newTemplate.name || 'Untitled Report'}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>{previewLocationName.split(' ')[0]} • {previewDepartmentName.split(' ')[0]}</div>
+                    {/* Status Bar */}
+                    <div style={{ height: '46px', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>
+                      <span>9:41</span>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                         <div style={{ width: '18px', height: '10px', border: '1px solid #1e293b', borderRadius: '2px', position: 'relative' }}><div style={{ width: '14px', height: '6px', background: '#1e293b', position: 'absolute', top: 1, left: 1 }} /></div>
+                      </div>
                     </div>
-                    <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
+
+                    {/* App Header */}
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: 'linear-gradient(to bottom, #fafafa, #ffffff)' }}>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>{newTemplate.name || 'Untitled Report'}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{previewLocationName.split(' ')[0]} • {previewDepartmentName.split(' ')[0]}</div>
+                    </div>
+
+                    {/* Scrollable Fields area */}
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px', scrollbarWidth: 'thin', scrollbarColor: '#CBD5E1 transparent' }}>
                       {newTemplate.fields.length === 0 ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '180px', color: '#94a3b8' }}><FileStack size={32} /><p style={{ fontSize: '12px', marginTop: '8px' }}>No fields yet</p></div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', opacity: 0.5 }}>
+                          <FileStack size={48} />
+                          <p style={{ fontSize: '13px', marginTop: '12px', fontWeight: 500 }}>No fields yet</p>
+                        </div>
                       ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {newTemplate.fields.slice(0, 4).map(field => (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          {newTemplate.fields.map(field => (
                             <div key={field.id}>
-                              <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>{field.label || 'Field'} {field.required && <span style={{ color: '#ef4444' }}>*</span>}</div>
-                              {field.type === 'text' && <input disabled placeholder="Enter text..." style={{ height: '36px', width: '100%', boxSizing: 'border-box', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0 12px', fontSize: '13px' }} />}
-                              {field.type === 'number' && <input disabled type="number" placeholder="0" style={{ height: '36px', width: '100%', boxSizing: 'border-box', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0 12px', fontSize: '13px' }} />}
-                              {field.type === 'textarea' && <textarea disabled placeholder="Enter details..." style={{ height: '60px', width: '100%', boxSizing: 'border-box', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', resize: 'none' }} />}
-                              {field.type === 'dropdown' && <div style={{ height: '36px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', fontSize: '12px', color: '#9ca3af' }}>Select option <ChevronRight size={14} /></div>}
-                              {field.type === 'date' && <div style={{ height: '36px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '12px', color: '#9ca3af' }}><Calendar size={14} style={{ marginRight: '8px' }} />Pick a date</div>}
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
+                                {field.label || 'New Question'} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
+                              </div>
+                              {field.type === 'text' && (
+                                <input 
+                                  type="text"
+                                  placeholder="Type here..."
+                                  value={previewFormData[field.id] || ''}
+                                  onChange={(e) => setPreviewFormData({ ...previewFormData, [field.id]: e.target.value })}
+                                  style={{ height: '40px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', padding: '0 12px', fontSize: '13px' }}
+                                />
+                              )}
+                              {field.type === 'number' && (
+                                <input 
+                                  type="number"
+                                  placeholder="0"
+                                  value={previewFormData[field.id] || ''}
+                                  onChange={(e) => setPreviewFormData({ ...previewFormData, [field.id]: e.target.value })}
+                                  style={{ height: '40px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', padding: '0 12px', fontSize: '13px' }}
+                                />
+                              )}
+                              {field.type === 'textarea' && (
+                                <textarea 
+                                  placeholder="Longer text..."
+                                  value={previewFormData[field.id] || ''}
+                                  onChange={(e) => setPreviewFormData({ ...previewFormData, [field.id]: e.target.value })}
+                                  style={{ height: '80px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', padding: '12px', fontSize: '13px', resize: 'none' }}
+                                />
+                              )}
+                              {field.type === 'dropdown' && (
+                                <select 
+                                  value={previewFormData[field.id] || ''}
+                                  onChange={(e) => setPreviewFormData({ ...previewFormData, [field.id]: e.target.value })}
+                                  style={{ height: '40px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', padding: '0 12px', fontSize: '13px', color: '#1e293b' }}
+                                >
+                                  <option value="">Select option</option>
+                                  {(field.options || []).map((opt, i) => (
+                                    <option key={i} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              )}
+                              {field.type === 'checkbox' && (
+                                <div style={{ position: 'relative' }}>
+                                  <button 
+                                    onClick={() => setOpenPreviewDropdown(openPreviewDropdown === field.id ? null : field.id)}
+                                    style={{ 
+                                      width: '100%',
+                                      height: '42px', 
+                                      background: '#f9fafb', 
+                                      border: '1px solid #e5e7eb', 
+                                      borderRadius: '12px', 
+                                      display: 'flex', 
+                                      alignItems: 'center', 
+                                      justifyContent: 'space-between', 
+                                      padding: '0 12px',
+                                      fontSize: '13px',
+                                      color: (previewFormData[field.id] || []).length > 0 ? '#1e293b' : '#9ca3af',
+                                      cursor: 'pointer',
+                                      textAlign: 'left'
+                                    }}
+                                  >
+                                    {(previewFormData[field.id] || []).length > 0 
+                                      ? `${(previewFormData[field.id] || []).length} items selected`
+                                      : 'Select options'}
+                                    <ChevronRight size={14} style={{ transform: openPreviewDropdown === field.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+                                  </button>
+                                  
+                                  {openPreviewDropdown === field.id && (
+                                    <div style={{ 
+                                      marginTop: '6px',
+                                      background: '#fff', 
+                                      border: '1px solid #e5e7eb', 
+                                      borderRadius: '12px', 
+                                      boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+                                      overflow: 'hidden',
+                                      zIndex: 10
+                                    }}>
+                                      <div style={{ maxHeight: '180px', overflowY: 'auto', padding: '8px' }}>
+                                        {(field.options || ['Option 1', 'Option 2', 'Option 3']).map((opt, i) => (
+                                          <label 
+                                            key={i} 
+                                            style={{ 
+                                              display: 'flex', 
+                                              alignItems: 'center', 
+                                              gap: '10px', 
+                                              padding: '10px 12px', 
+                                              fontSize: '13px', 
+                                              color: (previewFormData[field.id] || []).includes(opt) ? 'var(--brand-green)' : '#4b5563', 
+                                              background: (previewFormData[field.id] || []).includes(opt) ? 'rgba(21, 115, 71, 0.05)' : 'transparent',
+                                              borderRadius: '8px',
+                                              cursor: 'pointer',
+                                              marginBottom: '2px',
+                                              fontWeight: (previewFormData[field.id] || []).includes(opt) ? 600 : 400
+                                            }}
+                                          >
+                                            <input 
+                                              type="checkbox" 
+                                              checked={(previewFormData[field.id] || []).includes(opt)}
+                                              onChange={(e) => {
+                                                const prev = previewFormData[field.id] || [];
+                                                const next = e.target.checked ? [...prev, opt] : prev.filter((v: any) => v !== opt);
+                                                setPreviewFormData({ ...previewFormData, [field.id]: next });
+                                              }}
+                                              style={{ width: '16px', height: '16px', accentColor: 'var(--brand-green)' }}
+                                            />
+                                            {opt}
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {field.type === 'date' && (
+                                <input 
+                                  type="date"
+                                  value={previewFormData[field.id] || ''}
+                                  onChange={(e) => setPreviewFormData({ ...previewFormData, [field.id]: e.target.value })}
+                                  style={{ height: '40px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', padding: '0 12px', fontSize: '13px', color: '#1e293b' }}
+                                />
+                              )}
                             </div>
                           ))}
                         </div>
                       )}
                     </div>
-                    <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9' }}>
-                      <div style={{ background: 'var(--brand-green)', color: 'white', padding: '14px', borderRadius: '12px', textAlign: 'center', fontSize: '14px', fontWeight: 600 }}>Submit Report</div>
+
+                    {/* App Footer */}
+                    <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9', background: '#fff' }}>
+                      <button 
+                        onClick={() => toast.success("Preview summary looks great!")}
+                        style={{ 
+                          width: '100%',
+                          background: 'var(--brand-green)', 
+                          color: 'white', 
+                          padding: '14px', 
+                          borderRadius: '14px', 
+                          textAlign: 'center', 
+                          fontSize: '15px', 
+                          fontWeight: 700, 
+                          boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                          border: 'none',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Submit Report
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div className={styles.modalActions}>
-              {wizardStep > 1 ? (
-                <button className={styles.cancelBtn} onClick={() => setWizardStep(wizardStep - 1)} style={{ marginRight: 'auto' }}>
-                  <ChevronLeft size={16} /> Back
-                </button>
-              ) : (
-                <div />
-              )}
-              <button className={styles.cancelBtn} onClick={() => { setIsCreateTemplateOpen(false); setWizardStep(1); }}>Cancel</button>
-              {wizardStep < 3 ? (
-                <button className={styles.createButton} onClick={() => setWizardStep(wizardStep + 1)} disabled={wizardStep === 1 && !newTemplate.name} style={{ opacity: wizardStep === 1 && !newTemplate.name ? 0.5 : 1 }}>Next <ChevronRight size={16} /></button>
-              ) : (
-                <button className={styles.createButton} onClick={handleCreateTemplate} disabled={newTemplate.fields.length === 0} style={{ opacity: newTemplate.fields.length === 0 ? 0.5 : 1 }}><CheckCircle2 size={18} /> Save Template</button>
-              )}
             </div>
           </div>
         </div>
@@ -928,16 +1309,91 @@ export default function ReportsPage() {
                       <input type="text" placeholder="e.g. Weekly Operations Summary" value={newReport.title} onChange={(e) => setNewReport({ ...newReport, title: e.target.value })} />
                     </div>
                   </div>
-                  {selectedTemplate?.fields.map((field: ReportTemplateField) => (
+                  {selectedTemplate?.schema?.map((field: ReportTemplateField) => (
                     <div key={field.id} className={styles.formGroup} style={{ marginTop: '16px' }}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>{field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}</label>
                       </div>
-                      {field.type === 'text' && <div className={styles.modalInputWrapper}><Type size={18} /><input type="text" value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required} /></div>}
-                      {field.type === 'number' && <div className={styles.modalInputWrapper}><Wrench size={18} /><input type="number" value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required} /></div>}
-                      {field.type === 'date' && <div className={styles.modalInputWrapper}><Calendar size={18} /><input type="date" value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required} /></div>}
-                      {field.type === 'dropdown' && <div className={styles.modalInputWrapper}><List size={18} /><select value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required}><option value="">Select</option>{field.options?.map((opt: string) => (<option key={opt} value={opt}>{opt}</option>))}</select></div>}
-                      {field.type === 'textarea' && <textarea placeholder={field.label} value={newReport.fieldValues[field.label] || ''} onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.label]: e.target.value } })} required={field.required} className={styles.modalTextarea} style={{ height: '100px', marginTop: '8px', width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', resize: 'none' }} />}
+                      {(field.type === 'text' || (field.type as any) === 'string') && (
+                        <div className={styles.modalInputWrapper}>
+                          <Type size={18} />
+                          <input 
+                            type="text" 
+                            value={newReport.fieldValues[field.name || field.label] || ''} 
+                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                            required={field.required} 
+                          />
+                        </div>
+                      )}
+                      {field.type === 'number' && (
+                        <div className={styles.modalInputWrapper}>
+                          <Wrench size={18} />
+                          <input 
+                            type="number" 
+                            value={newReport.fieldValues[field.name || field.label] || ''} 
+                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                            required={field.required} 
+                          />
+                        </div>
+                      )}
+                      {field.type === 'date' && (
+                        <div className={styles.modalInputWrapper}>
+                          <Calendar size={18} />
+                          <input 
+                            type="date" 
+                            value={newReport.fieldValues[field.name || field.label] || ''} 
+                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                            required={field.required} 
+                          />
+                        </div>
+                      )}
+                      {(field.type === 'dropdown' || field.type === 'select') && (
+                        <div className={styles.modalInputWrapper}>
+                          <List size={18} />
+                          <select 
+                            value={newReport.fieldValues[field.name || field.label] || ''} 
+                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                            required={field.required}
+                          >
+                            <option value="">Select</option>
+                            {field.options?.map((opt: string) => (<option key={opt} value={opt}>{opt}</option>))}
+                          </select>
+                        </div>
+                      )}
+                      {field.type === 'checkbox' && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '8px' }}>
+                          {field.options?.map((opt, i) => (
+                            <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#475569', cursor: 'pointer', padding: '8px 12px', background: '#f8fafc', borderRadius: '10px' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={(newReport.fieldValues[field.name || field.label] || []).includes(opt)}
+                                onChange={(e) => {
+                                  const current = newReport.fieldValues[field.name || field.label] || [];
+                                  const next = e.target.checked 
+                                    ? [...current, opt]
+                                    : current.filter((v: any) => v !== opt);
+                                  setNewReport({
+                                    ...newReport,
+                                    fieldValues: { ...newReport.fieldValues, [field.name || field.label]: next }
+                                  });
+                                }}
+                                style={{ accentColor: 'var(--brand-green)', width: '18px', height: '18px' }}
+                              />
+                              {opt}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {field.type === 'textarea' && (
+                        <textarea 
+                          placeholder={field.label} 
+                          value={newReport.fieldValues[field.name || field.label] || ''} 
+                          onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                          required={field.required} 
+                          className={styles.modalTextarea} 
+                          style={{ height: '100px', marginTop: '8px', width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', resize: 'none' }} 
+                        />
+                      )}
                     </div>
                   ))}
                 </>
