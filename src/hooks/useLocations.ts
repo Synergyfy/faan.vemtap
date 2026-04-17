@@ -6,8 +6,8 @@ export const useLocations = (params?: Record<string, unknown>, options?: { enabl
   return useQuery({
     queryKey: ['locations', params],
     queryFn: async () => {
-      const { data } = await api.get<PaginatedResponse<Location>>('/locations', { params });
-      return data;
+      const { data } = await api.get<ApiResponse<PaginatedResponse<Location>>>('/locations', { params });
+      return data.data;
     },
     ...options,
   });

@@ -22,6 +22,8 @@ import styles from "../../Dashboard.module.css";
 import RoleGuard from "@/components/auth/RoleGuard";
 import { UserRole } from "@/types/rbac";
 import { useRole } from "@/context/RoleContext";
+import { toast } from "sonner";
+import { AxiosError } from "axios";
 
 interface Terminal {
   id: string;
@@ -90,7 +92,8 @@ const INITIAL_LOCATIONS: LocationData[] = [
 ];
 
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
-import { Location, Department } from "@/types/api";
+import { useCreateUser } from "@/hooks/useUsers";
+import { Location, Department, Role } from "@/types/api";
 
 export default function LocationsPage() {
   const { currentRole, currentLocation, hasAccessToLocation } = useRole();
@@ -104,6 +107,7 @@ export default function LocationsPage() {
 
   const createMutation = useCreateLocation();
   const deleteMutation = useDeleteLocation();
+  const createUserMutation = useCreateUser();
 
   const locations = locationsData?.data || [];
 
@@ -119,6 +123,7 @@ export default function LocationsPage() {
     type: 'International',
     address: '',
     city: '',
+    state: '',
     airportCode: '',
     code: '',
   });
@@ -134,21 +139,88 @@ export default function LocationsPage() {
   };
 
   const handleAddAdmin = () => {
-    // Admin creation logic using useUsers would go here
-    setIsAdminModalOpen(false);
+    if (!newAdmin.name || !newAdmin.email || !newAdmin.password || !selectedLocation) {
+      toast.error("Please fill in all required fields and select a location");
+      return;
+    }
+
+    // Assign to first department of the location if available
+    const departmentId = selectedLocation.departments?.[0]?.id;
+    if (!departmentId) {
+      toast.error("This location has no departments. Please create a department first before adding an admin.");
+      return;
+    }
+
+    // Split name into first and last
+    const nameParts = newAdmin.name.trim().split(" ");
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(" ") || "Admin";
+
+    createUserMutation.mutate({
+      firstName,
+      lastName,
+      email: newAdmin.email,
+      password: newAdmin.password,
+      role: Role.LOCATION_ADMIN,
+      departmentId,
+    }, {
+      onSuccess: () => {
+        toast.success(`Admin assigned to ${selectedLocation.name} successfully`);
+        setIsAdminModalOpen(false);
+        setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
+      },
+      onError: (error: unknown) => {
+        const axiosError = error as AxiosError<{ message: string | string[] }>;
+        const message = axiosError.response?.data?.message || "Failed to create admin";
+        if (Array.isArray(message)) {
+          message.forEach(msg => toast.error(msg));
+        } else {
+          toast.error(message);
+        }
+      }
+    });
   };
 
   const handleCreateLocation = () => {
+    // Frontend Validation
+    if (!newLocation.name.trim()) return toast.error("Location name is required");
+    if (!newLocation.airportCode.trim()) return toast.error("Airport code is required");
+    if (newLocation.airportCode.length > 10) return toast.error("Airport code must be 10 characters or less");
+    
+    const locationCode = newLocation.code.trim() || newLocation.airportCode.trim();
+    if (!locationCode) return toast.error("Location code is required");
+    
+    // Validate code: uppercase alphanumeric with underscores
+    const codeRegex = /^[A-Z0-9_]+$/;
+    if (!codeRegex.test(locationCode)) {
+      return toast.error("Code must be uppercase alphanumeric with underscores (e.g., LOS_INTL)");
+    }
+
+    if (!newLocation.state.trim()) return toast.error("State is required");
+    if (newLocation.state.length > 100) return toast.error("State must be 100 characters or less");
+
     createMutation.mutate({
       name: newLocation.name,
       airportCode: newLocation.airportCode,
       city: newLocation.city,
+      state: newLocation.state,
       address: newLocation.address,
-      code: newLocation.code || newLocation.airportCode,
+      code: locationCode,
     }, {
       onSuccess: () => {
+        toast.success("Location created successfully");
         setIsCreateModalOpen(false);
-        setNewLocation({ name: '', type: 'International', address: '', city: '', airportCode: '', code: '' });
+        setNewLocation({ name: '', type: 'International', address: '', city: '', state: '', airportCode: '', code: '' });
+      },
+      onError: (error: any) => {
+        const axiosError = error as AxiosError<{ message: string | string[] }>;
+        const message = axiosError.response?.data?.message || "Failed to create location";
+        
+        if (Array.isArray(message)) {
+          message.forEach(msg => toast.error(msg));
+        } else {
+          toast.error(message);
+        }
       }
     });
   };
@@ -367,6 +439,21 @@ export default function LocationsPage() {
                       />
                     </div>
                   </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Location Code</label>
+                    <div className={styles.modalInputWrapper}>
+                      <Building2 size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. LAGOS_INTL"
+                        value={newLocation.code}
+                        onChange={(e) => setNewLocation({...newLocation, code: e.target.value.toUpperCase()})}
+                      />
+                    </div>
+                    <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                      Uppercase alphanumeric with underscores. Defaults to Airport Code if empty.
+                    </p>
+                  </div>
 
                   <div className={styles.formGroup}>
                     <label className={styles.formLabel}>Airport Code</label>
@@ -376,7 +463,7 @@ export default function LocationsPage() {
                         type="text" 
                         placeholder="e.g. ABV"
                         value={newLocation.airportCode}
-                        onChange={(e) => setNewLocation({...newLocation, airportCode: e.target.value})}
+                        onChange={(e) => setNewLocation({...newLocation, airportCode: e.target.value.toUpperCase()})}
                         required
                       />
                     </div>
@@ -388,9 +475,23 @@ export default function LocationsPage() {
                       <Building2 size={18} />
                       <input 
                         type="text" 
-                        placeholder="e.g. Abuja"
+                        placeholder="e.g. Ikeja"
                         value={newLocation.city}
                         onChange={(e) => setNewLocation({...newLocation, city: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>State</label>
+                    <div className={styles.modalInputWrapper}>
+                      <MapPin size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Lagos"
+                        value={newLocation.state}
+                        onChange={(e) => setNewLocation({...newLocation, state: e.target.value})}
                         required
                       />
                     </div>
@@ -402,7 +503,7 @@ export default function LocationsPage() {
                       <MapPin size={18} />
                       <input 
                         type="text" 
-                        placeholder="e.g. Abuja, Nigeria"
+                        placeholder="e.g. Murtala Muhammed International Airport"
                         value={newLocation.address}
                         onChange={(e) => setNewLocation({...newLocation, address: e.target.value})}
                         required
@@ -412,9 +513,24 @@ export default function LocationsPage() {
                 </div>
               </div>
               <div className={styles.modalActions}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setIsCreateModalOpen(false)}>Cancel</button>
-                <button type="submit" className={styles.createButton}>Save Location</button>
+                <button 
+                  type="button" 
+                  className={styles.cancelBtn} 
+                  onClick={() => setIsCreateModalOpen(false)}
+                  disabled={createMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className={styles.createButton}
+                  disabled={createMutation.isPending}
+                  style={{ opacity: createMutation.isPending ? 0.7 : 1, cursor: createMutation.isPending ? 'not-allowed' : 'pointer' }}
+                >
+                  {createMutation.isPending ? 'Saving...' : 'Save Location'}
+                </button>
               </div>
+
             </form>
           </div>
         </div>
@@ -488,8 +604,15 @@ export default function LocationsPage() {
                 </div>
               </div>
               <div className={styles.modalActions}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setIsAdminModalOpen(false)}>Cancel</button>
-                <button type="submit" className={styles.createButton}>Save Admin</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => setIsAdminModalOpen(false)} disabled={createUserMutation.isPending}>Cancel</button>
+                <button 
+                  type="submit" 
+                  className={styles.createButton}
+                  disabled={createUserMutation.isPending}
+                  style={{ opacity: createUserMutation.isPending ? 0.7 : 1, cursor: createUserMutation.isPending ? 'not-allowed' : 'pointer' }}
+                >
+                  {createUserMutation.isPending ? 'Saving...' : 'Save Admin'}
+                </button>
               </div>
             </form>
           </div>
