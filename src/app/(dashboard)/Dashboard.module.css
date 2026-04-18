@@ -1300,6 +1300,119 @@
   padding-bottom: 20px;
 }
 
+/* Issue List View Styles */
+.viewToggleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.viewToggleBtn:hover {
+  background: #f8fafc;
+  color: var(--brand-green);
+  border-color: var(--brand-green);
+}
+
+.activeView {
+  background: var(--brand-green) !important;
+  color: white !important;
+  border-color: var(--brand-green) !important;
+  box-shadow: 0 4px 10px rgba(21, 115, 71, 0.2);
+}
+
+.listViewContainer {
+  background: white;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  margin-top: 8px;
+}
+
+.issueTable {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.issueTable th {
+  padding: 16px 20px;
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.issueTable td {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14px;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.issueTableRow {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.issueTableRow:hover {
+  background: #f8fafc;
+}
+
+.issueCodeCell {
+  font-family: inherit;
+  font-weight: 700;
+  color: #64748b;
+  font-size: 12px;
+  background: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.issuePriorityBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.issueStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.issueActionBtn {
+  padding: 8px;
+  border-radius: 8px;
+  color: #94a3b8;
+  transition: all 0.2s;
+}
+
+.issueTableRow:hover .issueActionBtn {
+  color: var(--brand-green);
+  background: #f0fdf4;
+}
+
 /* Builder Area Styles */
 .builderArea {
   display: flex;

@@ -315,8 +315,8 @@ export interface SubmissionListItem {
 // --- Module: Reports & Issues ---
 
 export interface InternalReport {
-  id: string; // Report/Issue code
-  uuid: string;
+  id: string; // UUID from backend
+  code: string; // Human-readable code (e.g. ISS-7649)
   title: string;
   content: string;
   description?: string;
@@ -336,6 +336,7 @@ export interface InternalReport {
   department: string | null | { id: string; name: string; code: string; };
   author: string | { id: string; firstName: string; lastName: string; email: string; };
   assignee: string | null | { id: string; firstName: string; lastName: string; email: string; };
+  assignedTo?: string | null;
   createdAt: string;
   internalNotes?: Array<{
     author: string;
@@ -350,6 +351,15 @@ export interface InternalReport {
     createdAt: string;
     isSystem: boolean;
   }>;
+}
+
+export interface CreateIssueDto {
+  title: string;
+  content: string;
+  locationIds?: string[];
+  departmentIds?: string[];
+  priority?: Priority;
+  reportType?: ReportType;
 }
 
 export interface ReportTemplate {
@@ -374,6 +384,14 @@ export interface ReportTemplateField {
   name: string;
   required: boolean;
   options?: string[];
+}
+
+export interface CreateReportTemplateDto {
+  name: string;
+  description?: string;
+  locationIds?: string[];
+  departmentIds?: string[];
+  schema: ReportTemplateField[];
 }
 
 // --- Module: Analytics ---

@@ -43,7 +43,8 @@ import {
   Location as ApiLocation, 
   Department, 
   ReportTemplate, 
-  ReportTemplateField 
+  ReportTemplateField,
+  CreateReportTemplateDto
 } from "@/types/api";
 
 const FIELD_TYPES = [
@@ -121,6 +122,7 @@ export default function ReportsPage() {
 
   const [newTemplate, setNewTemplate] = useState({
     name: '',
+    description: '',
     locationIds: (currentLocation ? [currentLocation] : []) as string[],
     departmentIds: [] as string[],
     fields: [] as ReportTemplateField[],
@@ -148,6 +150,7 @@ export default function ReportsPage() {
     templateId: '',
     templateName: '',
     title: '',
+    date: new Date().toISOString().split('T')[0],
     fieldValues: {} as Record<string, any>,
   });
 
@@ -193,48 +196,32 @@ export default function ReportsPage() {
   const handleCreateTemplate = () => {
     // Validation
     if (!newTemplate.name.trim()) return toast.error("Template name is required");
-    if (newTemplate.locationIds.length === 0) return toast.error("Please select at least one location");
-    if (newTemplate.departmentIds.length === 0) return toast.error("Please select at least one department");
+    if (newTemplate.locationIds.length === 0 && newTemplate.departmentIds.length === 0) {
+      return toast.error("Please select at least one Location or Department target");
+    }
     if (newTemplate.fields.length === 0) return toast.error("Please add at least one field to the template");
 
-    const creations: any[] = [];
-    newTemplate.locationIds.forEach(locId => {
-      newTemplate.departmentIds.forEach(deptId => {
-        // Find if department belongs to this location
-        const loc = locations.find(l => (l as any).id === locId);
-        const depts = (loc as any)?.departments || [];
-        const deptIdx = departmentsData?.data?.findIndex((d: Department) => d.id === deptId && (d.locationId === locId || d.location?.id === locId));
-        
-        // If department belongs to location or it's a super-admin bypass
-        if (deptIdx !== -1 || currentRole === 'SUPER_ADMIN') {
-          creations.push({
-            name: newTemplate.name,
-            description: `Template for ${newTemplate.name}`,
-            locationId: locId,
-            departmentId: deptId,
-            schema: newTemplate.fields.map((f, idx) => ({
-              id: `field_${idx + 1}`,
-              type: f.type === 'dropdown' ? 'select' : f.type,
-              label: f.label,
-              name: f.label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
-              required: f.required || false,
-              options: f.options?.map(o => o.trim()).filter(Boolean)
-            })),
-          });
-        }
-      });
-    });
+    const payload: CreateReportTemplateDto = {
+      name: newTemplate.name,
+      description: newTemplate.description || `Template for ${newTemplate.name}`,
+      locationIds: newTemplate.locationIds,
+      departmentIds: newTemplate.departmentIds,
+      schema: newTemplate.fields.map((f, idx) => ({
+        id: `field_${idx + 1}`,
+        type: f.type === 'dropdown' ? 'select' : f.type,
+        label: f.label,
+        name: f.label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
+        required: f.required || false,
+        options: f.options?.map(o => o.trim()).filter(Boolean)
+      })),
+    };
 
-    if (creations.length === 0) {
-      return toast.error("No valid Location-Department combinations found.");
-    }
-
-    Promise.all(creations.map(payload => createTemplateMutation.mutateAsync(payload)))
+    createTemplateMutation.mutateAsync(payload)
       .then(() => {
-        toast.success(`${creations.length} template(s) created successfully`);
+        toast.success(`Template(s) created successfully`);
         setIsCreateTemplateOpen(false);
         setWizardStep(1);
-        setNewTemplate({ name: '', locationIds: currentLocation ? [currentLocation] : [], departmentIds: [], fields: [] });
+        setNewTemplate({ name: '', description: '', locationIds: currentLocation ? [currentLocation] : [], departmentIds: [], fields: [] });
       })
       .catch((error) => {
         const axiosError = error as AxiosError<{ message: string | string[] }>;
@@ -244,20 +231,29 @@ export default function ReportsPage() {
   };
 
   const handleSubmitReport = () => {
+    if (!newReport || !newReport.templateId) return;
+    
     createReportMutation.mutate({
       templateId: newReport.templateId,
       title: newReport.title,
+      date: newReport.date,
       fieldValues: newReport.fieldValues,
     }, {
       onSuccess: () => {
         setIsSubmitReportOpen(false);
-        setNewReport({ templateId: '', templateName: '', title: '', fieldValues: {} });
+        setNewReport({ 
+          templateId: '', 
+          templateName: '', 
+          title: '', 
+          date: new Date().toISOString().split('T')[0],
+          fieldValues: {} 
+        });
       }
     });
   };
 
   const handleDeleteReport = (id: string) => {
-    if (selectedReport?.id === id || selectedReport?.uuid === id) setSelectedReport(null);
+    if (selectedReport?.id === id) setSelectedReport(null);
   };
 
   const handleDeleteTemplate = (id: string) => {
@@ -479,7 +475,7 @@ export default function ReportsPage() {
         ) : (
           <div className={styles.deptGrid}>
             {filteredReports.map((report) => {
-              const accent = REPORT_ACCENTS[hashToIndex(String(report.id || report.uuid), REPORT_ACCENTS.length)];
+              const accent = REPORT_ACCENTS[hashToIndex(String(report.id), REPORT_ACCENTS.length)];
               const accentStyle = {
                 "--accent-bg": accent.bg,
                 "--accent-fg": accent.fg,
@@ -491,7 +487,7 @@ export default function ReportsPage() {
 
               return (
                 <div 
-                  key={report.uuid || report.id} 
+                  key={report.id} 
                   className={styles.deptCard}
                   onClick={() => setSelectedReport(report)}
                   style={{ cursor: 'pointer' }}
@@ -708,6 +704,7 @@ export default function ReportsPage() {
                             templateId: inst.uuid || inst.id,
                             templateName: inst.name,
                             title: '',
+                            date: new Date().toISOString().split('T')[0],
                             fieldValues: {},
                           });
                           setIsSubmitReportOpen(true);
@@ -778,6 +775,7 @@ export default function ReportsPage() {
                             templateId: primaryInstance.uuid || primaryInstance.id,
                             templateName: primaryInstance.name,
                             title: '',
+                            date: new Date().toISOString().split('T')[0],
                             fieldValues: {},
                           });
                           setIsSubmitReportOpen(true);
@@ -855,6 +853,18 @@ export default function ReportsPage() {
                           onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })} 
                         />
                       </div>
+                    </div>
+                    <div className={styles.formGroup} style={{ marginTop: '24px' }}>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Description</label>
+                        <span className={styles.fieldDesc}>Optional notes about this template</span>
+                      </div>
+                      <textarea 
+                        placeholder="e.g. This report tracks hourly restroom cleaning status..." 
+                        value={newTemplate.description} 
+                        onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })} 
+                        style={{ width: '100%', height: '100px', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', resize: 'none' }}
+                      />
                     </div>
                   </div>
                 )}
@@ -1299,16 +1309,32 @@ export default function ReportsPage() {
               </div>
               {newReport.templateId && (
                 <>
-                  <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
-                    <div className={styles.labelGroup}>
-                      <label className={styles.formLabel}>Report Title *</label>
-                      <span className={styles.fieldDesc}>Brief title for this submission</span>
+                    <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Report Title *</label>
+                        <span className={styles.fieldDesc}>Brief title for this submission</span>
+                      </div>
+                      <div className={styles.modalInputWrapper}>
+                        <FileText size={18} />
+                        <input type="text" placeholder="e.g. Weekly Operations Summary" value={newReport.title} onChange={(e) => setNewReport({ ...newReport, title: e.target.value })} />
+                      </div>
                     </div>
-                    <div className={styles.modalInputWrapper}>
-                      <FileText size={18} />
-                      <input type="text" placeholder="e.g. Weekly Operations Summary" value={newReport.title} onChange={(e) => setNewReport({ ...newReport, title: e.target.value })} />
+
+                    <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Report Date *</label>
+                        <span className={styles.fieldDesc}>Select the date for this report</span>
+                      </div>
+                      <div className={styles.modalInputWrapper}>
+                        <Calendar size={18} />
+                        <input 
+                          type="date" 
+                          value={newReport.date} 
+                          onChange={(e) => setNewReport({ ...newReport, date: e.target.value })} 
+                          required
+                        />
+                      </div>
                     </div>
-                  </div>
                   {selectedTemplate?.schema?.map((field: ReportTemplateField) => (
                     <div key={field.id} className={styles.formGroup} style={{ marginTop: '16px' }}>
                       <div className={styles.labelGroup}>
