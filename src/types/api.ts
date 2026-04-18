@@ -263,6 +263,8 @@ export interface Touchpoint {
   type: TouchpointType;
   slug: string;
   formConfig: FormField[];
+  templateIds: string[];
+  templates?: ReportTemplate[];
   isActive: boolean;
   interactions: number;
   createdAt: string;
@@ -315,8 +317,8 @@ export interface SubmissionListItem {
 // --- Module: Reports & Issues ---
 
 export interface InternalReport {
-  id: string; // Report/Issue code
-  uuid: string;
+  id: string; // UUID from backend
+  code: string; // Human-readable code (e.g. ISS-7649)
   title: string;
   content: string;
   description?: string;
@@ -336,6 +338,7 @@ export interface InternalReport {
   department: string | null | { id: string; name: string; code: string; };
   author: string | { id: string; firstName: string; lastName: string; email: string; };
   assignee: string | null | { id: string; firstName: string; lastName: string; email: string; };
+  assignedTo?: string | null;
   createdAt: string;
   internalNotes?: Array<{
     author: string;
@@ -350,6 +353,15 @@ export interface InternalReport {
     createdAt: string;
     isSystem: boolean;
   }>;
+}
+
+export interface CreateIssueDto {
+  title: string;
+  content: string;
+  locationIds?: string[];
+  departmentIds?: string[];
+  priority?: Priority;
+  reportType?: ReportType;
 }
 
 export interface ReportTemplate {
@@ -376,10 +388,19 @@ export interface ReportTemplateField {
   options?: string[];
 }
 
+export interface CreateReportTemplateDto {
+  name: string;
+  description?: string;
+  locationIds?: string[];
+  departmentIds?: string[];
+  schema: ReportTemplateField[];
+}
+
 // --- Module: Analytics ---
 
 export interface AnalyticsSummary {
   totalSubmissions: number;
+  totalSubmissionsGrowth: number;
   openSubmissions: number;
   resolvedSubmissions: number;
   archivedSubmissions: number;
@@ -387,11 +408,16 @@ export interface AnalyticsSummary {
   complaints: number;
   feedbacks: number;
   totalIssues: number;
+  totalIssuesGrowth: number;
   pendingIssues: number;
   inProgressIssues: number;
   resolvedIssues: number;
+  resolvedIssuesGrowth: number;
   closedIssues: number;
   averageRating: number | null;
+  averageRatingGrowth: number;
+  avgResponseTime: number | null;
+  resolutionRate: number | null;
 }
 
 export interface TrendPoint {
@@ -414,6 +440,22 @@ export interface AnalyticsDistribution {
   byType: DistributionItem[];
   byStatus: DistributionItem[];
   byPriority: DistributionItem[];
+  byCategory: DistributionItem[];
+}
+
+export interface Activity {
+  id: string;
+  type: 'SUBMISSION' | 'REPORT' | 'NOTE';
+  title: string;
+  content: string;
+  timestamp: string;
+  code?: string;
+  status?: string;
+  author?: string;
+}
+
+export interface ActivityResponse {
+  data: Activity[];
 }
 
 export interface LocationPerformance {

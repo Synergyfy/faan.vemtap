@@ -179,8 +179,10 @@ export default function AnalyticsPage() {
                     </div>
                     <span style={{ color: '#64748b', fontSize: '14px' }}>Issues Handled</span>
                  </div>
-                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>156</span>
-                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>+12 this week</span>
+                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>
+                   {summary?.totalIssues.toLocaleString() || '0'}
+                 </span>
+                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>In current period</span>
               </div>
               <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
@@ -189,8 +191,10 @@ export default function AnalyticsPage() {
                     </div>
                     <span style={{ color: '#64748b', fontSize: '14px' }}>Avg Response Time</span>
                  </div>
-                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>45m</span>
-                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>-15% faster</span>
+                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>
+                    {summary?.avgResponseTime ? `${summary.avgResponseTime}m` : '0m'}
+                 </span>
+                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>Real-time avg</span>
               </div>
               <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
@@ -199,8 +203,10 @@ export default function AnalyticsPage() {
                     </div>
                     <span style={{ color: '#64748b', fontSize: '14px' }}>Resolution Rate</span>
                  </div>
-                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>94%</span>
-                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>+5% improvement</span>
+                 <span style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>
+                    {summary?.resolutionRate || '0'}%
+                 </span>
+                 <span style={{ display: 'block', color: '#22c55e', fontSize: '13px', marginTop: '4px' }}>Operational efficiency</span>
               </div>
            </div>
          </div>
@@ -286,7 +292,7 @@ export default function AnalyticsPage() {
                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 12}} width={100} />
                    <Tooltip content={<CustomTooltip />} cursor={{fill: '#f8fafc'}} />
                    <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24}>
-{locationData?.map((entry: ChartDataPoint, index: number) => (
+                     {locationData?.map((entry: ChartDataPoint, index: number) => (
                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                    </Bar>
