@@ -1279,7 +1279,7 @@ export default function ReportsPage() {
             <div className={styles.modalBody}>
               <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
                 <div className={styles.labelGroup}>
-                  <label className={styles.formLabel}>Select Template *</label>
+                  <label className={styles.formLabel}>Select Report *</label>
                   <span className={styles.fieldDesc}>Choose a report form</span>
                 </div>
                 <div className={styles.modalInputWrapper}>
@@ -1292,7 +1292,7 @@ export default function ReportsPage() {
                       templateName: t?.name || '',
                     }); 
                   }}>
-                    <option value="">Select a template</option>
+                    <option value="">Select a Report</option>
                     {templates.map(t => (<option key={t.uuid || t.id} value={t.uuid || t.id}>{t.name}</option>))}
                   </select>
                 </div>
