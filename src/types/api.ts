@@ -263,6 +263,8 @@ export interface Touchpoint {
   type: TouchpointType;
   slug: string;
   formConfig: FormField[];
+  templateIds: string[];
+  templates?: ReportTemplate[];
   isActive: boolean;
   interactions: number;
   createdAt: string;
@@ -398,6 +400,7 @@ export interface CreateReportTemplateDto {
 
 export interface AnalyticsSummary {
   totalSubmissions: number;
+  totalSubmissionsGrowth: number;
   openSubmissions: number;
   resolvedSubmissions: number;
   archivedSubmissions: number;
@@ -405,11 +408,16 @@ export interface AnalyticsSummary {
   complaints: number;
   feedbacks: number;
   totalIssues: number;
+  totalIssuesGrowth: number;
   pendingIssues: number;
   inProgressIssues: number;
   resolvedIssues: number;
+  resolvedIssuesGrowth: number;
   closedIssues: number;
   averageRating: number | null;
+  averageRatingGrowth: number;
+  avgResponseTime: number | null;
+  resolutionRate: number | null;
 }
 
 export interface TrendPoint {
@@ -432,6 +440,22 @@ export interface AnalyticsDistribution {
   byType: DistributionItem[];
   byStatus: DistributionItem[];
   byPriority: DistributionItem[];
+  byCategory: DistributionItem[];
+}
+
+export interface Activity {
+  id: string;
+  type: 'SUBMISSION' | 'REPORT' | 'NOTE';
+  title: string;
+  content: string;
+  timestamp: string;
+  code?: string;
+  status?: string;
+  author?: string;
+}
+
+export interface ActivityResponse {
+  data: Activity[];
 }
 
 export interface LocationPerformance {

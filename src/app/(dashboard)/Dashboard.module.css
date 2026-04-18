@@ -412,6 +412,18 @@
   flex-shrink: 0;
 }
 
+.activityBullet.submission {
+  background-color: var(--brand-green);
+}
+
+.activityBullet.report {
+  background-color: #ef4444;
+}
+
+.activityBullet.note {
+  background-color: #3b82f6;
+}
+
 .activityContent {
   flex: 1;
 }
@@ -425,6 +437,28 @@
 .activityTime {
   font-size: 12px;
   color: #94a3b8;
+}
+
+.activityCode {
+  font-family: monospace;
+  font-weight: 600;
+  color: #64748b;
+  background-color: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.emptyList, .emptyChart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+  color: #94a3b8;
+  font-size: 14px;
+  font-style: italic;
+  width: 100%;
 }
 
 .statusBadge {
