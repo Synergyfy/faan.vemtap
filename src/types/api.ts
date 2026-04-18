@@ -104,6 +104,7 @@ export interface UserProfile {
   role: Role;
   isActive: boolean;
   departmentId: string | null;
+  locationId: string | null;
   department?: {
     id: string;
     name: string;
@@ -360,7 +361,7 @@ export interface ReportTemplate {
   locationName?: string;
   departmentId: string;
   departmentName?: string;
-  fields: ReportTemplateField[];
+  schema: ReportTemplateField[];
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -368,8 +369,9 @@ export interface ReportTemplate {
 
 export interface ReportTemplateField {
   id: string;
-  type: 'text' | 'number' | 'date' | 'dropdown' | 'textarea';
+  type: 'text' | 'number' | 'date' | 'dropdown' | 'textarea' | 'select' | 'checkbox';
   label: string;
+  name: string;
   required: boolean;
   options?: string[];
 }

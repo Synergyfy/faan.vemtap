@@ -120,6 +120,32 @@
   transition: all 0.2s ease;
 }
 
+.inputPassword {
+  padding-right: 48px !important;
+}
+
+.eyeButton {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  border-radius: 8px;
+}
+
+.eyeButton:hover {
+  color: var(--brand-green);
+  background: var(--brand-green-light);
+}
+
 .input:focus {
   border-color: var(--brand-green);
   box-shadow: 0 0 0 4px var(--brand-green-light);

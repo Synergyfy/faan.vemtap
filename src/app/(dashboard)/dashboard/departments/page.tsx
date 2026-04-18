@@ -19,7 +19,11 @@ import {
   Trash2,
   MapPin,
   Building2,
-  Layers3
+  Layers3,
+  ChevronRight,
+  ChevronLeft,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { Department } from "@/types/api";
 
@@ -55,6 +59,7 @@ import {
 import { useLocations } from "@/hooks/useLocations";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+import { MultiSelect } from "@/components/displays/MultiSelect";
 
 const DEPT_ACCENTS = [
   { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
@@ -81,11 +86,13 @@ export default function DepartmentsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [editingDept, setEditingDept] = useState<Department | null>(null);
+  const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [newDept, setNewDept] = useState({
     name: '',
     code: '',
-    locationId: '',
+    locationIds: [] as string[],
     responsibility: '',
     locationName: '',
   });
@@ -133,7 +140,7 @@ export default function DepartmentsPage() {
     const payload = {
       name: newDept.name,
       code: code,
-      locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : newDept.locationId,
+      locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || "") : (newDept.locationIds[0] || ""),
       responsibility: newDept.responsibility,
     };
 
@@ -143,7 +150,7 @@ export default function DepartmentsPage() {
           toast.success("Department updated successfully");
           setIsAddModalOpen(false);
           setEditingDept(null);
-          setNewDept({ name: '', code: '', locationId: '', responsibility: '', locationName: '' });
+          setNewDept({ name: '', code: '', locationIds: [], responsibility: '', locationName: '' });
         },
         onError: (error: any) => {
           const axiosError = error as AxiosError<{ message: string | string[] }>;
@@ -156,21 +163,24 @@ export default function DepartmentsPage() {
         }
       });
     } else {
-      createMutation.mutate(payload, {
-        onSuccess: () => {
-          toast.success("Department created successfully");
-          setIsAddModalOpen(false);
-          setNewDept({ name: '', code: '', locationId: '', responsibility: '', locationName: '' });
-        },
-        onError: (error: any) => {
-          const axiosError = error as AxiosError<{ message: string | string[] }>;
-          const message = axiosError.response?.data?.message || "Failed to create department";
-          if (Array.isArray(message)) {
-            message.forEach(msg => toast.error(msg));
-          } else {
-            toast.error(message);
-          }
-        }
+      const locationIdsToCreate = currentRole === 'LOCATION_ADMIN' ? [(currentLocation || "")] : newDept.locationIds;
+      
+      if (locationIdsToCreate.length === 0) return toast.error("Please select at least one location");
+
+      // Promise all for multiple locations
+      Promise.all(locationIdsToCreate.map(locId => 
+        createMutation.mutateAsync({
+          ...payload,
+          locationId: locId,
+        })
+      )).then(() => {
+        toast.success(`Department(s) created successfully for ${locationIdsToCreate.length} location(s)`);
+        setIsAddModalOpen(false);
+        setNewDept({ name: '', code: '', locationIds: [], responsibility: '', locationName: '' });
+      }).catch((error: any) => {
+        const axiosError = error as AxiosError<{ message: string | string[] }>;
+        const message = axiosError.response?.data?.message || "Failed to create department";
+        toast.error(Array.isArray(message) ? message[0] : message);
       });
     }
   };
@@ -182,7 +192,26 @@ export default function DepartmentsPage() {
 
   const departments = deptsData?.data || [];
   const locations = locationsData?.data || [];
-  const filteredDepartments = departments.filter((d) =>
+  
+  // Grouping Logic
+  const groupedDepartments = departments.reduce((acc: Record<string, any>, dept) => {
+    const key = dept.code;
+    if (!acc[key]) {
+      acc[key] = {
+        ...dept,
+        instances: [dept],
+        totalStaff: (dept as any).staffCount || 0,
+        totalQRs: (dept as any).touchpointCount || 0
+      };
+    } else {
+      acc[key].instances.push(dept);
+      acc[key].totalStaff += (dept as any).staffCount || 0;
+      acc[key].totalQRs += (dept as any).touchpointCount || 0;
+    }
+    return acc;
+  }, {});
+
+  const filteredGroupedDepts = Object.values(groupedDepartments).filter((d: any) =>
     d.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -313,7 +342,7 @@ export default function DepartmentsPage() {
             onClick={() => {
               if (currentRole === "LOCATION_ADMIN" && currentLocation) {
                 const location = locations.find((l) => l.id === currentLocation);
-                setNewDept({ ...newDept, locationId: currentLocation, locationName: location?.name || "" });
+                setNewDept({ ...newDept, locationIds: [currentLocation], locationName: location?.name || "" });
               }
               setIsAddModalOpen(true);
             }}
@@ -372,7 +401,7 @@ export default function DepartmentsPage() {
               <span>Loading…</span>
             ) : (
               <span>
-                Showing <strong>{filteredDepartments.length}</strong> of <strong>{departments.length}</strong>
+                Showing <strong>{filteredGroupedDepts.length}</strong> groups of <strong>{departments.length}</strong> departments
               </span>
             )}
           </div>
@@ -400,7 +429,7 @@ export default function DepartmentsPage() {
             </div>
           ))}
         </div>
-      ) : filteredDepartments.length === 0 ? (
+      ) : filteredGroupedDepts.length === 0 ? (
         <div className={styles.deptEmptyState} role="status">
           <div className={styles.deptEmptyIcon} aria-hidden="true">
             <Shield size={22} />
@@ -424,7 +453,7 @@ export default function DepartmentsPage() {
                 onClick={() => {
                   if (currentRole === "LOCATION_ADMIN" && currentLocation) {
                     const location = locations.find((l) => l.id === currentLocation);
-                    setNewDept({ ...newDept, locationId: currentLocation, locationName: location?.name || "" });
+                    setNewDept({ ...newDept, locationIds: [currentLocation], locationName: location?.name || "" });
                   }
                   setIsAddModalOpen(true);
                 }}
@@ -435,24 +464,123 @@ export default function DepartmentsPage() {
             )}
           </div>
         </div>
+      ) : drilldownGroup ? (
+        <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+          <div className={styles.drilldownHeader}>
+            <button className={styles.backButton} onClick={() => setDrilldownGroup(null)}>
+              <ChevronLeft size={20} />
+            </button>
+            <div className={styles.drilldownInfo}>
+              <span className={styles.drilldownTitle}>Grouping View</span>
+              <span className={styles.drilldownName}>{drilldownGroup.name} ({drilldownGroup.instances.length} Instances)</span>
+            </div>
+          </div>
+
+          <div className={styles.deptGrid}>
+            {drilldownGroup.instances.map((inst: any) => {
+              const accent = DEPT_ACCENTS[hashToIndex(String(inst.id ?? inst.name), DEPT_ACCENTS.length)];
+              const accentStyle = {
+                "--accent-bg": accent.bg,
+                "--accent-fg": accent.fg,
+                "--accent-ring": accent.ring,
+              } as CSSProperties;
+
+              return (
+                <div key={inst.id} className={styles.deptCard}>
+                  <div className={styles.deptCardHeader}>
+                    <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
+                      <Shield size={24} />
+                    </div>
+                    <div className={styles.cardMenuWrapper}>
+                      <button
+                        className={styles.cardMore}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveDropdown(activeDropdown === inst.id ? null : inst.id);
+                        }}
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                      {activeDropdown === inst.id && (
+                        <div className={styles.cardDropdown}>
+                          <button
+                            className={styles.dropdownItem}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingDept(inst);
+                              setNewDept({
+                                name: inst.name,
+                                code: inst.code,
+                                locationIds: [inst.locationId],
+                                responsibility: inst.responsibility || "",
+                                locationName: inst.location?.name || "",
+                              });
+                              setIsAddModalOpen(true);
+                              setActiveDropdown(null);
+                            }}
+                          >
+                            <Edit size={14} /> Edit
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.deptCardInfo}>
+                    <h3 className={styles.deptCardTitle}>{inst.name}</h3>
+                    <p className={styles.deptCardDesc}>{inst.responsibility || "No responsibility defined."}</p>
+                    <div className={styles.deptLocationRow}>
+                      <MapPin size={12} />
+                      <span>{inst.location?.name || roleLocationName || "—"}</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.deptCardMetrics}>
+                    <div className={styles.deptMetric}>
+                      <Users size={14} />
+                      <span>{inst.personnel?.length || 0} Staff</span>
+                    </div>
+                    <div className={styles.deptMetric}>
+                      <MousePointer2 size={14} />
+                      <span>{inst.touchpoints?.length || 0} QRs</span>
+                    </div>
+                  </div>
+
+                  <button 
+                    className={styles.deptManageBtn}
+                    onClick={() => setSelectedDept(inst)}
+                  >
+                    Manage Resources
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       ) : (
         <div className={styles.deptGrid}>
-          {filteredDepartments.map((dept) => {
-            const Icon = Shield; // Default icon for departments
-            const accent = DEPT_ACCENTS[hashToIndex(String((dept as any).id ?? dept.name), DEPT_ACCENTS.length)];
+          {filteredGroupedDepts.map((groupedDept: any) => {
+            const Icon = Shield;
+            const accent = DEPT_ACCENTS[hashToIndex(String(groupedDept.id ?? groupedDept.name), DEPT_ACCENTS.length)];
             const accentStyle = {
               "--accent-bg": accent.bg,
               "--accent-fg": accent.fg,
               "--accent-ring": accent.ring,
             } as CSSProperties;
 
-            const deptLocationName =
-              typeof (dept as any).location === "string"
-                ? (dept as any).location
-                : (dept as any).location?.name || roleLocationName || "—";
+            const primaryInstance = groupedDept.instances[0];
+            const primaryLocationName = 
+              typeof primaryInstance.location === 'string' 
+                ? primaryInstance.location 
+                : primaryInstance.location?.name || roleLocationName || "—";
+            
+            const locationLabel = groupedDept.instances.length > 1 
+              ? `${primaryLocationName} +${groupedDept.instances.length - 1}`
+              : primaryLocationName;
 
             return (
-              <div key={dept.id} className={styles.deptCard}>
+              <div key={groupedDept.code} className={styles.deptCard}>
                 <div className={styles.deptCardHeader}>
                   <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
                     <Icon size={24} />
@@ -460,44 +588,33 @@ export default function DepartmentsPage() {
                   <div className={styles.cardMenuWrapper}>
                     <button
                       className={styles.cardMore}
-                      aria-label={`Department actions for ${dept.name}`}
+                      aria-label={`Department actions for ${groupedDept.name}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActiveDropdown(activeDropdown === dept.id ? null : dept.id);
+                        setActiveDropdown(activeDropdown === groupedDept.code ? null : groupedDept.code);
                       }}
                     >
                       <MoreVertical size={18} />
                     </button>
-                    {activeDropdown === dept.id && (
+                    {activeDropdown === groupedDept.code && (
                       <div className={styles.cardDropdown}>
                         <button
                           className={styles.dropdownItem}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setEditingDept(dept);
+                            setEditingDept(primaryInstance);
                             setNewDept({
-                              name: dept.name,
-                              code: dept.code,
-                              locationId: (dept as any).locationId,
-                              responsibility: dept.responsibility || "",
+                              name: groupedDept.name,
+                              code: groupedDept.code,
+                              locationIds: groupedDept.instances.map((i: any) => i.locationId),
+                              responsibility: groupedDept.responsibility || "",
                               locationName: "",
                             });
                             setIsAddModalOpen(true);
                             setActiveDropdown(null);
                           }}
                         >
-                          <Edit size={14} /> Edit Dept
-                        </button>
-
-                        <div className={styles.dropdownSeparator} />
-                        <button
-                          className={`${styles.dropdownItem} ${styles.danger}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleArchiveDept(dept.id);
-                          }}
-                        >
-                          <Trash2 size={14} /> Archive
+                          <Edit size={14} /> Edit Group
                         </button>
                       </div>
                     )}
@@ -505,29 +622,41 @@ export default function DepartmentsPage() {
                 </div>
 
                 <div className={styles.deptCardInfo}>
-                  <h3 className={styles.deptCardTitle}>{dept.name}</h3>
-                  <p className={styles.deptCardDesc}>{dept.responsibility || "No responsibility defined."}</p>
+                  <h3 className={styles.deptCardTitle}>{groupedDept.name}</h3>
+                  <p className={styles.deptCardDesc}>{groupedDept.responsibility || "No responsibility defined."}</p>
                   <div className={styles.deptLocationRow}>
                     <MapPin size={12} />
-                    <span>{deptLocationName}</span>
+                    <span>{locationLabel}</span>
                   </div>
                 </div>
 
                 <div className={styles.deptCardMetrics}>
                   <div className={styles.deptMetric}>
                     <Users size={14} />
-                    <span>{(dept as any).staffCount} Staff</span>
+                    <span>{groupedDept.totalStaff} Staff</span>
                   </div>
                   <div className={styles.deptMetric}>
                     <MousePointer2 size={14} />
-                    <span>{(dept as any).touchpointCount} QRs</span>
+                    <span>{groupedDept.totalQRs} QRs</span>
                   </div>
                 </div>
 
-                <button className={styles.deptManageBtn} onClick={() => setSelectedDept(dept)}>
-                  Manage Resources
-                  <ExternalLink size={16} />
-                </button>
+                {groupedDept.instances.length > 1 ? (
+                  <button 
+                    className={styles.groupCardManageBtn}
+                    onClick={() => setDrilldownGroup(groupedDept)}
+                  >
+                    Manage {groupedDept.instances.length} Instances
+                  </button>
+                ) : (
+                  <button 
+                    className={styles.deptManageBtn}
+                    onClick={() => setSelectedDept(primaryInstance)}
+                  >
+                    Manage Resources
+                    <ChevronRight size={16} />
+                  </button>
+                )}
               </div>
             );
           })}
@@ -546,7 +675,7 @@ export default function DepartmentsPage() {
               <button className={styles.closeBtn} onClick={() => {
                 setIsAddModalOpen(false);
                 setEditingDept(null);
-                setNewDept({ name: '', code: '', locationId: '', locationName: '', responsibility: '' });
+                setNewDept({ name: '', code: '', locationIds: [], locationName: '', responsibility: '' });
               }}><X size={20} /></button>
             </div>
             <form onSubmit={handleAddDept}>
@@ -595,25 +724,25 @@ export default function DepartmentsPage() {
                         {currentRole === 'LOCATION_ADMIN' ? 'This department will be created for your airport.' : 'Which airport does this department belong to?'}
                       </span>
                     </div>
-                    <div className={styles.modalInputWrapper}>
-                      <Plus size={18} />
+                    <div className={currentRole === 'LOCATION_ADMIN' ? styles.modalInputWrapper : ''}>
                       {currentRole === 'LOCATION_ADMIN' ? (
-                        <input
-                          type="text"
-                          value={roleLocationName || currentLocation || ''}
-                          disabled
-                          style={{ background: "#f1f5f9", cursor: "not-allowed" }}
-                        />
+                        <>
+                          <Plus size={18} />
+                          <input
+                            type="text"
+                            value={roleLocationName || currentLocation || ''}
+                            disabled
+                            style={{ background: "#f1f5f9", cursor: "not-allowed" }}
+                          />
+                        </>
                       ) : (
-                        <select
-                          value={newDept.locationId}
-                          onChange={(e) => setNewDept({ ...newDept, locationId: e.target.value })}
-                        >
-                          <option value="">Select Location</option>
-                          {locations.map(loc => (
-                            <option key={loc.id} value={loc.id}>{loc.name}</option>
-                          ))}
-                        </select>
+                        <MultiSelect
+                          options={locations}
+                          selectedIds={newDept.locationIds}
+                          onChange={(ids) => setNewDept({ ...newDept, locationIds: ids })}
+                          placeholder="Select Locations"
+                          icon={<MapPin size={18} />}
+                        />
                       )}
                     </div>
                   </div>
@@ -637,7 +766,7 @@ export default function DepartmentsPage() {
                 <button type="button" className={styles.cancelBtn} onClick={() => {
                   setIsAddModalOpen(false);
                   setEditingDept(null);
-                  setNewDept({ name: '', code: '', locationId: '', locationName: '', responsibility: '' });
+                  setNewDept({ name: '', code: '', locationIds: [], locationName: '', responsibility: '' });
                 }}>Discard</button>
                 <button 
                   type="submit" 
@@ -690,7 +819,7 @@ export default function DepartmentsPage() {
             </div>
 
             {activeTab === "admins" && (
-              <div style={{ padding: '16px 0', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0' }}>
                 <button className={styles.createButton} onClick={() => setIsAdminModalOpen(true)}>
                   <Plus size={16} /> Add Admin
                 </button>
@@ -885,14 +1014,23 @@ export default function DepartmentsPage() {
                   <div className={styles.formGroup}>
                     <label className={styles.formLabel}>Password *</label>
                     <div className={styles.modalInputWrapper}>
-                      <Shield size={18} />
-                      <input
-                        type="password"
-                        placeholder="••••••••"
-                        value={newAdmin.password}
-                        onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
-                        required
-                      />
+                      <Settings size={18} />
+                      <div className={styles.passwordInputWrapper}>
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="Password"
+                          value={newAdmin.password}
+                          onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
+                          required
+                        />
+                        <button 
+                          type="button"
+                          className={styles.eyeBtn}
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
                     </div>
                   </div>
 

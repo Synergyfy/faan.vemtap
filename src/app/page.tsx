@@ -6,10 +6,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLogin } from "@/hooks/useAuth";
 import { AxiosError } from "axios";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const loginMutation = useLogin();
@@ -73,14 +75,22 @@ export default function LoginPage() {
             </label>
             <div className={styles.inputWrapper}>
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 id="password"
                 placeholder="••••••••"
-                className={styles.input}
+                className={`${styles.input} ${styles.inputPassword}`}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
+              <button
+                type="button"
+                className={styles.eyeButton}
+                onClick={() => setShowPassword(!showPassword)}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
           </div>
 

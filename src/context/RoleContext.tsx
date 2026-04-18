@@ -59,8 +59,11 @@ export function RoleProvider({ children }: RoleProviderProps) {
     if (profile && !hasInitialized) {
       setCurrentRole(profile.role as unknown as UserRole);
       
-      // Derive location from department if present
-      if (profile.department?.location?.id) {
+      // Derive location prioritizing direct locationId (for Location Admins)
+      if (profile.locationId) {
+        setCurrentLocation(profile.locationId);
+      } else if (profile.department?.location?.id) {
+        // Fallback for Department Admins
         setCurrentLocation(profile.department.location.id);
       } else if (profile.departmentId) {
         // Fallback if department object isn't fully expanded

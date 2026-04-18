@@ -41,6 +41,7 @@ import { useDepartments } from "@/hooks/useDepartments";
 import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/types/api";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+import { MultiSelect } from "@/components/displays/MultiSelect";
 
 const FIELD_TYPES = [
   { value: 'rating', label: 'Rating', icon: Star, color: '#f59e0b' },
@@ -70,9 +71,14 @@ function hashToIndex(input: string, modulo: number) {
 
 export default function FormsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
-  const { data: touchpointsData, isLoading: formsLoading } = useTouchpoints({ type: 'FEEDBACK' });
+  const { data: touchpointsData, isLoading: formsLoading } = useTouchpoints({ 
+    type: 'FEEDBACK',
+    locationId: currentRole !== 'SUPER_ADMIN' ? currentLocation : undefined
+  });
   const { data: locationsData } = useLocations();
-  const { data: departmentsData } = useDepartments();
+  const { data: departmentsData } = useDepartments({ 
+    locationId: currentRole !== 'SUPER_ADMIN' ? (currentLocation || undefined) : undefined 
+  });
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -81,6 +87,7 @@ export default function FormsPage() {
   const [selectedForm, setSelectedForm] = useState<Touchpoint | null>(null);
   const [wizardStep, setWizardStep] = useState(1);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
 
   const createMutation = useCreateTouchpoint();
   const updateMutation = useUpdateTouchpoint();
@@ -90,17 +97,33 @@ export default function FormsPage() {
   const locations = locationsData?.data || [];
   const departments = departmentsData?.data || [];
 
+  // Grouping Logic for Forms
+  const groupedForms = touchpoints.reduce((acc: Record<string, any>, tp) => {
+    const key = tp.title; // Using title as grouping key
+    if (!acc[key]) {
+      acc[key] = {
+        ...tp,
+        instances: [tp],
+        totalInteractions: tp.interactions || 0
+      };
+    } else {
+      acc[key].instances.push(tp);
+      acc[key].totalInteractions += tp.interactions || 0;
+    }
+    return acc;
+  }, {});
+
   const [newForm, setNewForm] = useState({
     name: '',
-    locationId: currentLocation || '',
-    departmentId: '',
+    locationIds: (currentLocation ? [currentLocation] : []) as string[],
+    departmentIds: [] as string[],
     allowAnonymous: true,
     successMessage: 'Thank you for your feedback!',
     fields: [] as FormField[],
   });
 
-  const filteredForms = touchpoints.filter((tp: Touchpoint) => 
-    !searchTerm || tp.title.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredGroupedForms = Object.values(groupedForms).filter((f: any) => 
+    !searchTerm || f.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const totalFields = touchpoints.reduce((sum, tp) => sum + (tp.formConfig?.length || 0), 0);
@@ -111,11 +134,11 @@ export default function FormsPage() {
       ? roleLocationName || "Your Location"
       : "All Locations";
 
-  const handleLocationChange = (locationId: string) => {
+  const handleLocationChange = (ids: string[]) => {
     setNewForm({
       ...newForm,
-      locationId,
-      departmentId: '',
+      locationIds: ids,
+      departmentIds: [],
     });
   };
 
@@ -146,21 +169,36 @@ export default function FormsPage() {
 
   const handleSaveForm = () => {
     // Validation
+    // Validation
     if (!newForm.name.trim()) return toast.error("Form name is required");
-    if (!newForm.locationId) return toast.error("Please select a location");
-    if (!newForm.departmentId) return toast.error("Please select a department");
+    if (newForm.locationIds.length === 0) return toast.error("Please select at least one location");
+    if (newForm.departmentIds.length === 0) return toast.error("Please select at least one department");
     if (newForm.fields.length === 0) return toast.error("Please add at least one field to the form");
 
-    const payload = {
-      title: newForm.name,
-      locationId: newForm.locationId,
-      departmentId: newForm.departmentId,
-      type: 'FEEDBACK' as TouchpointType,
-      formConfig: newForm.fields,
-    };
+    // We'll create a combination of all selected locations and departments
+    const creations: any[] = [];
+    newForm.locationIds.forEach(locId => {
+      newForm.departmentIds.forEach(deptId => {
+        // Only add if the department belongs to this location
+        const dept = departments.find(d => d.id === deptId);
+        if (dept && (dept.locationId === locId || dept.location?.id === locId)) {
+          creations.push({
+            title: newForm.name,
+            locationId: locId,
+            departmentId: deptId,
+            type: 'FEEDBACK' as TouchpointType,
+            formConfig: newForm.fields,
+          });
+        }
+      });
+    });
+
+    if (creations.length === 0) {
+      return toast.error("No valid Location-Department combinations found. Please ensure selected departments belong to the selected locations.");
+    }
 
     if (isEditMode && editingFormId) {
-      updateMutation.mutate({ uuid: editingFormId, data: payload }, {
+      updateMutation.mutate({ uuid: editingFormId, data: creations[0] }, {
         onSuccess: () => {
           toast.success("Form updated successfully");
           setIsCreateModalOpen(false);
@@ -173,18 +211,17 @@ export default function FormsPage() {
         }
       });
     } else {
-      createMutation.mutate(payload, {
-        onSuccess: () => {
-          toast.success("Form created successfully");
+      Promise.all(creations.map(payload => createMutation.mutateAsync(payload)))
+        .then(() => {
+          toast.success(`Form(s) created successfully for ${creations.length} combinations`);
           setIsCreateModalOpen(false);
           resetWizard();
-        },
-        onError: (error) => {
+        })
+        .catch((error) => {
           const axiosError = error as AxiosError<{ message: string | string[] }>;
-          const message = axiosError.response?.data?.message || "Failed to create form";
+          const message = axiosError.response?.data?.message || "Failed to create forms";
           toast.error(Array.isArray(message) ? message[0] : message);
-        }
-      });
+        });
     }
   };
 
@@ -200,8 +237,8 @@ export default function FormsPage() {
     setWizardStep(1);
     setNewForm({
       name: '',
-      locationId: currentLocation || '',
-      departmentId: '',
+      locationIds: currentLocation ? [currentLocation] : [],
+      departmentIds: [],
       allowAnonymous: true,
       successMessage: 'Thank you for your feedback!',
       fields: [],
@@ -294,7 +331,7 @@ export default function FormsPage() {
               <span>Loading...</span>
             ) : (
               <span>
-                Showing <strong>{filteredForms.length}</strong> of <strong>{touchpoints.length}</strong>
+                Showing <strong>{filteredGroupedForms.length}</strong> groups of <strong>{touchpoints.length}</strong> forms
               </span>
             )}
           </div>
@@ -322,7 +359,7 @@ export default function FormsPage() {
             </div>
           ))}
         </div>
-      ) : filteredForms.length === 0 ? (
+      ) : filteredGroupedForms.length === 0 ? (
         <div className={styles.deptEmptyState} role="status">
           <div className={styles.deptEmptyIcon} aria-hidden="true">
             <ClipboardList size={22} />
@@ -351,27 +388,138 @@ export default function FormsPage() {
             )}
           </div>
         </div>
+      ) : drilldownGroup ? (
+        <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+          <div className={styles.drilldownHeader}>
+            <button className={styles.backButton} onClick={() => setDrilldownGroup(null)}>
+              <ChevronLeft size={20} />
+            </button>
+            <div className={styles.drilldownInfo}>
+              <span className={styles.drilldownTitle}>Grouping View</span>
+              <span className={styles.drilldownName}>{drilldownGroup.title} ({drilldownGroup.instances.length} Instances)</span>
+            </div>
+          </div>
+
+          <div className={styles.deptGrid}>
+            {drilldownGroup.instances.map((tp: any) => {
+              const accent = FORM_ACCENTS[hashToIndex(tp.title, FORM_ACCENTS.length)];
+              const accentStyle = {
+                "--accent-bg": accent.bg,
+                "--accent-fg": accent.fg,
+                "--accent-ring": accent.ring,
+              } as React.CSSProperties;
+
+              return (
+                <div key={tp.id} className={styles.deptCard}>
+                  <div className={styles.deptCardHeader}>
+                    <div className={styles.deptIconBox} style={accentStyle}>
+                      <FileStack size={24} />
+                    </div>
+                    <div className={styles.cardMenuWrapper}>
+                      <button
+                        className={styles.cardMore}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveDropdown(activeDropdown === tp.id ? null : tp.id);
+                        }}
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                      {activeDropdown === tp.id && (
+                        <div className={styles.cardDropdown}>
+                          <button
+                            className={styles.dropdownItem}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setNewForm({
+                                name: tp.title,
+                                locationIds: [tp.locationId],
+                                departmentIds: tp.departmentIds || [],
+                                allowAnonymous: true,
+                                successMessage: 'Thank you for your feedback!',
+                                fields: tp.formConfig || [],
+                              });
+                              setIsEditMode(true);
+                              setEditingFormId(tp.id);
+                              setIsCreateModalOpen(true);
+                              setActiveDropdown(null);
+                            }}
+                          >
+                            <Edit size={14} /> Edit
+                          </button>
+                          <button
+                            className={`${styles.dropdownItem} ${styles.danger}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm("Are you sure?")) deleteMutation.mutate(tp.id);
+                              setActiveDropdown(null);
+                            }}
+                          >
+                            <Trash2 size={14} /> Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.deptCardInfo}>
+                    <h3 className={styles.deptCardTitle}>{tp.title}</h3>
+                    <p className={styles.deptCardDesc}>
+                      Passenger Form
+                    </p>
+                    <div className={styles.deptLocationRow}>
+                      <MapPin size={12} />
+                      <span>{tp.location?.name || roleLocationName || '—'}</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.deptCardMetrics}>
+                    <div className={styles.deptMetric}>
+                      <FileCheck size={14} />
+                      <span>{tp.formConfig?.length || 0} Fields</span>
+                    </div>
+                    <div className={styles.deptMetric}>
+                      <MousePointer2 size={14} />
+                      <span>{tp.totalInteractions || 0} Submissions</span>
+                    </div>
+                  </div>
+
+                  <button 
+                    className={styles.deptManageBtn}
+                    onClick={() => setSelectedForm(tp)}
+                  >
+                    View Form Details
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       ) : (
         <div className={styles.deptGrid}>
-          {filteredForms.map((form: Touchpoint) => {
-            const accent = FORM_ACCENTS[hashToIndex(String(form.id), FORM_ACCENTS.length)];
+          {filteredGroupedForms.map((groupedForm: any) => {
+            const accent = FORM_ACCENTS[hashToIndex(groupedForm.title, FORM_ACCENTS.length)];
             const accentStyle = {
               "--accent-bg": accent.bg,
               "--accent-fg": accent.fg,
               "--accent-ring": accent.ring,
             } as React.CSSProperties;
 
-            const formLocationName =
-              typeof (form as any).location === "string"
-                ? (form as any).location
-                : (form as any).location?.name || roleLocationName || "All Locations";
+            const primaryInstance = groupedForm.instances[0];
+            const primaryLocationName =
+              typeof primaryInstance.location === "string"
+                ? primaryInstance.location
+                : primaryInstance.location?.name || roleLocationName || "—";
+            
+            const locationLabel = groupedForm.instances.length > 1
+              ? `${primaryLocationName} +${groupedForm.instances.length - 1}`
+              : primaryLocationName;
 
             return (
               <div 
-                key={form.id} 
+                key={groupedForm.title} 
                 className={styles.deptCard}
-                onClick={() => setSelectedForm(form)}
-                style={{ cursor: 'pointer' }}
               >
                 <div className={styles.deptCardHeader}>
                   <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
@@ -380,51 +528,35 @@ export default function FormsPage() {
                   <div className={styles.cardMenuWrapper}>
                     <button
                       className={styles.cardMore}
-                      aria-label={`Form actions for ${form.title}`}
+                      aria-label={`Form actions for ${groupedForm.title}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActiveDropdown(activeDropdown === form.id ? null : form.id);
+                        setActiveDropdown(activeDropdown === groupedForm.title ? null : groupedForm.title);
                       }}
                     >
                       <MoreVertical size={18} />
                     </button>
-                    {activeDropdown === form.id && (
+                    {activeDropdown === groupedForm.title && (
                       <div className={styles.cardDropdown}>
                         <button
                           className={styles.dropdownItem}
                           onClick={(e) => {
                             e.stopPropagation();
                             setNewForm({
-                              name: form.title,
-                              locationId: form.locationId,
-                              departmentId: form.departmentId,
+                              name: groupedForm.title,
+                              locationIds: groupedForm.instances.map((i: any) => i.locationId),
+                              departmentIds: groupedForm.instances.map((i: any) => i.departmentId),
                               allowAnonymous: true,
                               successMessage: 'Thank you for your feedback!',
-                              fields: form.formConfig || [],
+                              fields: groupedForm.formConfig || [],
                             });
                             setIsEditMode(true);
-                            setEditingFormId(form.id);
+                            setEditingFormId(groupedForm.id);
                             setIsCreateModalOpen(true);
                             setActiveDropdown(null);
                           }}
                         >
-                          <Edit size={14} /> Edit Form
-                        </button>
-                        <button 
-                          className={styles.dropdownItem}
-                          onClick={(e) => { e.stopPropagation(); setActiveDropdown(null); }}
-                        >
-                          <Copy size={14} /> Duplicate
-                        </button>
-                        <div className={styles.dropdownSeparator} />
-                        <button
-                          className={`${styles.dropdownItem} ${styles.danger}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteForm(form.id);
-                          }}
-                        >
-                          <Trash2 size={14} /> Delete
+                          <Edit size={14} /> Edit Group
                         </button>
                       </div>
                     )}
@@ -432,37 +564,43 @@ export default function FormsPage() {
                 </div>
 
                 <div className={styles.deptCardInfo}>
-                  <h3 className={styles.deptCardTitle}>{form.title}</h3>
+                  <h3 className={styles.deptCardTitle}>{groupedForm.title}</h3>
                   <p className={styles.deptCardDesc}>
-                    {form.department?.name || 'General'} Department Form
+                    {groupedForm.instances.length} Active Deployments
                   </p>
                   <div className={styles.deptLocationRow}>
                     <MapPin size={12} />
-                    <span>{formLocationName}</span>
+                    <span>{locationLabel}</span>
                   </div>
                 </div>
 
                 <div className={styles.deptCardMetrics}>
                   <div className={styles.deptMetric}>
                     <FileCheck size={14} />
-                    <span>{form.formConfig?.length || 0} Fields</span>
+                    <span>{groupedForm.formConfig?.length || 0} Fields</span>
                   </div>
                   <div className={styles.deptMetric}>
                     <MousePointer2 size={14} />
-                    <span>{form.interactions || 0} Submissions</span>
+                    <span>{groupedForm.totalInteractions} Submissions</span>
                   </div>
                 </div>
 
-                <button 
-                  className={styles.deptManageBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedForm(form);
-                  }}
-                >
-                  View Details
-                  <ChevronRight size={16} />
-                </button>
+                {groupedForm.instances.length > 1 ? (
+                  <button 
+                    className={styles.groupCardManageBtn}
+                    onClick={() => setDrilldownGroup(groupedForm)}
+                  >
+                    Manage {groupedForm.instances.length} Instances
+                  </button>
+                ) : (
+                  <button 
+                    className={styles.deptManageBtn}
+                    onClick={() => setSelectedForm(primaryInstance)}
+                  >
+                    View Form Details
+                    <ChevronRight size={16} />
+                  </button>
+                )}
               </div>
             );
           })}
@@ -471,7 +609,13 @@ export default function FormsPage() {
 
       {isCreateModalOpen && (
         <div className={styles.modalOverlay}>
-          <div className={`${styles.modalContent}`} style={{ maxWidth: '1200px', width: '96%', maxHeight: '92vh' }}>
+          <div className={`${styles.modalContent}`} style={{ 
+            maxWidth: '1200px', 
+            width: '96%', 
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
                 <span className={styles.wizardBadge}>Step {wizardStep} of 3</span>
@@ -489,7 +633,15 @@ export default function FormsPage() {
               <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ''}`} />
             </div>
 
-            <div className={styles.modalBody} style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '0', minHeight: '560px', padding: '0' }}>
+            <div className={styles.modalBody} style={{ 
+              display: 'grid', 
+              gridTemplateColumns: '1fr 380px', 
+              gap: '0', 
+              flex: 1,
+              minHeight: 0,
+              padding: '0',
+              overflow: 'hidden'
+            }}>
               
               <div style={{ padding: '32px', borderRight: '1px solid #e2e8f0', overflow: 'auto' }}>
                 {wizardStep === 1 && (
@@ -566,17 +718,26 @@ export default function FormsPage() {
                         <label className={styles.formLabel}>Location *</label>
                         <span className={styles.fieldDesc}>Which airport should host this form?</span>
                       </div>
-                      <div className={styles.modalInputWrapper}>
-                        <MapPin size={18} />
-                        <select 
-                          value={newForm.locationId}
-                          onChange={(e) => handleLocationChange(e.target.value)}
-                        >
-                          <option value="">Select Location</option>
-                          {locations.map((loc: Location) => (
-                            <option key={loc.id} value={loc.id}>{loc.name}</option>
-                          ))}
-                        </select>
+                      <div>
+                        {currentRole === 'LOCATION_ADMIN' ? (
+                          <div className={styles.modalInputWrapper}>
+                            <MapPin size={18} />
+                            <input 
+                              type="text" 
+                              value={roleLocationName || currentLocation || ''}
+                              disabled
+                              style={{ background: "#f1f5f9", cursor: "not-allowed" }}
+                            />
+                          </div>
+                        ) : (
+                          <MultiSelect
+                            options={locations}
+                            selectedIds={newForm.locationIds}
+                            onChange={(ids) => handleLocationChange(ids)}
+                            placeholder="Select Locations"
+                            icon={<MapPin size={18} />}
+                          />
+                        )}
                       </div>
                     </div>
 
@@ -585,23 +746,18 @@ export default function FormsPage() {
                         <label className={styles.formLabel}>Department *</label>
                         <span className={styles.fieldDesc}>Responsible department</span>
                       </div>
-                      <div className={styles.modalInputWrapper}>
-                        <Building2 size={18} />
-                        <select 
-                          value={newForm.departmentId}
-                          onChange={(e) => setNewForm({...newForm, departmentId: e.target.value})}
-                        >
-                          <option value="">Select Department</option>
-                          {departments
-                            .filter((dept: Department) => 
-                              (dept.locationId === newForm.locationId) || 
-                              (dept.location?.id === newForm.locationId)
-                            )
-                            .map((dept: Department) => (
-                              <option key={dept.id} value={dept.id}>{dept.name}</option>
-                            ))
-                          }
-                        </select>
+                      <div>
+                        <MultiSelect
+                          options={departments.filter((dept: Department) => 
+                            newForm.locationIds.length === 0 || 
+                            newForm.locationIds.includes(dept.locationId) || 
+                            (dept.location?.id && newForm.locationIds.includes(dept.location.id))
+                          )}
+                          selectedIds={newForm.departmentIds}
+                          onChange={(ids) => setNewForm({...newForm, departmentIds: ids})}
+                          placeholder="Select Departments"
+                          icon={<Building2 size={18} />}
+                        />
                       </div>
                     </div>
                   </div>
@@ -752,11 +908,12 @@ export default function FormsPage() {
 
               <div style={{ 
                 background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
-                padding: '32px',
+                padding: '32px 0 64px 0',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                justifyContent: 'center',
+                justifyContent: 'flex-start',
+                overflowY: 'auto'
               }}>
                 <div style={{ 
                   fontSize: '11px', 
@@ -824,7 +981,7 @@ export default function FormsPage() {
                         {newForm.name || 'Untitled Form'}
                       </div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                        {locations.find((l: Location) => l.id === newForm.locationId)?.name || 'FAAN'} • {departments.find((d) => d.id === newForm.departmentId)?.name || 'Operations'}
+                        {locations.find((l: Location) => l.id === newForm.locationIds[0])?.name || 'FAAN'} • {departments.find((d) => d.id === newForm.departmentIds[0])?.name || 'Operations'}
                       </div>
                     </div>
                     
@@ -993,12 +1150,12 @@ export default function FormsPage() {
                   onClick={() => setWizardStep(wizardStep + 1)}
                   disabled={
                     (wizardStep === 1 && !newForm.name) || 
-                    (wizardStep === 2 && (!newForm.locationId || !newForm.departmentId))
+                    (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))
                   }
                   style={{ 
                     opacity: (
                       (wizardStep === 1 && !newForm.name) || 
-                      (wizardStep === 2 && (!newForm.locationId || !newForm.departmentId))
+                      (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))
                     ) ? 0.5 : 1 
                   }}
                 >
