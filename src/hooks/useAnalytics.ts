@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
-import { ApiResponse, AnalyticsSummary } from '@/types/api';
+import { ApiResponse, AnalyticsSummary, ActivityResponse, AnalyticsDistribution } from '@/types/api';
 
 export interface ChartDataPoint {
   name: string;
@@ -61,6 +61,27 @@ export const useDeptPerformanceChart = (params?: Record<string, unknown>) => {
     queryFn: async () => {
       const { data } = await api.get<ApiResponse<{ data: ChartData }>>('/analytics/charts/dept-performance', { params });
       return data.data.data;
+    },
+  });
+};
+
+export const useActivityFeed = (params?: Record<string, unknown>) => {
+  return useQuery<ActivityResponse>({
+    queryKey: ['analytics-activity', params],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<ActivityResponse>>('/analytics/activity', { params });
+      return data.data;
+    },
+    staleTime: 30 * 1000,
+  });
+};
+
+export const useAnalyticsDistribution = (params?: Record<string, unknown>) => {
+  return useQuery<AnalyticsDistribution>({
+    queryKey: ['analytics-distribution', params],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<AnalyticsDistribution>>('/analytics/distribution', { params });
+      return data.data;
     },
   });
 };

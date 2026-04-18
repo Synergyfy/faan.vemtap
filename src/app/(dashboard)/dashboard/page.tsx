@@ -27,58 +27,127 @@ import {
 import styles from "../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { UserRole } from "@/types/rbac";
-import { useAnalyticsSummary } from "@/hooks/useAnalytics";
+import { 
+  useAnalyticsSummary, 
+  useActivityFeed, 
+  useAnalyticsDistribution, 
+  useSatisfactionTrend 
+} from "@/hooks/useAnalytics";
 import { useMemo } from "react";
 
-const FEEDBACK_TREND = [
-  { day: "Mon", feedback: 40 },
-  { day: "Tue", feedback: 30 },
-  { day: "Wed", feedback: 60 },
-  { day: "Thu", feedback: 50 },
-  { day: "Fri", feedback: 80 },
-  { day: "Sat", feedback: 50 },
-  { day: "Sun", feedback: 70 },
-];
+const CATEGORY_COLORS = ["#ef4444", "#3b82f6", "#f59e0b", "#10b981", "#8b5cf6", "#6366f1"];
 
-const ISSUE_CATEGORIES = [
-  { name: "Safety", value: 400, color: "#ef4444" },
-  { name: "Cleanliness", value: 300, color: "#3b82f6" },
-  { name: "Maintenance", value: 300, color: "#f59e0b" },
-  { name: "Customer Service", value: 200, color: "#10b981" },
-];
+function formatTimeAgo(dateInput: string | Date) {
+  const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-const ACTIVITIES = [
-  { id: 1, text: "New feedback from Terminal 1: 'Great service at check-in'", time: "2 mins ago", status: "Resolved" },
-  { id: 2, text: "Escalator failure reported at Gate 12", time: "15 mins ago", status: "In Progress" },
-  { id: 3, text: "Low rating received for Restroom cleanliness", time: "1 hour ago", status: "Pending" },
-  { id: 4, text: "New staff member registered: Sarah Jones", time: "3 hours ago", status: "Success" },
-];
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 export default function DashboardPage() {
   const { currentRole, locationName, departmentName, currentLocation, currentDepartment } = useRole();
-  
-  const { data: summary, isLoading } = useAnalyticsSummary({
+  const params = {
     locationId: currentLocation,
     departmentId: currentDepartment
-  });
+  };
+
+  const { data: summary, isLoading: isSummaryLoading } = useAnalyticsSummary(params);
+  const { data: activityData, isLoading: isActivityLoading } = useActivityFeed(params);
+  const { data: distribution, isLoading: isDistributionLoading } = useAnalyticsDistribution(params);
+  const { data: trendData, isLoading: isTrendLoading } = useSatisfactionTrend(params);
 
   const kpis = useMemo(() => {
     if (!summary) return [];
 
+    const formatGrowth = (val: number) => {
+      const sign = val >= 0 ? "+" : "";
+      return `${sign}${val}%`;
+    };
+
     const base = [
-      { label: "Total Engagement", value: summary.totalSubmissions.toLocaleString(), change: "+0%", trendingUp: true, icon: Users, color: "#157347" },
-      { label: "Feedback Received", value: summary.feedbacks.toLocaleString(), change: "+0%", trendingUp: true, icon: MessageSquare, color: "#2563eb" },
-      { label: "Open Issues", value: summary.openSubmissions.toLocaleString(), change: "-0%", trendingUp: false, icon: AlertCircle, color: "#f59e0b" },
-      { label: "Resolved Issues", value: summary.resolvedSubmissions.toLocaleString(), change: "+0%", trendingUp: true, icon: CheckCircle2, color: "#10b981" },
+      { 
+        label: "Total Engagement", 
+        value: summary.totalSubmissions.toLocaleString(), 
+        change: formatGrowth(summary.totalSubmissionsGrowth), 
+        trendingUp: summary.totalSubmissionsGrowth >= 0, 
+        icon: Users, 
+        color: "#157347" 
+      },
+      { 
+        label: "Feedback Received", 
+        value: summary.feedbacks.toLocaleString(), 
+        change: "+0%", // Needs separate growth field in backend if desired, using 0% for now
+        trendingUp: true, 
+        icon: MessageSquare, 
+        color: "#2563eb" 
+      },
+      { 
+        label: "Open Issues", 
+        value: summary.openSubmissions.toLocaleString(), 
+        change: formatGrowth(summary.totalIssuesGrowth), 
+        trendingUp: summary.totalIssuesGrowth < 0, // Less issues is good
+        icon: AlertCircle, 
+        color: "#f59e0b" 
+      },
+      { 
+        label: "Resolved Issues", 
+        value: summary.resolvedSubmissions.toLocaleString(), 
+        change: formatGrowth(summary.resolvedIssuesGrowth), 
+        trendingUp: summary.resolvedIssuesGrowth >= 0, 
+        icon: CheckCircle2, 
+        color: "#10b981" 
+      },
     ];
 
     if (currentRole === UserRole.SUPER_ADMIN || currentRole === UserRole.LOCATION_ADMIN) {
-      base.push({ label: "Avg. Satisfaction", value: summary.averageRating?.toFixed(1) || "0.0", change: "+0.0", trendingUp: true, icon: Star, color: "#8b5cf6" });
-      base.push({ label: "Response Time", value: "12m", change: "-0m", trendingUp: false, icon: Clock, color: "#6366f1" });
+      base.push({ 
+        label: "Avg. Satisfaction", 
+        value: summary.averageRating?.toFixed(1) || "0.0", 
+        change: `${summary.averageRatingGrowth >= 0 ? "+" : ""}${summary.averageRatingGrowth.toFixed(1)}`, 
+        trendingUp: summary.averageRatingGrowth >= 0, 
+        icon: Star, 
+        color: "#8b5cf6" 
+      });
+      base.push({ 
+        label: "Response Time", 
+        value: summary.avgResponseTime ? `${summary.avgResponseTime}m` : "N/A", 
+        change: "-0m", 
+        trendingUp: false, 
+        icon: Clock, 
+        color: "#6366f1" 
+      });
     }
 
     return base;
   }, [summary, currentRole]);
+
+  const issueCategories = useMemo(() => {
+    if (!distribution?.byCategory) return [];
+    return distribution.byCategory.map((item, index) => ({
+      name: item.name,
+      value: item.count,
+      color: CATEGORY_COLORS[index % CATEGORY_COLORS.length]
+    }));
+  }, [distribution]);
+
+  const feedbackTrend = useMemo(() => {
+    if (!trendData) return [];
+    // Convert YYYY-MM-DD to DD/MM
+    return trendData.map(point => {
+      const parts = point.name.split("-");
+      return {
+        day: `${parts[2]}/${parts[1]}`, // DD/MM
+        feedback: point.score
+      };
+    });
+  }, [trendData]);
   
   const getPageTitle = () => {
     if (currentRole === UserRole.SUPER_ADMIN) return "HQ Dashboard Overview";
@@ -92,6 +161,8 @@ export default function DashboardPage() {
     return `Real-time metrics for ${departmentName} department.`;
   };
   
+  const activities = activityData?.data || [];
+
   return (
     <div className={styles.dashboard}>
       <div className={styles.pageHeader}>
@@ -132,12 +203,12 @@ export default function DashboardPage() {
       <div className={styles.chartsGrid}>
         <div className={styles.chartCard}>
           <div className={styles.cardHeader}>
-            <h3 className={styles.cardTitle}>Feedback Trend</h3>
+            <h3 className={styles.cardTitle}>Satisfaction Trend</h3>
             <button className={styles.moreButton}><MoreVertical size={20} /></button>
           </div>
           <div className={styles.chartWrapper}>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={FEEDBACK_TREND}>
+              <LineChart data={feedbackTrend}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                 <XAxis 
                   dataKey="day" 
@@ -147,6 +218,7 @@ export default function DashboardPage() {
                   dy={10}
                 />
                 <YAxis 
+                  domain={[0, 5]}
                   axisLine={false} 
                   tickLine={false} 
                   tick={{ fill: "#64748b", fontSize: 12 }}
@@ -173,29 +245,33 @@ export default function DashboardPage() {
 
         <div className={styles.chartCard}>
           <div className={styles.cardHeader}>
-            <h3 className={styles.cardTitle}>Issue Categories</h3>
+            <h3 className={styles.cardTitle}>Issue Distribution</h3>
             <button className={styles.moreButton}><MoreVertical size={20} /></button>
           </div>
           <div className={styles.chartWrapper}>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={ISSUE_CATEGORIES}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={8}
-                  dataKey="value"
-                >
-                  {ISSUE_CATEGORIES.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "20px" }} />
-              </PieChart>
-            </ResponsiveContainer>
+            {issueCategories.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={issueCategories}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={8}
+                    dataKey="value"
+                  >
+                    {issueCategories.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "20px" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className={styles.emptyChart}>No category data available</div>
+            )}
           </div>
         </div>
       </div>
@@ -207,18 +283,27 @@ export default function DashboardPage() {
           <button className={styles.viewAll}>View All</button>
         </div>
         <div className={styles.activityList}>
-          {ACTIVITIES.map((activity) => (
-            <div key={activity.id} className={styles.activityItem}>
-              <div className={styles.activityBullet} />
-              <div className={styles.activityContent}>
-                <p className={styles.activityText}>{activity.text}</p>
-                <span className={styles.activityTime}>{activity.time}</span>
+          {activities.length > 0 ? (
+            activities.map((activity) => (
+              <div key={activity.id} className={styles.activityItem}>
+                <div className={`${styles.activityBullet} ${styles[activity.type.toLowerCase()]}`} />
+                <div className={styles.activityContent}>
+                  <p className={styles.activityText}>
+                    <strong>{activity.title}:</strong> {activity.content}
+                    {activity.code && <span className={styles.activityCode}> ({activity.code})</span>}
+                  </p>
+                  <span className={styles.activityTime}>{formatTimeAgo(activity.timestamp)}</span>
+                </div>
+                {activity.status && (
+                  <div className={`${styles.statusBadge} ${styles[activity.status.toLowerCase().replace(" ", "")]}`}>
+                    {activity.status}
+                  </div>
+                )}
               </div>
-              <div className={`${styles.statusBadge} ${styles[activity.status.toLowerCase().replace(" ", "")]}`}>
-                {activity.status}
-              </div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className={styles.emptyList}>No recent activity</p>
+          )}
         </div>
       </div>
     </div>

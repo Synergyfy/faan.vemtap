@@ -3,6 +3,25 @@ import api, { setTokens, clearTokens } from '@/lib/api';
 import { AuthResponse, UserProfile, ApiResponse } from '@/types/api';
 import { useAuthContext } from '@/context/AuthContext';
 
+export const useRegister = () => {
+  const queryClient = useQueryClient();
+  const { login } = useAuthContext();
+
+  return useMutation({
+    mutationFn: async (userData: Record<string, string>) => {
+      const { data } = await api.post<ApiResponse<AuthResponse>>('/auth/register', userData);
+      return data.data;
+    },
+    onSuccess: (data) => {
+      if (data && 'accessToken' in data) {
+        setTokens(data.accessToken, data.refreshToken);
+        login(data.accessToken, data.refreshToken);
+      }
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
+};
+
 export const useLogin = () => {
   const queryClient = useQueryClient();
   const { login } = useAuthContext();

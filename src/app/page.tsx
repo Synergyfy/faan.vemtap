@@ -20,9 +20,12 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
 
+    const searchParams = new URLSearchParams(window.location.search);
+    const callbackUrl = searchParams.get('callbackUrl') || "/dashboard";
+
     loginMutation.mutate({ email, password }, {
       onSuccess: () => {
-        router.push("/dashboard");
+        router.push(callbackUrl);
       },
       onError: (err: any) => {
         const axiosErr = err as AxiosError;
@@ -100,6 +103,18 @@ export default function LoginPage() {
             {loginMutation.isPending ? "Authenticating..." : "Login"}
           </button>
         </form>
+
+        <div style={{ textAlign: 'center', marginTop: '8px' }}>
+          <p style={{ fontSize: '14px', color: '#666' }}>
+            Don't have an account?{" "}
+            <a 
+              href={`/register${typeof window !== 'undefined' ? window.location.search : ''}`} 
+              style={{ color: '#157347', fontWeight: '600' }}
+            >
+              Sign Up
+            </a>
+          </p>
+        </div>
       </main>
 
       <footer className={styles.footer}>
