@@ -19,21 +19,26 @@ import {
   Circle,
   Loader2,
   FileWarning,
-  User,
-  Upload
+  Upload,
+  LayoutGrid,
+  List,
+  ChevronRight
 } from "lucide-react";
 import Image from "next/image";
+import { toast } from "sonner";
+import { AxiosError } from "axios";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { 
   useKanban, 
+  useIssues,
   useUpdateIssueStatus, 
   useCreateIssue, 
   useAddIssueNote 
 } from "@/hooks/useIssues";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
-import { InternalReport, InternalReportStatus, Priority, ReportType, Department, UserProfile } from "@/types/api";
+import { InternalReport, InternalReportStatus, Priority, ReportType, Department, CreateIssueDto } from "@/types/api";
 import { MultiSelect } from "@/components/displays/MultiSelect";
 
 interface ColumnProps {
@@ -44,10 +49,11 @@ interface ColumnProps {
   getStatusIssues: (status: string) => InternalReport[];
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (status: string) => void;
+  onDragStart: (id: string) => void;
   onSelectIssue: (issue: InternalReport) => void;
 }
 
-function Column({ title, status, color, icon, getStatusIssues, onDragOver, onDrop, onSelectIssue }: ColumnProps) {
+function Column({ title, status, color, icon, getStatusIssues, onDragOver, onDrop, onDragStart, onSelectIssue }: ColumnProps) {
   const issues = getStatusIssues(status);
   
   return (
@@ -95,10 +101,10 @@ function Column({ title, status, color, icon, getStatusIssues, onDragOver, onDro
         ) : (
           issues.map((issue: InternalReport) => (
             <div 
-              key={issue.uuid} 
+              key={issue.id} 
               className={styles.issueCard}
               draggable
-              onDragStart={() => {}}
+              onDragStart={() => onDragStart(issue.id)}
               onClick={() => onSelectIssue(issue)}
               style={{ cursor: 'pointer' }}
             >
@@ -116,6 +122,11 @@ function Column({ title, status, color, icon, getStatusIssues, onDragOver, onDro
                 >
                   {issue.priority}
                 </span>
+                {issue.code && (
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
+                    {issue.code}
+                  </span>
+                )}
                 <button className={styles.cardMore} onClick={(e) => e.stopPropagation()}>
                   <MoreVertical size={14} />
                 </button>
@@ -126,11 +137,11 @@ function Column({ title, status, color, icon, getStatusIssues, onDragOver, onDro
               <div className={styles.cardFooter}>
                 <div className={styles.cardMeta}>
                   <MapPin size={12} />
-                  <span>{typeof issue.location === 'object' ? (issue.location as any)?.name || 'Unknown' : issue.location || 'Unknown'}</span>
+                  <span>{typeof issue.location === 'object' ? (issue.location as { name?: string })?.name || 'Unknown' : issue.location || 'Unknown'}</span>
                 </div>
                 <div className={styles.cardMeta}>
                   <Clock size={12} />
-                  <span>{new Date(issue.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span>{issue.createdAt ? new Date(issue.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
                 </div>
               </div>
             </div>
@@ -150,6 +161,7 @@ export default function IssueManagementPage() {
   const [selectedLocIds, setSelectedLocIds] = useState<string[]>([]);
   const [tempLocIds, setTempLocIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [viewType, setViewType] = useState<'board' | 'list'>('board');
   
   const [newTask, setNewTask] = useState({
     title: "",
@@ -160,8 +172,6 @@ export default function IssueManagementPage() {
   });
 
   const [newComment, setNewComment] = useState("");
-  const [selectedLocation, setSelectedLocation] = useState("");
-  const [issues, setIssues] = useState<InternalReport[]>([]);
 
   const { data: kanbanData, isLoading: kanbanLoading } = useKanban({
     locationId: currentLocation || undefined,
@@ -171,12 +181,18 @@ export default function IssueManagementPage() {
   const { data: locationsData } = useLocations();
   const { data: deptsData } = useDepartments();
 
+  const { data: issuesData, isLoading: issuesLoading } = useIssues({
+    locationId: currentLocation || undefined,
+    departmentId: currentDepartment || undefined,
+    search: searchTerm || undefined
+  });
+
   const updateStatusMutation = useUpdateIssueStatus();
   const createIssueMutation = useCreateIssue();
   const addNoteMutation = useAddIssueNote();
 
   const pendingIssues = kanbanData?.pending || [];
-  const inProgressIssues = kanbanData?.['in-progress'] || kanbanData?.inProgress || [];
+  const inProgressIssues = kanbanData?.inProgress || kanbanData?.['in-progress'] || [];
   const resolvedIssues = kanbanData?.resolved || [];
   
   const totalIssues = pendingIssues.length + inProgressIssues.length + resolvedIssues.length;
@@ -193,7 +209,7 @@ export default function IssueManagementPage() {
   const onDrop = (status: string) => {
     if (!draggedIssueId) return;
     updateStatusMutation.mutate({ 
-      uuid: draggedIssueId, 
+      id: draggedIssueId, 
       status: status.toUpperCase() as InternalReportStatus 
     });
     setDraggedIssueId(null);
@@ -202,42 +218,54 @@ export default function IssueManagementPage() {
   const handleCreateIssue = (e: React.FormEvent) => {
     e.preventDefault();
     
-    const locationsToUse = currentRole === 'DEPARTMENT_ADMIN' ? [currentLocation || ""] : selectedLocIds;
-    const deptsToUse = currentRole === 'DEPARTMENT_ADMIN' ? [currentDepartment || ""] : newTask.departmentIds;
-    
-    locationsToUse.forEach(locId => {
-      deptsToUse.forEach(deptId => {
-        createIssueMutation.mutate({
-          title: newTask.title,
-          content: newTask.description,
-          priority: newTask.priority as Priority,
-          locationId: locId,
-          departmentId: deptId,
-          reportType: ReportType.INCIDENT
-        });
-      });
-    });
+    const payload: CreateIssueDto = {
+      title: newTask.title,
+      content: newTask.description,
+      priority: newTask.priority as Priority,
+      locationIds: currentRole === 'DEPARTMENT_ADMIN' ? [currentLocation || ""] : selectedLocIds,
+      departmentIds: currentRole === 'DEPARTMENT_ADMIN' ? [currentDepartment || ""] : newTask.departmentIds,
+      reportType: ReportType.INCIDENT
+    };
 
-    setIsCreateModalOpen(false);
-    setNewTask({ title: "", description: "", priority: "MEDIUM", departmentIds: [], location: "" });
+    createIssueMutation.mutate(payload, {
+      onSuccess: () => {
+        toast.success(`Successfully created ${payload.locationIds?.length || payload.departmentIds?.length || 1} issues`);
+        setIsCreateModalOpen(false);
+        setNewTask({ title: "", description: "", priority: "MEDIUM", departmentIds: [], location: "" });
+      },
+      onError: (error: AxiosError<{ message: string | string[] }>) => {
+        const errorMsg = error?.response?.data?.message || "Failed to create issues";
+        toast.error(Array.isArray(errorMsg) ? errorMsg[0] : errorMsg);
+      }
+    });
   };
 
   const handleAddComment = () => {
     if (!newComment.trim() || !selectedIssue) return;
-    addNoteMutation.mutate({ uuid: selectedIssue.uuid, content: newComment }, {
+    addNoteMutation.mutate({ id: selectedIssue.id, content: newComment }, {
       onSuccess: () => setNewComment("")
     });
   };
 
   const getStatusIssues = (status: string): InternalReport[] => {
     if (!kanbanData) return [];
-    const key = status.toLowerCase().replace('-', '') as keyof typeof kanbanData;
-    const alternativeKey = status.toLowerCase() as keyof typeof kanbanData;
-    return (kanbanData[key] || kanbanData[alternativeKey] || []) as InternalReport[];
+    
+    // Exact match
+    if (kanbanData[status as keyof typeof kanbanData]) {
+      return kanbanData[status as keyof typeof kanbanData] as InternalReport[];
+    }
+    
+    // Case-insensitive fallback
+    const normalizedStatus = status.toLowerCase().replace('-', '');
+    const foundKey = Object.keys(kanbanData).find(key => 
+      key.toLowerCase().replace('-', '') === normalizedStatus
+    );
+    
+    return foundKey ? (kanbanData[foundKey as keyof typeof kanbanData] as InternalReport[]) : [];
   };
 
-  const locations = locationsData?.data || [];
-  const depts = deptsData?.data || [];
+  const locations = useMemo(() => locationsData?.data || [], [locationsData]);
+  const depts = useMemo(() => deptsData?.data || [], [deptsData]);
 
   const formatEntityName = (entity: string | { name: string } | null) => {
     if (!entity) return 'General';
@@ -300,7 +328,6 @@ export default function IssueManagementPage() {
             className={styles.createButton}
             onClick={() => {
               if (currentRole === 'DEPARTMENT_ADMIN') {
-                setSelectedLocation(currentDepartment || "Security");
                 setIsCreateModalOpen(true);
               } else {
                 setShowLocationPicker(true);
@@ -357,49 +384,74 @@ export default function IssueManagementPage() {
             />
           </div>
           <div className={styles.deptControlsMeta} aria-live="polite">
-            {kanbanLoading ? (
+            <div style={{ display: 'flex', gap: '8px', marginRight: '16px' }}>
+              <button 
+                className={`${styles.viewToggleBtn} ${viewType === 'board' ? styles.activeView : ''}`}
+                onClick={() => setViewType('board')}
+                title="Board View"
+              >
+                <LayoutGrid size={16} />
+              </button>
+              <button 
+                className={`${styles.viewToggleBtn} ${viewType === 'list' ? styles.activeView : ''}`}
+                onClick={() => setViewType('list')}
+                title="List View"
+              >
+                <List size={16} />
+              </button>
+            </div>
+            {kanbanLoading || issuesLoading ? (
               <span>Loading...</span>
             ) : (
               <span>
-                Total: <strong>{totalIssues}</strong> {criticalCount > 0 && <span style={{ color: '#ef4444', marginLeft: '12px' }}>Critical/High: <strong>{criticalCount}</strong></span>}
+                Total: <strong>{viewType === 'board' ? totalIssues : (issuesData?.length || 0)}</strong> {criticalCount > 0 && <span style={{ color: '#ef4444', marginLeft: '12px' }}>Critical/High: <strong>{criticalCount}</strong></span>}
               </span>
             )}
           </div>
         </div>
       </div>
 
-      {kanbanLoading ? (
+      {kanbanLoading || issuesLoading ? (
         <div className={styles.deptGrid} aria-label="Loading issues">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={`issue-skeleton-${i}`} className={`${styles.deptCard} ${styles.deptSkeletonCard}`}>
-              <div className={styles.deptCardHeader}>
-                <div className={styles.deptSkeletonIcon} />
-                <div className={styles.deptSkeletonMenu} />
+          {viewType === 'board' ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={`issue-skeleton-${i}`} className={`${styles.deptCard} ${styles.deptSkeletonCard}`}>
+                <div className={styles.deptCardHeader}>
+                  <div className={styles.deptSkeletonIcon} />
+                  <div className={styles.deptSkeletonMenu} />
+                </div>
+                <div className={styles.deptCardInfo}>
+                  <div className={styles.deptSkeletonLine} style={{ width: "70%" }} />
+                  <div className={styles.deptSkeletonLine} style={{ width: "95%" }} />
+                  <div className={styles.deptSkeletonLine} style={{ width: "60%" }} />
+                </div>
+                <div className={styles.deptSkeletonBtn} />
               </div>
-              <div className={styles.deptCardInfo}>
-                <div className={styles.deptSkeletonLine} style={{ width: "70%" }} />
-                <div className={styles.deptSkeletonLine} style={{ width: "95%" }} />
-                <div className={styles.deptSkeletonLine} style={{ width: "60%" }} />
-              </div>
-              <div className={styles.deptSkeletonBtn} />
+            ))
+          ) : (
+            <div className={styles.listViewContainer} style={{ width: '100%', padding: '20px' }}>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={`list-skeleton-${i}`} className={styles.deptSkeletonLine} style={{ width: "100%", height: "40px", marginBottom: "12px", borderRadius: "8px" }} />
+              ))}
             </div>
-          ))}
+          )}
         </div>
-      ) : totalIssues === 0 ? (
+      ) : (viewType === 'board' ? totalIssues === 0 : (issuesData?.length || 0) === 0) ? (
         <div className={styles.deptEmptyState} role="status">
           <div className={styles.deptEmptyIcon} aria-hidden="true">
             <FileWarning size={22} />
           </div>
-          <h3 className={styles.deptEmptyTitle}>No issues reported</h3>
+          <h3 className={styles.deptEmptyTitle}>{searchTerm ? "No results found" : "No issues reported"}</h3>
           <p className={styles.deptEmptyText}>
-            All operational issues have been resolved. Report a new issue if you spot any problems.
+            {searchTerm 
+              ? "Try adjusting your search or filters to find what you're looking for." 
+              : "All operational issues have been resolved. Report a new issue if you spot any problems."}
           </p>
           <div className={styles.deptEmptyActions}>
             <button
               className={styles.createButton}
               onClick={() => {
                 if (currentRole === 'DEPARTMENT_ADMIN') {
-                  setSelectedLocation(currentDepartment || "Security");
                   setIsCreateModalOpen(true);
                 } else {
                   setShowLocationPicker(true);
@@ -411,7 +463,7 @@ export default function IssueManagementPage() {
             </button>
           </div>
         </div>
-      ) : (
+      ) : viewType === 'board' ? (
         <div className={styles.kanbanBoard}>
           <Column 
             title="Pending" 
@@ -421,16 +473,18 @@ export default function IssueManagementPage() {
             getStatusIssues={getStatusIssues} 
             onDragOver={onDragOver} 
             onDrop={onDrop}
+            onDragStart={onDragStart}
             onSelectIssue={setSelectedIssue}
           />
           <Column 
             title="In Progress" 
-            status="in-progress" 
+            status="inProgress" 
             color="#f59e0b"
             icon={<Loader2 size={16} />}
             getStatusIssues={getStatusIssues} 
             onDragOver={onDragOver} 
             onDrop={onDrop}
+            onDragStart={onDragStart}
             onSelectIssue={setSelectedIssue}
           />
           <Column 
@@ -441,8 +495,100 @@ export default function IssueManagementPage() {
             getStatusIssues={getStatusIssues} 
             onDragOver={onDragOver} 
             onDrop={onDrop}
+            onDragStart={onDragStart}
             onSelectIssue={setSelectedIssue}
           />
+          <Column 
+            title="Closed" 
+            status="closed" 
+            color="#64748b"
+            icon={<Circle size={16} />}
+            getStatusIssues={getStatusIssues} 
+            onDragOver={onDragOver} 
+            onDrop={onDrop}
+            onDragStart={onDragStart}
+            onSelectIssue={setSelectedIssue}
+          />
+        </div>
+      ) : (
+        <div className={styles.listViewContainer}>
+          <table className={styles.issueTable}>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Issue</th>
+                <th>Location</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {issuesData?.map((issue) => (
+                <tr 
+                  key={issue.id} 
+                  className={styles.issueTableRow}
+                  onClick={() => setSelectedIssue(issue)}
+                >
+                  <td>
+                    <span className={styles.issueCodeCell}>{issue.code || '---'}</span>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 600 }}>{issue.title}</span>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>{formatEntityName(issue.department)}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                      <MapPin size={14} style={{ color: '#94a3b8' }} />
+                      <span>{formatEntityName(issue.location)}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span 
+                      className={styles.issuePriorityBadge}
+                      style={{ 
+                        background: issue.priority === 'CRITICAL' ? '#fee2e2' : 
+                                   issue.priority === 'HIGH' ? '#ffedd5' :
+                                   issue.priority === 'MEDIUM' ? '#fef9c3' : '#dcfce7',
+                        color: issue.priority === 'CRITICAL' ? '#ef4444' : 
+                               issue.priority === 'HIGH' ? '#f97316' :
+                               issue.priority === 'MEDIUM' ? '#ca8a04' : '#16a34a'
+                      }}
+                    >
+                      <AlertCircle size={12} />
+                      {issue.priority}
+                    </span>
+                  </td>
+                  <td>
+                    <span 
+                      className={styles.issueStatusBadge}
+                      style={{ 
+                        background: issue.status === 'PENDING' ? 'rgba(239, 68, 68, 0.1)' : 
+                                   issue.status === 'IN_PROGRESS' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+                        color: issue.status === 'PENDING' ? '#ef4444' : 
+                               issue.status === 'IN_PROGRESS' ? '#f59e0b' : '#22c55e'
+                      }}
+                    >
+                      {issue.status.replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>
+                      {new Date(issue.createdAt).toLocaleDateString()}
+                    </span>
+                  </td>
+                  <td>
+                    <button className={styles.issueActionBtn}>
+                      <ChevronRight size={18} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -617,7 +763,10 @@ export default function IssueManagementPage() {
                 >
                   {selectedIssue.priority} Priority
                 </span>
-                <h3 className={styles.modalTitle}>{selectedIssue.title}</h3>
+                <h3 className={styles.modalTitle}>
+                  {selectedIssue.code && <span style={{ color: '#64748b', marginRight: '8px' }}>[{selectedIssue.code}]</span>}
+                  {selectedIssue.title}
+                </h3>
                 <p className={styles.modalSubtitle}>Issue details and resolution tracking</p>
               </div>
               <button className={styles.closeBtn} onClick={() => setSelectedIssue(null)}>
@@ -770,7 +919,11 @@ export default function IssueManagementPage() {
                     <div className={styles.controlItem}>
                       <label style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px', display: 'block' }}>Assign Owner</label>
                       <select 
-                        defaultValue="unassigned"
+                        value={typeof selectedIssue.assignee === 'object' ? selectedIssue.assignee?.id : selectedIssue.assignee || 'unassigned'}
+                        onChange={(e) => setSelectedIssue({
+                          ...selectedIssue,
+                          assignee: e.target.value === 'unassigned' ? null : e.target.value
+                        })}
                         style={{
                           width: '100%',
                           padding: '10px 12px',
@@ -781,11 +934,35 @@ export default function IssueManagementPage() {
                         }}
                       >
                         <option value="unassigned">Unassigned</option>
-                        {departmentUsers.map((user: any) => (
+                        {departmentUsers.map((user) => (
                           <option key={user.id} value={user.id}>
                             {user.firstName} {user.lastName} ({user.role})
                           </option>
                         ))}
+                      </select>
+                    </div>
+
+                    <div className={styles.controlItem} style={{ marginTop: '12px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px', display: 'block' }}>Update Priority</label>
+                      <select 
+                        value={selectedIssue.priority}
+                        onChange={(e) => setSelectedIssue({
+                          ...selectedIssue,
+                          priority: e.target.value as Priority
+                        })}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '10px',
+                          fontSize: '14px',
+                          background: 'white'
+                        }}
+                      >
+                        <option value="LOW">Low</option>
+                        <option value="MEDIUM">Medium</option>
+                        <option value="HIGH">High</option>
+                        <option value="CRITICAL">Critical</option>
                       </select>
                     </div>
                   </div>
@@ -802,9 +979,12 @@ export default function IssueManagementPage() {
             <div className={styles.modalActions}>
               <button className={styles.cancelBtn} onClick={() => setSelectedIssue(null)}>Close</button>
               <button className={styles.createButton} onClick={() => {
+                const assigneeId = typeof selectedIssue.assignee === 'object' ? selectedIssue.assignee?.id : selectedIssue.assignee;
                 updateStatusMutation.mutate({ 
-                  uuid: selectedIssue.uuid, 
-                  status: selectedIssue.status 
+                  id: selectedIssue.id, 
+                  status: selectedIssue.status,
+                  priority: selectedIssue.priority,
+                  assignee: assigneeId === 'unassigned' ? null : assigneeId
                 });
                 setSelectedIssue(null);
               }}>
