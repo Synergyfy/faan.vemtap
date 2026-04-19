@@ -62,6 +62,22 @@ export enum TimeRange {
   CUSTOM = 'CUSTOM',
 }
 
+export enum IssueCategory {
+  FACILITIES = 'FACILITIES',
+  CLEANING = 'CLEANING',
+  SECURITY = 'SECURITY',
+  IT_INTERNET = 'IT_INTERNET',
+  POWER = 'POWER',
+  HVAC = 'HVAC',
+  STAFF_CONDUCT = 'STAFF_CONDUCT',
+  PASENGER_FLOW = 'PASENGER_FLOW',
+  LIGHTING = 'LIGHTING',
+  WATER_RESTROOMS = 'WATER_RESTROOMS',
+  SIGNAGE = 'SIGNAGE',
+  GENERAL = 'GENERAL',
+}
+
+
 // --- Global Response Envelope ---
 
 export interface ApiResponse<T> {
@@ -442,6 +458,19 @@ export interface AnalyticsDistribution {
   byPriority: DistributionItem[];
   byCategory: DistributionItem[];
 }
+
+export interface ZoneHealthMetric {
+  id: number;
+  label: string;
+  value: number;
+  status: 'green' | 'yellow' | 'red';
+  desc: string;
+}
+
+export interface ZoneHealthResponse {
+  data: ZoneHealthMetric[];
+}
+
 
 export interface Activity {
   id: string;

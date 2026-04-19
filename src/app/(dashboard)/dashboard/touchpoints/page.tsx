@@ -80,14 +80,15 @@ export default function TouchpointsPage() {
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
 
   const { data: tpData, isLoading: tpLoading } = useTouchpoints({
-    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : (selectedLocIds.length > 0 ? selectedLocIds[0] : undefined)) || undefined
+    locationId: currentLocation || undefined
   });
 
   const { data: formsData } = useTouchpoints();
   const { data: locationsData } = useLocations();
   const { data: deptsData } = useDepartments({ 
-    locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || undefined) : (selectedLocIds.length > 0 ? selectedLocIds[0] : undefined) 
+    locationId: currentLocation || undefined 
   });
+
 
   const createMutation = useCreateTouchpoint();
   const updateMutation = useUpdateTouchpoint();

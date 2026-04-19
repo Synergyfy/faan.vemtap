@@ -102,15 +102,18 @@ export default function ReportsPage() {
   const { data: reportsData, isLoading: reportsLoading } = useReports({
     status: filterStatus !== 'all' ? filterStatus : undefined,
     departmentId: filterDepartment !== 'all' ? filterDepartment : undefined,
-    locationId: currentRole !== 'SUPER_ADMIN' ? (currentLocation || undefined) : undefined,
+    locationId: currentLocation || undefined,
     from: filterDateFrom || undefined,
     to: filterDateTo || undefined,
   });
   const { data: templatesData, isLoading: templatesLoading } = useReportTemplates({
-    locationId: currentRole !== 'SUPER_ADMIN' ? (currentLocation || undefined) : undefined,
+    locationId: currentLocation || undefined,
   });
   const { data: locationsData } = useLocations();
-  const { data: departmentsData } = useDepartments();
+  const { data: departmentsData } = useDepartments({ 
+    locationId: currentLocation || undefined 
+  });
+
 
   const createReportMutation = useCreateReport();
   const createTemplateMutation = useCreateReportTemplate();

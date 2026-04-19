@@ -117,7 +117,8 @@ export default function DashboardLayout({
     permissions,
     availableLocations,
     switchLocation,
-    switchRole
+    switchRole,
+    currentLocation
   } = useRole();
   
   const { data: profile } = useProfile();
@@ -128,15 +129,20 @@ export default function DashboardLayout({
 
   // Sync real profile role to mock switcher on initial load
   useEffect(() => {
-    if (profile?.role) {
+    if (profile?.role && profile.role !== currentRole) {
       switchRole(profile.role as any);
     }
-  }, [profile?.role, switchRole]);
+  }, [profile?.role, currentRole, switchRole]);
+
 
   const filteredMenuItems = MENU_ITEMS.filter((item) => {
     if (!item.allowedRoles) return true;
     if (!item.allowedRoles.includes(currentRole)) return false;
     if (item.requiredPermission && !permissions[item.requiredPermission]) return false;
+    
+    // Hide "Locations" management link if a specific location is selected
+    if (item.href === "/dashboard/locations" && currentLocation) return false;
+    
     return true;
   });
 
@@ -234,20 +240,34 @@ export default function DashboardLayout({
                 </button>
                 {locationDropdownOpen && (
                   <div className={styles.locationDropdown}>
-                    <div className={styles.dropdownHeader}>All Locations</div>
-                    {availableLocations.map((loc) => (
+                    <div className={styles.dropdownHeader}>Select Location</div>
+                    {currentLocation && (
                       <button
-                        key={loc.id}
-                        className={`${styles.dropdownItem} ${locationName === loc.name ? styles.dropdownItemActive : ""}`}
+                        className={styles.dropdownItem}
                         onClick={() => {
-                          switchLocation(loc.id);
+                          switchLocation(null);
                           setLocationDropdownOpen(false);
                         }}
                       >
-                        <MapPin size={14} />
-                        <span>{loc.name}</span>
+                        <Building2 size={14} />
+                        <span>All Locations</span>
                       </button>
-                    ))}
+                    )}
+                    {availableLocations
+                      .filter(loc => loc.id !== currentLocation)
+                      .map((loc) => (
+                        <button
+                          key={loc.id}
+                          className={`${styles.dropdownItem} ${locationName === loc.name ? styles.dropdownItemActive : ""}`}
+                          onClick={() => {
+                            switchLocation(loc.id);
+                            setLocationDropdownOpen(false);
+                          }}
+                        >
+                          <MapPin size={14} />
+                          <span>{loc.name}</span>
+                        </button>
+                      ))}
                   </div>
                 )}
               </div>

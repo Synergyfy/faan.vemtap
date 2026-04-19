@@ -74,31 +74,31 @@ export default function DashboardPage() {
     const base = [
       { 
         label: "Total Engagement", 
-        value: summary.totalSubmissions.toLocaleString(), 
-        change: formatGrowth(summary.totalSubmissionsGrowth), 
-        trendingUp: summary.totalSubmissionsGrowth >= 0, 
+        value: (summary.totalSubmissions + summary.totalIssues).toLocaleString(), 
+        change: formatGrowth(summary.totalIssuesGrowth), 
+        trendingUp: summary.totalIssuesGrowth >= 0, 
         icon: Users, 
         color: "#157347" 
       },
       { 
-        label: "Feedback Received", 
-        value: summary.feedbacks.toLocaleString(), 
-        change: "+0%", // Needs separate growth field in backend if desired, using 0% for now
+        label: "Issues Logged", 
+        value: summary.totalIssues.toLocaleString(), 
+        change: formatGrowth(summary.totalIssuesGrowth), 
         trendingUp: true, 
-        icon: MessageSquare, 
+        icon: AlertCircle, 
         color: "#2563eb" 
       },
       { 
         label: "Open Issues", 
-        value: summary.openSubmissions.toLocaleString(), 
-        change: formatGrowth(summary.totalIssuesGrowth), 
-        trendingUp: summary.totalIssuesGrowth < 0, // Less issues is good
-        icon: AlertCircle, 
+        value: (summary.pendingIssues + summary.inProgressIssues).toLocaleString(), 
+        change: "Active", 
+        trendingUp: summary.inProgressIssues > 0, 
+        icon: MessageSquare, 
         color: "#f59e0b" 
       },
       { 
         label: "Resolved Issues", 
-        value: summary.resolvedSubmissions.toLocaleString(), 
+        value: (summary.resolvedIssues + summary.closedIssues).toLocaleString(), 
         change: formatGrowth(summary.resolvedIssuesGrowth), 
         trendingUp: summary.resolvedIssuesGrowth >= 0, 
         icon: CheckCircle2, 
@@ -117,7 +117,7 @@ export default function DashboardPage() {
       });
       base.push({ 
         label: "Response Time", 
-        value: summary.avgResponseTime ? `${summary.avgResponseTime}m` : "N/A", 
+        value: (summary.avgResponseTime !== undefined && summary.avgResponseTime !== null) ? `${summary.avgResponseTime}m` : "N/A", 
         change: "-0m", 
         trendingUp: false, 
         icon: Clock, 
