@@ -48,6 +48,7 @@ import {
   ReportTemplateField,
   CreateReportTemplateDto
 } from "@/types/api";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Text Input', icon: Type, color: '#3b82f6' },
@@ -97,6 +98,24 @@ export default function ReportsPage() {
   const [filterDateTo, setFilterDateTo] = useState<string>("");
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    title?: string;
+    itemName: string;
+    itemType: any;
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    itemName: '',
+    itemType: 'report' as any,
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [] as string[],
+    onConfirm: () => {},
+  });
   
   const [isCreateTemplateOpen, setIsCreateTemplateOpen] = useState(false);
   const [isSubmitReportOpen, setIsSubmitReportOpen] = useState(false);
@@ -425,6 +444,75 @@ export default function ReportsPage() {
     setActiveDropdown(null);
   };
 
+  const confirmDeleteReport = (report: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: "Delete Report",
+      itemName: report.title,
+      itemType: 'report',
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [],
+      onConfirm: () => {
+        // Implement delete report mutation if available, 
+        // for now we just handle local state if it's mock or needs implementation
+        handleDeleteReport(report.id);
+        setDeleteModal(prev => ({ ...prev, isOpen: false }));
+        toast.success("Report deleted successfully");
+        setActiveDropdown(null);
+      }
+    });
+  };
+
+  const confirmDeleteTemplate = (template: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: "Delete Template",
+      itemName: template.name,
+      itemType: 'template',
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [],
+      onConfirm: () => {
+        deleteTemplateMutation.mutate(template.id, {
+          onSuccess: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            toast.success("Template deleted successfully");
+          }
+        });
+      }
+    });
+  };
+
+  const confirmDeleteTemplateGroup = (gt: any) => {
+    const locationsList = gt.instances.map((inst: any) => {
+      const locName = inst.locationName || roleLocationName || 'Unnamed Airport';
+      const deptName = inst.departmentName;
+      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
+    });
+
+    setDeleteModal({
+      isOpen: true,
+      itemName: gt.name,
+      itemType: 'template',
+      isGroup: true,
+      instanceCount: gt.instances.length,
+      affectedItems: locationsList,
+      onConfirm: () => {
+        const promises = gt.instances.map((inst: any) => deleteTemplateMutation.mutateAsync(inst.id));
+        toast.promise(Promise.all(promises), {
+          loading: 'Deleting templates...',
+          success: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            setActiveDropdown(null);
+            return 'All instances deleted successfully';
+          },
+          error: 'Failed to delete some templates'
+        });
+      }
+    });
+  };
+
   const getStatusConfig = (status: string) => {
     switch (status.toLowerCase()) {
       case 'draft': return { bg: '#f1f5f9', color: '#64748b', label: 'Draft' };
@@ -701,7 +789,7 @@ export default function ReportsPage() {
                             className={`${styles.dropdownItem} ${styles.danger}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDeleteReport(report.id);
+                              confirmDeleteReport(report);
                             }}
                           >
                             <Trash2 size={14} /> Delete
@@ -870,7 +958,7 @@ export default function ReportsPage() {
                                 className={`${styles.dropdownItem} ${styles.danger}`}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleDeleteTemplate(inst.id);
+                                  confirmDeleteTemplate(inst);
                                 }}
                               >
                                 <Trash2 size={14} /> Delete
@@ -931,6 +1019,31 @@ export default function ReportsPage() {
                     <div className={styles.deptCardHeader}>
                       <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
                         <LayoutTemplate size={24} />
+                      </div>
+                      <div className={styles.cardMenuWrapper}>
+                        <button
+                          className={styles.cardMore}
+                          aria-label={`Actions for ${template.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveDropdown(activeDropdown === template.name ? null : template.name);
+                          }}
+                        >
+                          <MoreVertical size={18} />
+                        </button>
+                        {activeDropdown === template.name && (
+                          <div className={styles.cardDropdown}>
+                            <button
+                              className={`${styles.dropdownItem} ${styles.danger}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                confirmDeleteTemplateGroup(template);
+                              }}
+                            >
+                              <Trash2 size={14} /> {template.instances.length > 1 ? "Delete Group" : "Delete"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -2192,6 +2305,18 @@ export default function ReportsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={deleteTemplateMutation.isPending || createReportMutation.isPending}
+      />
 
       {showQrPreview && currentTemplate && (
         <div className={styles.modalOverlay} onClick={() => { setShowQrPreview(false); setDownloadDropdownOpen(false); }}>

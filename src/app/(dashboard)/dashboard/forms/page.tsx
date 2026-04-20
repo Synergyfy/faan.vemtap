@@ -42,6 +42,7 @@ import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/t
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { MultiSelect } from "@/components/displays/MultiSelect";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 const FIELD_TYPES = [
   { value: 'rating', label: 'Rating', icon: Star, color: '#f59e0b' },
@@ -103,14 +104,23 @@ export default function FormsPage() {
   const [wizardStep, setWizardStep] = useState(1);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteData, setDeleteData] = useState<{
-    type: 'SINGLE' | 'GROUP';
-    id?: string;
-    ids?: string[];
-    title: string;
-    count?: number;
-  } | null>(null);
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    itemName: string;
+    itemType: 'form';
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    itemName: '',
+    itemType: 'form',
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [],
+    onConfirm: () => {},
+  });
 
   const createMutation = useCreateTouchpoint();
   const updateMutation = useUpdateTouchpoint();
@@ -259,31 +269,53 @@ export default function FormsPage() {
     });
   };
 
-  const confirmDelete = async () => {
-    if (!deleteData) return;
-
-    if (deleteData.type === 'SINGLE' && deleteData.id) {
-      deleteMutation.mutate(deleteData.id, {
-        onSuccess: () => {
-          if (selectedForm?.id === deleteData.id) setSelectedForm(null);
-          toast.success(`Form "${deleteData.title}" deleted successfully`);
-          setShowDeleteModal(false);
-          setDeleteData(null);
-        },
-        onError: () => {
-          toast.error("Failed to delete form");
-        }
-      });
-    } else if (deleteData.type === 'GROUP' && deleteData.ids) {
-      try {
-        await Promise.all(deleteData.ids.map(id => deleteMutation.mutateAsync(id)));
-        toast.success(`Group "${deleteData.title}" and all its instances deleted successfully`);
-        setShowDeleteModal(false);
-        setDeleteData(null);
-      } catch (error) {
-        toast.error("Failed to delete some forms in the group");
+  const confirmDeleteForm = (tp: any) => {
+    setDeleteModal({
+      isOpen: true,
+      itemName: tp.title,
+      itemType: 'form',
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [],
+      onConfirm: () => {
+        deleteMutation.mutate(tp.id, {
+          onSuccess: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            toast.success("Form deleted successfully");
+            if (activeDropdown === tp.id) setActiveDropdown(null);
+          }
+        });
       }
-    }
+    });
+  };
+
+  const confirmDeleteGroup = (groupedForm: any) => {
+    const locationsList = groupedForm.instances.map((inst: any) => {
+      const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
+      const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
+      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
+    });
+
+    setDeleteModal({
+      isOpen: true,
+      itemName: groupedForm.title,
+      itemType: 'form',
+      isGroup: true,
+      instanceCount: groupedForm.instances.length,
+      affectedItems: locationsList,
+      onConfirm: () => {
+        const promises = groupedForm.instances.map((inst: any) => deleteMutation.mutateAsync(inst.id));
+        toast.promise(Promise.all(promises), {
+          loading: 'Deleting forms...',
+          success: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            setActiveDropdown(null);
+            return 'All instances deleted successfully';
+          },
+          error: 'Failed to delete some forms'
+        });
+      }
+    });
   };
 
   const resetWizard = () => {
@@ -504,13 +536,7 @@ export default function FormsPage() {
                             className={`${styles.dropdownItem} ${styles.danger}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setDeleteData({
-                                type: 'SINGLE',
-                                id: tp.id,
-                                title: tp.title
-                              });
-                              setShowDeleteModal(true);
-                              setActiveDropdown(null);
+                              confirmDeleteForm(tp);
                             }}
                           >
                             <Trash2 size={14} /> Delete Form
@@ -614,23 +640,16 @@ export default function FormsPage() {
                             setActiveDropdown(null);
                           }}
                         >
-                          <Edit size={14} /> {groupedForm.instances.length > 1 ? "Edit Group" : "Edit Form"}
+                          <Edit size={14} /> {groupedForm.instances.length > 1 ? "Edit Group" : "Edit"}
                         </button>
                         <button
                           className={`${styles.dropdownItem} ${styles.danger}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setDeleteData({
-                              type: 'GROUP',
-                              ids: groupedForm.instances.map((i: any) => i.id),
-                              title: groupedForm.title,
-                              count: groupedForm.instances.length
-                            });
-                            setShowDeleteModal(true);
-                            setActiveDropdown(null);
+                            confirmDeleteGroup(groupedForm);
                           }}
                         >
-                          <Trash2 size={14} /> {groupedForm.instances.length > 1 ? "Delete Group" : "Delete Form"}
+                          <Trash2 size={14} /> {groupedForm.instances.length > 1 ? "Delete Group" : "Delete"}
                         </button>
                       </div>
                     )}
@@ -1322,12 +1341,7 @@ export default function FormsPage() {
                   </div>
                   <div className={styles.dangerZone}>
                     <button className={styles.archiveBtn} onClick={() => {
-                      setDeleteData({
-                        type: 'SINGLE',
-                        id: selectedForm.id,
-                        title: selectedForm.title
-                      });
-                      setShowDeleteModal(true);
+                      confirmDeleteForm(selectedForm);
                     }}>
                       <Trash2 size={16} /> Delete Form
                     </button>
@@ -1341,90 +1355,18 @@ export default function FormsPage() {
           </div>
         </div>
       )}
-      
-      {/* DELETE CONFIRMATION MODAL */}
-      {showDeleteModal && deleteData && (
-        <div className={styles.modalOverlay} style={{ zIndex: 1000 }}>
-          <div className={styles.modalContent} style={{ maxWidth: '450px', padding: '0', overflow: 'hidden' }}>
-            <div style={{ padding: '32px 32px 24px 32px', textAlign: 'center' }}>
-              <div style={{ 
-                width: '64px', 
-                height: '64px', 
-                borderRadius: '20px', 
-                background: '#fef2f2', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                margin: '0 auto 20px auto',
-                color: '#ef4444'
-              }}>
-                <Trash2 size={32} />
-              </div>
-              <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>
-                {deleteData.type === 'GROUP' ? 'Delete Form Group?' : 'Delete Form?'}
-              </h3>
-              <p style={{ fontSize: '14px', color: '#64748b', lineHeight: '1.6' }}>
-                {deleteData.type === 'GROUP' ? (
-                  <>Are you sure you want to delete <strong>{deleteData.title}</strong>? This will remove all <strong>{deleteData.count}</strong> instances of this form across all departments.</>
-                ) : (
-                  <>Are you sure you want to delete the form <strong>{deleteData.title}</strong>? This action cannot be undone.</>
-                )}
-              </p>
-            </div>
-            <div style={{ 
-              padding: '24px 32px', 
-              background: '#f8fafc', 
-              display: 'flex', 
-              gap: '12px',
-              borderTop: '1px solid #f1f5f9'
-            }}>
-              <button 
-                onClick={() => { setShowDeleteModal(false); setDeleteData(null); }}
-                style={{ 
-                  flex: 1,
-                  padding: '12px',
-                  borderRadius: '12px',
-                  border: '1px solid #e2e8f0',
-                  background: 'white',
-                  color: '#475569',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={confirmDelete}
-                disabled={deleteMutation.isPending}
-                style={{ 
-                  flex: 1,
-                  padding: '12px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: '#ef4444',
-                  color: 'white',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  opacity: deleteMutation.isPending ? 0.7 : 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px'
-                }}
-              >
-                {deleteMutation.isPending ? 'Deleting...' : (
-                  <>
-                    <Trash2 size={16} />
-                    Confirm Delete
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={deleteMutation.isPending}
+      />
     </div>
   );
 }

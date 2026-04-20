@@ -36,13 +36,19 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+}
+
+.nav::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 .navItem {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 12px 48px 12px 16px;
   border-radius: 12px;
   color: #64748b;
   font-weight: 500;
@@ -58,6 +64,77 @@
 .navItemActive {
   background-color: var(--brand-green-light);
   color: var(--brand-green);
+}
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.subMenuChevron {
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+
+.chevronToggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  padding: 8px;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.chevronToggle:hover {
+  background-color: #f1f5f9;
+}
+
+.chevronRotated {
+  transform: rotate(180deg);
+}
+
+.subMenu {
+  padding: 4px 0 8px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subNavItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.subNavItem:hover {
+  background-color: #f1f5f9;
+  color: var(--brand-green);
+}
+
+.subNavItemActive {
+  color: var(--brand-green);
+  font-weight: 600;
+}
+
+.subMenuDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: currentColor;
 }
 
 .sidebarFooter {
@@ -4459,4 +4536,28 @@ input:checked + .slider:before {
 .modalIconBox.warning {
   background-color: #fef3c7;
   color: #d97706;
+}
+
+/* Resource Wizard Styles */
+.miniBtn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.miniBtn:hover {
+  background-color: #f1f5f9;
+}
+
+.wizardSteps {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
 }

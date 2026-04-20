@@ -35,6 +35,7 @@ import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useL
 import { useCreateUser } from "@/hooks/useUsers";
 import { useZoneHealth } from "@/hooks/useAnalytics";
 import { Location, Department, Role } from "@/types/api";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 
 export default function LocationsPage() {
@@ -58,12 +59,56 @@ export default function LocationsPage() {
     { id: 2, name: "Mrs. Amina Bello", email: "amina.bello@faan.gov.ng", status: "Pending", phone: "+234 803 111 2222" },
   ]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    title?: string;
+    itemName: string;
+    itemType: 'location';
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    itemName: '',
+    itemType: 'location',
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [],
+    onConfirm: () => {},
+  });
 
   const createMutation = useCreateLocation();
   const deleteMutation = useDeleteLocation();
   const createUserMutation = useCreateUser();
 
   const locations = locationsData?.data || [];
+
+  const handleDeleteLocation = (id: string, name: string) => {
+    setDeleteModal({
+      isOpen: true,
+      title: "Delete Location",
+      itemName: name,
+      itemType: 'location',
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [],
+      onConfirm: () => {
+        deleteMutation.mutate(id, {
+          onSuccess: () => {
+            toast.success(`${name} deleted successfully`);
+            setSelectedLocation(null);
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+          },
+          onError: (error: any) => {
+            const axiosError = error as AxiosError<{ message: string | string[] }>;
+            const message = axiosError.response?.data?.message || "Failed to delete location";
+            toast.error(Array.isArray(message) ? message[0] : message);
+          }
+        });
+      }
+    });
+  };
 
   const [newAdmin, setNewAdmin] = useState({
     name: '',
@@ -320,10 +365,20 @@ export default function LocationsPage() {
             </div>
             <div style={{ display: 'flex', gap: '12px' }}>
               {selectedLocation && (
-                <button className={styles.createButton} onClick={() => setIsAdminModalOpen(true)}>
-                  <Plus size={18} />
-                  <span>Add Admin</span>
-                </button>
+                <>
+                  <button 
+                    className={styles.cancelBtn} 
+                    style={{ color: '#ef4444', border: '1px solid #fee2e2', background: '#fef2f2' }}
+                    onClick={() => handleDeleteLocation(selectedLocation.id, selectedLocation.name)}
+                  >
+                    <Trash2 size={18} />
+                    <span>Delete Location</span>
+                  </button>
+                  <button className={styles.createButton} onClick={() => setIsAdminModalOpen(true)}>
+                    <Plus size={18} />
+                    <span>Add Admin</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -719,6 +774,18 @@ export default function LocationsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={deleteMutation.isPending}
+      />
     </RoleGuard>
   );
 }
