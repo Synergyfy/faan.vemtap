@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, Suspense } from "react";
-import axios from "axios";
+import api from '@/lib/api';
 import { useSearchParams } from "next/navigation";
 import { format, startOfWeek, endOfWeek, addDays, subDays, startOfMonth, endOfMonth } from "date-fns";
 import ReactMarkdown from "react-markdown";
@@ -83,14 +83,15 @@ function SummaryReportsContents() {
   const fetchReports = async () => {
     setIsLoadingReports(true);
     try {
-      const res = await axios.get(`${API_URL}/system-reports`, {
+      const res = await api.get(`/system-reports`, {
         params: {
           reportType,
           category,
           locationId: isSuperAdmin ? undefined : locationId
         }
       });
-      const data = res.data.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const responseData = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      const data = [...responseData].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       
       if (data.length > 0) {
         if (reportType === SystemReportType.DAILY) {
@@ -118,14 +119,15 @@ function SummaryReportsContents() {
     setIsGenerating(true);
     setCurrentReport(null);
     try {
-      const res = await axios.post(`${API_URL}/system-reports/generate`, {
+      const res = await api.post(`/system-reports/generate`, {
         reportType,
         category,
         locationId: isSuperAdmin ? undefined : locationId,
         date: format(selectedDate, 'yyyy-MM-dd')
       });
       
-      setCurrentReport(res.data);
+      const reportData = res.data?.data || res.data;
+      setCurrentReport(reportData);
       toast.success("AI Report successfully generated!");
     } catch (error: any) {
       console.error("Error generating report", error);
@@ -137,11 +139,20 @@ function SummaryReportsContents() {
 
   const downloadPdf = async (id: string) => {
     try {
-      const url = `${API_URL}/system-reports/${id}/pdf`;
-      window.open(url, '_blank');
-      toast.success("Opening PDF...");
+      toast.loading("Generating PDF...", { id: 'pdfDownload' });
+      const response = await api.get(`/system-reports/${id}/pdf`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `report-${id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      toast.success("PDF downloaded successfully!", { id: 'pdfDownload' });
     } catch {
-      toast.error("Failed to download PDF.");
+      toast.error("Failed to download PDF.", { id: 'pdfDownload' });
     }
   };
 
@@ -151,7 +162,7 @@ function SummaryReportsContents() {
 
     try {
       toast.loading("Sending email...", { id: 'emailSend' });
-      await axios.post(`${API_URL}/system-reports/${id}/share`, { email });
+      await api.post(`/system-reports/${id}/share`, { email });
       toast.success("Report sent successfully!", { id: 'emailSend' });
     } catch (err) {
       toast.error("Failed to send email.", { id: 'emailSend' });
