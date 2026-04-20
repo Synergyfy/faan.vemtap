@@ -83,7 +83,7 @@ function SummaryReportsContents() {
   const fetchReports = async () => {
     setIsLoadingReports(true);
     try {
-      const res = await axios.get(`${API_URL}/reports/automated`, {
+      const res = await axios.get(`${API_URL}/system-reports`, {
         params: {
           reportType,
           category,
@@ -118,7 +118,7 @@ function SummaryReportsContents() {
     setIsGenerating(true);
     setCurrentReport(null);
     try {
-      const res = await axios.post(`${API_URL}/reports/automated/generate`, {
+      const res = await axios.post(`${API_URL}/system-reports/generate`, {
         reportType,
         category,
         locationId: isSuperAdmin ? undefined : locationId,
@@ -137,7 +137,7 @@ function SummaryReportsContents() {
 
   const downloadPdf = async (id: string) => {
     try {
-      const url = `${API_URL}/reports/automated/${id}/pdf`;
+      const url = `${API_URL}/system-reports/${id}/pdf`;
       window.open(url, '_blank');
       toast.success("Opening PDF...");
     } catch {
@@ -151,7 +151,7 @@ function SummaryReportsContents() {
 
     try {
       toast.loading("Sending email...", { id: 'emailSend' });
-      await axios.post(`${API_URL}/reports/automated/${id}/share`, { email });
+      await axios.post(`${API_URL}/system-reports/${id}/share`, { email });
       toast.success("Report sent successfully!", { id: 'emailSend' });
     } catch (err) {
       toast.error("Failed to send email.", { id: 'emailSend' });
@@ -159,7 +159,7 @@ function SummaryReportsContents() {
   };
 
   const handleWhatsAppShare = (id: string) => {
-    const url = `${API_URL}/reports/automated/${id}/pdf`;
+    const url = `${API_URL}/system-reports/${id}/pdf`;
     const message = `Here is the latest ${reportType} report from FAAN VEMTAP: ${url}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
     toast.success("Prepared for WhatsApp sharing.");
