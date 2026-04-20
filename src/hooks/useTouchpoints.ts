@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ApiResponse, PaginatedResponse, Touchpoint } from '@/types/api';
 
-export const useTouchpoints = (params?: Record<string, unknown>) => {
+export const useTouchpoints = (params?: Record<string, unknown>, options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['touchpoints', params],
     queryFn: async () => {
       const { data } = await api.get<ApiResponse<PaginatedResponse<Touchpoint>>>('/touchpoints', { params });
       return data.data;
     },
+    ...options,
   });
 };
 

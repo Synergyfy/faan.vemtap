@@ -47,13 +47,34 @@ export const useCreateReport = () => {
     },
   });
 };
-export const useReportTemplates = (params?: Record<string, unknown>) => {
+
+export const useCreateReportPublic = () => {
+  return useMutation({
+    mutationFn: async (reportData: Record<string, unknown>) => {
+      const { data } = await api.post<ApiResponse<InternalReport>>('/reports/submit-public', reportData);
+      return data.data;
+    },
+  });
+};
+export const useReportTemplates = (params?: Record<string, unknown>, options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['report-templates', params],
     queryFn: async () => {
       const { data } = await api.get<ApiResponse<PaginatedResponse<ReportTemplate>>>('/report-templates', { params });
       return data.data;
     },
+    ...options,
+  });
+};
+
+export const useReportTemplatePublic = (id: string) => {
+  return useQuery({
+    queryKey: ['report-template-public', id],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<ReportTemplate>>(`/report-templates/${id}/public`);
+      return data.data;
+    },
+    enabled: !!id,
   });
 };
 
@@ -77,6 +98,34 @@ export const useDeleteReportTemplate = () => {
   return useMutation({
     mutationFn: async (uuid: string) => {
       await api.delete(`/report-templates/${uuid}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['report-templates'] });
+    },
+  });
+};
+
+export const useUpdateReportTemplate = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<CreateReportTemplateDto> }) => {
+      const response = await api.patch<ApiResponse<ReportTemplate>>(`/report-templates/${id}`, data);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['report-templates'] });
+    },
+  });
+};
+
+export const useShareReportTemplate = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, departmentIds, locationIds }: { id: string; departmentIds?: string[]; locationIds?: string[] }) => {
+      const response = await api.post<ApiResponse<ReportTemplate>>(`/report-templates/${id}/share`, { departmentIds, locationIds });
+      return response.data.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['report-templates'] });

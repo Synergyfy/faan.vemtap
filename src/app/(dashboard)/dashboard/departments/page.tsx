@@ -23,9 +23,12 @@ import {
   ChevronRight,
   ChevronLeft,
   Eye,
-  EyeOff
+  EyeOff,
+  ClipboardList,
+  CheckCircle2,
+  LayoutTemplate
 } from "lucide-react";
-import { Department } from "@/types/api";
+import { Department, Touchpoint, ReportTemplate } from "@/types/api";
 
 interface DeptAdmin {
   id: string | number;
@@ -54,12 +57,16 @@ import {
   useCreateDepartment,
   useUpdateDepartment,
   useArchiveDepartment,
+  useDeleteDepartment,
   useAssignDepartmentAdmin
 } from "@/hooks/useDepartments";
 import { useLocations } from "@/hooks/useLocations";
+import { useReportTemplates, useUpdateReportTemplate, useShareReportTemplate } from "@/hooks/useReports";
+import { useTouchpoints, useUpdateTouchpoint } from "@/hooks/useTouchpoints";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { MultiSelect } from "@/components/displays/MultiSelect";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 const DEPT_ACCENTS = [
   { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
@@ -82,12 +89,30 @@ export default function DepartmentsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
-  const [activeTab, setActiveTab] = useState("users");
+  const [activeTab, setActiveTab] = useState("admins");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [editingDept, setEditingDept] = useState<Department | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    title?: string;
+    itemName: string;
+    itemType: 'department';
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    itemName: '',
+    itemType: 'department',
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [],
+    onConfirm: () => {},
+  });
 
   const [newDept, setNewDept] = useState({
     name: '',
@@ -110,18 +135,131 @@ export default function DepartmentsPage() {
   const [tempQR, setTempQR] = useState<QRLink[]>([]);
   const [newQRDetails, setNewQRDetails] = useState({ name: "", airport: "Abuja International" });
 
+  const [selectedFormId, setSelectedFormId] = useState("");
+  const [selectedTouchpointId, setSelectedTouchpointId] = useState("");
+
+  const [formLinkingStep, setFormLinkingStep] = useState(1);
+  const [formLinkingType, setFormLinkingType] = useState<'internal' | 'feedback' | ''>('');
+  const [formSubTab, setFormSubTab] = useState<'internal' | 'feedback'>('internal');
+  const [linkLocationId, setLinkLocationId] = useState("");
+  const [linkDeptId, setLinkDeptId] = useState("");
+
 
   // Queries
   const { data: deptsData, isLoading: deptsLoading } = useDepartments({
-    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : undefined) || undefined
+    locationId: currentLocation || undefined
   });
+
   const { data: locationsData } = useLocations();
 
   // Mutations
   const createMutation = useCreateDepartment();
   const updateMutation = useUpdateDepartment();
   const archiveMutation = useArchiveDepartment();
+  const deleteMutation = useDeleteDepartment();
   const assignAdminMutation = useAssignDepartmentAdmin();
+  
+  const { data: allTemplatesData } = useReportTemplates({
+    locationId: currentLocation || undefined
+  });
+  
+  const { data: allTouchpointsData } = useTouchpoints({
+    locationId: currentLocation || undefined
+  });
+
+  const { data: linkDeptsData } = useDepartments({
+    locationId: linkLocationId || undefined
+  }, { enabled: isAssigning && !!linkLocationId });
+
+  const { data: wizardTemplatesData } = useReportTemplates({
+    locationId: linkLocationId || undefined,
+    departmentId: linkDeptId || undefined
+  }, { enabled: isAssigning && formLinkingStep === 3 && formSubTab === 'internal' && !!linkDeptId });
+
+  const { data: wizardTouchpointsData } = useTouchpoints({
+    locationId: linkLocationId || undefined,
+    departmentId: linkDeptId || undefined,
+    type: 'FEEDBACK'
+  }, { enabled: isAssigning && formLinkingStep === 3 && formSubTab === 'feedback' && !!linkDeptId });
+
+  const updateTemplateMutation = useUpdateReportTemplate();
+  const shareTemplateMutation = useShareReportTemplate();
+  const updateTouchpointMutation = useUpdateTouchpoint();
+
+  // Create lookup maps for names
+  const deptMap = (deptsData?.data || []).reduce((acc: any, d: any) => {
+    acc[d.id] = d.name;
+    return acc;
+  }, {});
+  
+  const locMap = (locationsData?.data || []).reduce((acc: any, l: any) => {
+    acc[l.id] = l.name;
+    return acc;
+  }, {});
+
+  const allTemplates = allTemplatesData?.data || [];
+  const allTouchpoints = allTouchpointsData?.data || [];
+  const wizardTemplates = wizardTemplatesData?.data || [];
+  const wizardTouchpoints = wizardTouchpointsData?.data || [];
+  const linkDepts = linkDeptsData?.data || [];
+
+  const handleLinkTemplate = () => {
+    if (!selectedFormId || !selectedDept) return;
+    
+    const template = wizardTemplates.find(t => t.id === selectedFormId || t.uuid === selectedFormId);
+    if (!template) {
+      toast.error("Form not found in the selected criteria");
+      return;
+    }
+
+    if (template.departmentId === selectedDept.id) {
+      toast.error("This form is already added to this department");
+      return;
+    }
+
+    shareTemplateMutation.mutate({
+      id: template.uuid || template.id,
+      departmentIds: [selectedDept.id]
+    }, {
+      onSuccess: () => {
+        toast.success("Report template linked successfully");
+        setIsAssigning(false);
+        setFormLinkingStep(1);
+        setLinkDeptId("");
+        setSelectedFormId("");
+      }
+    });
+  };
+
+  const handleLinkTouchpoint = () => {
+    if (!selectedFormId || !selectedDept) return;
+
+    const touchpoint = wizardTouchpoints.find(tp => tp.id === selectedFormId || tp.uuid === selectedFormId);
+    if (!touchpoint) {
+      toast.error("Touchpoint not found in the selected criteria");
+      return;
+    }
+
+    if (touchpoint.departmentId === selectedDept.id) {
+      toast.error("This touchpoint is already in this department");
+      return;
+    }
+
+    updateTouchpointMutation.mutate({
+      uuid: touchpoint.uuid || touchpoint.id,
+      data: {
+        departmentId: selectedDept.id
+      }
+    }, {
+      onSuccess: () => {
+        toast.success("Touchpoint linked successfully");
+        setIsAssigning(false);
+        setFormLinkingStep(1);
+        setLinkDeptId("");
+        setSelectedFormId("");
+      }
+    });
+  };
 
   const handleAddDept = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,9 +323,101 @@ export default function DepartmentsPage() {
     }
   };
 
-  const handleArchiveDept = (uuid: string) => {
-    archiveMutation.mutate(uuid);
+  const handleArchiveDept = (uuid: string, name: string) => {
+    setDeleteModal({
+      isOpen: true,
+      title: "Archive Department",
+      itemName: name,
+      itemType: 'department',
+      isGroup: false,
+      instanceCount: 1,
+      onConfirm: () => {
+        archiveMutation.mutate(uuid, {
+          onSuccess: () => {
+            toast.success("Department archived successfully");
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+          }
+        });
+      }
+    });
     setActiveDropdown(null);
+  };
+
+  const handleDeleteDept = (id: string, name: string) => {
+    setDeleteModal({
+      isOpen: true,
+      title: "Delete Department",
+      itemName: name,
+      itemType: 'department',
+      isGroup: false,
+      instanceCount: 1,
+      onConfirm: () => {
+        deleteMutation.mutate(id, {
+          onSuccess: () => {
+            toast.success("Department deleted successfully");
+            if (drilldownGroup && drilldownGroup.instances.length === 1) {
+              setDrilldownGroup(null);
+            }
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+          },
+          onError: (error: any) => {
+            const axiosError = error as AxiosError<{ message: string }>;
+            toast.error(axiosError.response?.data?.message || "Failed to delete department");
+          }
+        });
+      }
+    });
+    setActiveDropdown(null);
+  };
+
+  const confirmArchive = (uuid: string, name: string) => {
+    setDeleteModal({
+      isOpen: true,
+      title: "Confirm Archive",
+      itemName: name,
+      itemType: 'department',
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [],
+      onConfirm: () => {
+        archiveMutation.mutate(uuid, {
+          onSuccess: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            toast.success(`${name} archived successfully`);
+          }
+        });
+      }
+    });
+  };
+
+  const confirmArchiveGroup = (groupedDept: any) => {
+    const locationsList = groupedDept.instances.map((inst: any) => {
+      const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
+      const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
+      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
+    });
+
+    setDeleteModal({
+      isOpen: true,
+      title: "Archive Group",
+      itemName: groupedDept.name,
+      itemType: 'department',
+      isGroup: true,
+      instanceCount: groupedDept.instances.length,
+      affectedItems: locationsList,
+      onConfirm: () => {
+        const promises = groupedDept.instances.map((inst: any) => archiveMutation.mutateAsync(inst.id));
+        toast.promise(Promise.all(promises), {
+          loading: 'Archiving instances...',
+          success: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            setActiveDropdown(null);
+            return 'All instances archived successfully';
+          },
+          error: 'Failed to archive some instances'
+        });
+      }
+    });
   };
 
   const departments = deptsData?.data || [];
@@ -521,6 +751,15 @@ export default function DepartmentsPage() {
                           >
                             <Edit size={14} /> Edit
                           </button>
+                          <button
+                            className={`${styles.dropdownItem} ${styles.danger}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmArchive(inst.id as string, inst.name);
+                            }}
+                          >
+                            <Trash2 size={14} /> Archive
+                          </button>
                         </div>
                       )}
                     </div>
@@ -538,11 +777,11 @@ export default function DepartmentsPage() {
                   <div className={styles.deptCardMetrics}>
                     <div className={styles.deptMetric}>
                       <Users size={14} />
-                      <span>{inst.personnel?.length || 0} Staff</span>
+                      <span>{inst.staffCount || inst.users?.length || 0} Staff</span>
                     </div>
                     <div className={styles.deptMetric}>
                       <MousePointer2 size={14} />
-                      <span>{inst.touchpoints?.length || 0} QRs</span>
+                      <span>{inst.touchpointCount ?? inst.touchpoints?.length ?? 0} QRs</span>
                     </div>
                   </div>
 
@@ -614,7 +853,64 @@ export default function DepartmentsPage() {
                             setActiveDropdown(null);
                           }}
                         >
-                          <Edit size={14} /> Edit Group
+                          <Edit size={14} /> {groupedDept.instances.length > 1 ? "Edit Group" : "Edit"}
+                        </button>
+                        <button
+                          className={`${styles.dropdownItem} ${styles.danger}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirmArchiveGroup(groupedDept);
+                          }}
+                        >
+                          <Trash2 size={14} /> {groupedDept.instances.length > 1 ? "Archive Group" : "Archive"}
+                        </button>
+                        <button
+                          className={`${styles.dropdownItem} ${styles.deleteItem}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (groupedDept.instances.length === 1) {
+                              setDeleteModal({
+                                isOpen: true,
+                                title: "Delete Department",
+                                itemName: groupedDept.name,
+                                itemType: 'department',
+                                isGroup: false,
+                                instanceCount: 1,
+                                onConfirm: () => {
+                                  deleteMutation.mutate(primaryInstance.id);
+                                  setDeleteModal(prev => ({ ...prev, isOpen: false }));
+                                  setActiveDropdown(null);
+                                }
+                              });
+                            } else {
+                              setDeleteModal({
+                                isOpen: true,
+                                title: "Delete All Instances",
+                                itemName: groupedDept.name,
+                                itemType: 'department',
+                                isGroup: true,
+                                instanceCount: groupedDept.instances.length,
+                                affectedItems: groupedDept.instances.map((inst: any) => 
+                                  typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport')
+                                ),
+                                onConfirm: () => {
+                                  const promises = groupedDept.instances.map((inst: any) => deleteMutation.mutateAsync(inst.id));
+                                  toast.promise(Promise.all(promises), {
+                                    loading: 'Deleting instances...',
+                                    success: () => {
+                                      setDeleteModal(prev => ({ ...prev, isOpen: false }));
+                                      setActiveDropdown(null);
+                                      return 'All instances deleted successfully';
+                                    },
+                                    error: 'Failed to delete some instances'
+                                  });
+                                }
+                              });
+                            }
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <Trash2 size={14} /> {groupedDept.instances.length > 1 ? 'Delete All' : 'Delete'}
                         </button>
                       </div>
                     )}
@@ -803,11 +1099,11 @@ export default function DepartmentsPage() {
                 Admins
               </button>
               <button
-                className={`${styles.tabLink} ${activeTab === "users" ? styles.tabLinkActive : ""}`}
-                onClick={() => setActiveTab("users")}
+                className={`${styles.tabLink} ${activeTab === "forms" ? styles.tabLinkActive : ""}`}
+                onClick={() => setActiveTab("forms")}
               >
-                <Users size={18} />
-                Personnel
+                <ClipboardList size={18} />
+                Forms
               </button>
               <button
                 className={`${styles.tabLink} ${activeTab === "touchpoints" ? styles.tabLinkActive : ""}`}
@@ -833,125 +1129,333 @@ export default function DepartmentsPage() {
                     <h4 className={styles.builderLabel}>Department Admins</h4>
                   </div>
                   <div className={styles.resourceItems}>
-                    {deptAdmins.filter(a => a.departmentId === selectedDept?.id).length === 0 ? (
+                    {(selectedDept.users?.filter(u => u.role === 'DEPARTMENT_ADMIN') || []).length === 0 ? (
                       <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                         <Shield size={32} />
                         <p style={{ marginTop: '8px' }}>No admins assigned yet</p>
                         <p style={{ fontSize: '12px' }}>Click &quot;Add Admin&quot; to assign a department administrator</p>
                       </div>
                     ) : (
-                      deptAdmins.filter(a => a.departmentId === selectedDept?.id).map(admin => (
-                        <div key={admin.id} className={`${styles.resourceItem} ${styles.newResource}`}>
+                      (selectedDept.users?.filter(u => u.role === 'DEPARTMENT_ADMIN') || []).map(admin => (
+                        <div key={admin.id} className={styles.resourceItem}>
                           <div className={styles.resourceIcon}><Shield size={16} /></div>
                           <div className={styles.resourceInfo}>
-                            <strong>{admin.name}</strong>
+                            <strong>{admin.firstName} {admin.lastName}</strong>
                             <span>{admin.email}</span>
                           </div>
-                          <button
-                            className={styles.resourceRemove}
-                            onClick={() => setDeptAdmins(deptAdmins.filter(a => a.id !== admin.id))}
-                          >
-                            <X size={14} />
-                          </button>
                         </div>
                       ))
                     )}
                   </div>
                 </div>
-              ) : activeTab === "users" ? (
+              ) : activeTab === "forms" ? (
                 <div className={styles.resourceList}>
-                  <div className={styles.resourceHeader}>
-                    <h4 className={styles.builderLabel}>Registered Staff ({(selectedDept.users?.length || 0) + tempStaff.length})</h4>
-                    <button className={styles.inlineAddBtn} onClick={() => setIsAssigning(!isAssigning)}>
-                      <Plus size={14} /> Assign Official
+                  <div className={styles.resourceHeader} style={{ marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <h4 className={styles.builderLabel}>
+                        {formSubTab === 'internal' ? 'Internal Reports' : 'Feedback Forms'}
+                      </h4>
+                      <div className={styles.tabSwitcher} style={{ display: 'flex', gap: '4px', padding: '3px', background: '#f1f5f9', borderRadius: '10px', width: 'fit-content' }}>
+                        <button 
+                          onClick={() => {
+                            setFormSubTab('internal');
+                            setIsAssigning(false);
+                            setFormLinkingStep(1);
+                            setLinkLocationId('');
+                            setLinkDeptId('');
+                            setSelectedFormId('');
+                          }}
+                          style={{ padding: '6px 14px', borderRadius: '7px', fontSize: '12px', fontWeight: 600, background: formSubTab === 'internal' ? 'white' : 'transparent', color: formSubTab === 'internal' ? 'var(--brand-green)' : '#64748b', boxShadow: formSubTab === 'internal' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none' }}
+                        >
+                          Internal
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setFormSubTab('feedback');
+                            setIsAssigning(false);
+                            setFormLinkingStep(1);
+                            setLinkLocationId('');
+                            setLinkDeptId('');
+                            setSelectedFormId('');
+                          }}
+                          style={{ padding: '6px 14px', borderRadius: '7px', fontSize: '12px', fontWeight: 600, background: formSubTab === 'feedback' ? 'white' : 'transparent', color: formSubTab === 'feedback' ? 'var(--brand-green)' : '#64748b', boxShadow: formSubTab === 'feedback' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none' }}
+                        >
+                          Feedback
+                        </button>
+                      </div>
+                    </div>
+                    <button className={styles.inlineAddBtn} onClick={() => {
+                        setIsAssigning(!isAssigning);
+                        setFormLinkingStep(1);
+                        setLinkLocationId('');
+                        setLinkDeptId('');
+                        setSelectedFormId('');
+                      }}>
+                      <Plus size={14} /> Add {formSubTab === 'internal' ? 'Report' : 'Feedback'}
                     </button>
                   </div>
 
                   {isAssigning && (
-                    <div className={styles.resourceConfigBox}>
-                      <input type="text" placeholder="Official Name" value={newStaffDetails.name} onChange={e => setNewStaffDetails({ ...newStaffDetails, name: e.target.value })} className={styles.miniInput} />
-                      <select value={newStaffDetails.role} onChange={e => setNewStaffDetails({ ...newStaffDetails, role: e.target.value })} className={styles.miniSelect}>
-                        <option value="Duty Officer">Duty Officer</option>
-                        <option value="Manager">Manager</option>
-                        <option value="Supervisor">Supervisor</option>
-                      </select>
-                      <button className={styles.createButton} onClick={handleAddStaff} style={{ padding: "8px 12px", height: "auto" }}>Add</button>
+                    <div className={styles.resourceConfigBox} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '16px', padding: '24px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h5 style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                          Add {formSubTab === 'internal' ? 'Internal Report' : 'Feedback Form'}
+                        </h5>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <div style={{ width: '20px', height: '4px', borderRadius: '2px', background: 'var(--brand-green)' }} />
+                          <div style={{ width: '20px', height: '4px', borderRadius: '2px', background: formLinkingStep >= 2 ? 'var(--brand-green)' : '#e2e8f0' }} />
+                          <div style={{ width: '20px', height: '4px', borderRadius: '2px', background: formLinkingStep >= 3 ? 'var(--brand-green)' : '#e2e8f0' }} />
+                        </div>
+                      </div>
+
+                      {formLinkingStep === 1 && (
+                        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                          <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Step 1: Select location:</p>
+                          <select 
+                            className={styles.miniSelect} 
+                            value={linkLocationId} 
+                            onChange={(e) => { 
+                              setLinkLocationId(e.target.value); 
+                              setFormLinkingStep(2); 
+                            }}
+                            style={{ height: '44px', fontSize: '14px' }}
+                          >
+                            <option value="">Choose Airport / Location...</option>
+                            {(locationsData?.data || []).map(loc => (
+                              <option key={loc.id} value={loc.id}>{loc.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {formLinkingStep === 2 && (
+                        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                            <button onClick={() => setFormLinkingStep(1)} style={{ color: 'var(--brand-green)', fontSize: '12px', fontWeight: 600 }}>← Back</button>
+                            <p style={{ fontSize: '13px', color: '#64748b' }}>Step 2: Select source department:</p>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                            {linkDepts.map(dept => (
+                              <button
+                                key={dept.id}
+                                onClick={() => {
+                                  setLinkDeptId(dept.id);
+                                  setFormLinkingStep(3);
+                                }}
+                                style={{
+                                  padding: '12px 16px',
+                                  borderRadius: '12px',
+                                  border: '1px solid #e2e8f0',
+                                  background: 'white',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px'
+                                }}
+                              >
+                                <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Shield size={14} />
+                                </div>
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>{dept.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {formLinkingStep === 3 && (
+                        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                            <button onClick={() => setFormLinkingStep(2)} style={{ color: 'var(--brand-green)', fontSize: '12px', fontWeight: 600 }}>← Back</button>
+                            <p style={{ fontSize: '13px', color: '#64748b' }}>Step 3: Select {formSubTab === 'internal' ? 'template' : 'feedback form'}:</p>
+                          </div>
+                          
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {(formSubTab === 'internal' ? wizardTemplates : wizardTouchpoints)
+                              .map(item => {
+                                const isAlreadyLinked = formSubTab === 'internal' 
+                                  ? (item as any).departmentId === selectedDept.id
+                                  : (item as any).departmentId === selectedDept.id;
+
+                                return (
+                                  <button
+                                    key={item.id}
+                                    onClick={() => !isAlreadyLinked && setSelectedFormId(item.id)}
+                                    disabled={isAlreadyLinked}
+                                    style={{
+                                      padding: '12px 16px',
+                                      borderRadius: '12px',
+                                      border: selectedFormId === item.id ? '2px solid var(--brand-green)' : '1px solid #e2e8f0',
+                                      background: selectedFormId === item.id ? 'rgba(21, 115, 71, 0.05)' : 'white',
+                                      textAlign: 'left',
+                                      cursor: isAlreadyLinked ? 'not-allowed' : 'pointer',
+                                      transition: 'all 0.2s ease',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      opacity: isAlreadyLinked ? 0.5 : 1,
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      <div style={{ color: 'var(--brand-green)' }}>
+                                        {formSubTab === 'internal' ? <ClipboardList size={16} /> : <CheckCircle2 size={16} />}
+                                      </div>
+                                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                                          {'name' in item ? item.name : item.title}
+                                        </span>
+                                        {isAlreadyLinked && <span style={{ fontSize: '10px', color: 'var(--brand-green)', fontWeight: 700, textTransform: 'uppercase' }}>Already in this Department</span>}
+                                      </div>
+                                    </div>
+                                    {!isAlreadyLinked && <ChevronRight size={16} style={{ color: '#94a3b8' }} />}
+                                  </button>
+                                );
+                              })}
+                            
+                            {(formSubTab === 'internal' ? wizardTemplates : wizardTouchpoints).length === 0 && (
+                              <p style={{ fontSize: '12px', color: '#ef4444', textAlign: 'center', padding: '12px' }}>No available forms found in this department.</p>
+                            )}
+
+                            {selectedFormId && (
+                               <button 
+                                className={styles.createButton} 
+                                style={{ marginTop: '12px', width: '100%', padding: '10px 0' }}
+                                onClick={formSubTab === 'internal' ? handleLinkTemplate : handleLinkTouchpoint}
+                                disabled={shareTemplateMutation.isPending || updateTouchpointMutation.isPending}
+                              >
+                                {(shareTemplateMutation.isPending || updateTouchpointMutation.isPending) ? 'Adding...' : `Add to ${selectedDept.name}`}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
+
                   <div className={styles.resourceItems}>
-                    {[1, 2, 3].map(i => (
-                      <div key={`existing-staff-${i}`} className={styles.resourceItem}>
-                        <div className={styles.resourceIcon}><User size={16} /></div>
-                        <div className={styles.resourceInfo}>
-                          <strong>Official FAAN-00{i}</strong>
-                          <span>Duty Officer | Shift A</span>
-                        </div>
-                        <button className={styles.resourceRemove}><X size={14} /></button>
+                    {formSubTab === 'internal' ? (
+                      allTemplates
+                        .filter(t => (t as any).departmentId === selectedDept.id)
+                        .map(item => (
+                          <div key={item.id} className={styles.resourceItem} style={{ padding: '16px' }}>
+                            <div className={styles.resourceIcon}><ClipboardList size={16} /></div>
+                            <div className={styles.resourceInfo}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <strong>{item.name}</strong>
+                                <span style={{ fontSize: '11px', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', color: '#64748b', fontWeight: 600 }}>Internal</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <MapPin size={10} /> {item.locationName || locMap[item.locationId] || 'Original Location'}
+                                </span>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <Shield size={10} /> {item.departmentName || deptMap[item.departmentId] || 'Original Dept'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                    ) : (
+                      allTouchpoints
+                        .filter(tp => tp.departmentId === selectedDept.id && tp.type === 'FEEDBACK')
+                        .map(item => (
+                          <div key={item.id} className={styles.resourceItem} style={{ padding: '16px' }}>
+                            <div className={styles.resourceIcon}><CheckCircle2 size={16} /></div>
+                            <div className={styles.resourceInfo}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <strong>{item.title}</strong>
+                                <span style={{ fontSize: '11px', background: '#f0fdf4', padding: '2px 8px', borderRadius: '4px', color: 'var(--brand-green)', fontWeight: 600 }}>Feedback</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <MapPin size={10} /> {item.location?.name || locMap[item.locationId] || 'Original Location'}
+                                </span>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <Shield size={10} /> {item.department?.name || deptMap[item.departmentId] || 'Original Dept'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                    )}
+                    
+                    {((formSubTab === 'internal' && allTemplates.filter(t => (t as any).departmentId === selectedDept.id).length === 0) ||
+                      (formSubTab === 'feedback' && allTouchpoints.filter(tp => tp.departmentId === selectedDept.id && tp.type === 'FEEDBACK').length === 0)) && (
+                      <div style={{ padding: '60px 40px', textAlign: 'center', color: '#94a3b8' }}>
+                        <ClipboardList size={32} />
+                        <p style={{ marginTop: '12px', fontWeight: 500 }}>No {formSubTab === 'internal' ? 'internal reports' : 'feedback forms'} assigned</p>
+                        <p style={{ fontSize: '12px', marginTop: '4px' }}>Click &quot;Add {formSubTab === 'internal' ? 'Report' : 'Feedback'}&quot; to link a form</p>
                       </div>
-                    ))}
-                    {tempStaff.map(staff => (
-                      <div key={staff.id} className={`${styles.resourceItem} ${styles.newResource}`}>
-                        <div className={styles.resourceIcon}><User size={16} /></div>
-                        <div className={styles.resourceInfo}>
-                          <strong>{staff.name}</strong>
-                          <span>{staff.role} | Just Added</span>
-                        </div>
-                        <button
-                          className={styles.resourceRemove}
-                          onClick={() => setTempStaff(tempStaff.filter(s => s.id !== staff.id))}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ))}
+                    )}
                   </div>
                 </div>
+
               ) : (
                 <div className={styles.resourceList}>
                   <div className={styles.resourceHeader}>
-                    <h4 className={styles.builderLabel}>Operational Touchpoints ({(selectedDept._count?.touchpoints || 0) + tempQR.length})</h4>
+                    <h4 className={styles.builderLabel}>Operational Touchpoints ({(selectedDept.touchpoints?.length || 0)})</h4>
                     <button className={styles.inlineAddBtn} onClick={() => setIsLinking(!isLinking)}>
-                      <Plus size={14} /> Link QR Code
+                      <Plus size={14} /> Link Touchpoint
                     </button>
                   </div>
 
                   {isLinking && (
                     <div className={styles.resourceConfigBox}>
-                      <input type="text" placeholder="Touchpoint Location" value={newQRDetails.name} onChange={e => setNewQRDetails({ ...newQRDetails, name: e.target.value })} className={styles.miniInput} />
-                      <select value={newQRDetails.airport} onChange={e => setNewQRDetails({ ...newQRDetails, airport: e.target.value })} className={styles.miniSelect}>
-                        <option value="Abuja International">Abuja International</option>
-                        <option value="Lagos Murtala Muhammed">Lagos Murtala Muhammed</option>
-                        <option value="Kano Mallam Aminu">Kano Mallam Aminu</option>
+                      <select 
+                        value={selectedTouchpointId} 
+                        onChange={e => setSelectedTouchpointId(e.target.value)} 
+                        className={styles.miniSelect}
+                        style={{ flex: 1 }}
+                      >
+                        <option value="">Select a touchpoint to move here...</option>
+                        {allTouchpoints
+                          .filter(tp => tp.departmentId !== selectedDept.id)
+                          .map(tp => (
+                            <option key={tp.id} value={tp.id}>{tp.title} ({tp.slug})</option>
+                          ))
+                        }
                       </select>
-                      <button className={styles.createButton} onClick={handleLinkQR} style={{ padding: "8px 12px", height: "auto" }}>Link</button>
+                      <button 
+                        className={styles.createButton} 
+                        onClick={() => {
+                          // Reuse the linking logic but with current selection for general touchpoints
+                          if (!selectedTouchpointId || !selectedDept) return;
+                          updateTouchpointMutation.mutate({
+                            uuid: selectedTouchpointId, // We use the ID here
+                            data: { departmentId: selectedDept.id }
+                          }, {
+                            onSuccess: () => {
+                              toast.success("Touchpoint moved successfully");
+                              setIsLinking(false);
+                              setSelectedTouchpointId("");
+                            }
+                          });
+                        }} 
+                        disabled={!selectedTouchpointId || updateTouchpointMutation.isPending}
+                        style={{ padding: "8px 12px", height: "auto" }}
+                      >
+                        {updateTouchpointMutation.isPending ? 'Linking...' : 'Link'}
+                      </button>
                     </div>
                   )}
                   <div className={styles.resourceItems}>
-                    {[1, 2].map(i => (
-                      <div key={`existing-qr-${i}`} className={styles.resourceItem}>
+                    {(selectedDept.touchpoints || []).map(tp => (
+                      <div key={tp.id} className={styles.resourceItem}>
                         <div className={styles.resourceIcon}><Box size={16} /></div>
                         <div className={styles.resourceInfo}>
-                          <strong>Terminal 2 - Gate {i} Feedback</strong>
-                          <span>Abuja International Airport</span>
+                          <strong>{tp.title}</strong>
+                          <span>{tp.slug}</span>
                         </div>
-                        <button className={styles.resourceRemove}><X size={14} /></button>
                       </div>
                     ))}
-                    {tempQR.map(qr => (
-                      <div key={qr.id} className={`${styles.resourceItem} ${styles.newResource}`}>
-                        <div className={styles.resourceIcon}><Image src="/Faan.logo_.png" alt="FAAN" width={20} height={20} /></div>
-                        <div className={styles.resourceInfo}>
-                          <strong>{qr.name}</strong>
-                          <span>{qr.airport} | Just Linked</span>
-                        </div>
-                        <button
-                          className={styles.resourceRemove}
-                          onClick={() => setTempQR(tempQR.filter(q => q.id !== qr.id))}
-                        >
-                          <X size={14} />
-                        </button>
+                    {(selectedDept.touchpoints || []).length === 0 && (
+                      <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                        <MousePointer2 size={32} />
+                        <p style={{ marginTop: '8px' }}>No touchpoints in this department</p>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               )}
@@ -1067,6 +1571,18 @@ export default function DepartmentsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={archiveMutation.isPending}
+      />
     </div>
   );
 }

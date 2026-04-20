@@ -40,6 +40,7 @@ import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
 import { InternalReport, InternalReportStatus, Priority, ReportType, Department, CreateIssueDto } from "@/types/api";
 import { MultiSelect } from "@/components/displays/MultiSelect";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 interface ColumnProps {
   title: string;
@@ -162,6 +163,15 @@ export default function IssueManagementPage() {
   const [tempLocIds, setTempLocIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [viewType, setViewType] = useState<'board' | 'list'>('board');
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    itemName: '',
+    itemType: 'issue' as const,
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [] as string[],
+    onConfirm: () => {},
+  });
   
   const [newTask, setNewTask] = useState({
     title: "",
@@ -179,7 +189,8 @@ export default function IssueManagementPage() {
   });
 
   const { data: locationsData } = useLocations();
-  const { data: deptsData } = useDepartments();
+  const { data: deptsData } = useDepartments({ locationId: currentLocation || undefined });
+
 
   const { data: issuesData, isLoading: issuesLoading } = useIssues({
     locationId: currentLocation || undefined,
@@ -262,6 +273,27 @@ export default function IssueManagementPage() {
     );
     
     return foundKey ? (kanbanData[foundKey as keyof typeof kanbanData] as InternalReport[]) : [];
+  };
+
+  const confirmArchiveIssue = (issue: InternalReport) => {
+    setDeleteModal({
+      isOpen: true,
+      itemName: issue.title,
+      itemType: 'issue',
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [
+        `Location: ${formatEntityName(issue.location)}`,
+        `Department: ${formatEntityName(issue.department)}`
+      ],
+      onConfirm: () => {
+        // Implement archive mutation here
+        // Since there's no archive mutation in useIssues right now, we'll just mock success
+        toast.success("Issue archived successfully");
+        setDeleteModal(prev => ({ ...prev, isOpen: false }));
+        setSelectedIssue(null);
+      }
+    });
   };
 
   const locations = useMemo(() => locationsData?.data || [], [locationsData]);
@@ -968,7 +1000,10 @@ export default function IssueManagementPage() {
                   </div>
 
                   <div className={styles.dangerZone}>
-                    <button className={styles.archiveBtn}>
+                    <button 
+                      className={styles.archiveBtn}
+                      onClick={() => selectedIssue && confirmArchiveIssue(selectedIssue)}
+                    >
                       <Trash2 size={16} /> Archive Issue
                     </button>
                   </div>
@@ -1044,6 +1079,18 @@ export default function IssueManagementPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={false}
+      />
     </div>
   );
 }

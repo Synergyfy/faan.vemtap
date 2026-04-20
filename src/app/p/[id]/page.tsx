@@ -5,7 +5,7 @@ import { Star, Send, CheckCircle2, AlertCircle, Loader2, ChevronLeft, Layout, Lo
 import styles from "./Passenger.module.css";
 import Image from "next/image";
 import { useTouchpointBySlug } from "@/hooks/useTouchpoints";
-import { useCreateSubmission } from "@/hooks/useSubmissions";
+import { useCreateSubmission, useCreatePublicSubmission } from "@/hooks/useSubmissions";
 import { FormField, Submission, ReportTemplate, Touchpoint } from "@/types/api";
 import { useAuthContext } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -27,18 +27,14 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
   const { isAuthenticated } = useAuthContext();
 
   const { data: touchpoint, isLoading, error } = useTouchpointBySlug(id);
-  const createSubmission = useCreateSubmission();
+  const createSubMutation = useCreateSubmission();
+  const createPublicSubMutation = useCreatePublicSubmission();
 
   const [step, setStep] = useState<PageStep>('selection');
   const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplate | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [submissionRef, setSubmissionRef] = useState("");
   const [formData, setFormData] = useState<Record<string, any>>({});
-  const [personalDetails, setPersonalDetails] = useState({
-    name: "",
-    email: "",
-    phone: ""
-  });
 
   // Handle Draft Recovery and Step Determination
   useEffect(() => {
@@ -119,35 +115,18 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!isAuthenticated) {
-      // Save draft to localStorage before redirect
-      const draftData = {
-        formData,
-        selectedTemplate,
-        step,
-        touchpointSlug: touchpoint.slug
-      };
-      localStorage.setItem(`draft_tp_${touchpoint.slug}`, JSON.stringify(draftData));
-      
-      // Redirect to login with callback
-      router.push(`/?callbackUrl=${encodeURIComponent(window.location.pathname)}`);
-      return;
-    }
+    const mutation = isAuthenticated ? createSubMutation : createPublicSubMutation;
     
-    const payload = {
-      touchpointId: touchpoint.id,
-      locationId: touchpoint.locationId,
-      departmentId: touchpoint.departmentId,
-      templateId: selectedTemplate?.id || null,
-      type: touchpoint.type,
-      formData: formData,
-      passengerDetails: (personalDetails.name || personalDetails.email) ? personalDetails : null,
-    };
+    const payload = isAuthenticated 
+      ? { touchpointId: touchpoint.id, formData }
+      : { slug: touchpoint.slug, formData };
 
-    createSubmission.mutate(payload, {
+    mutation.mutate(payload, {
       onSuccess: (data: Submission) => {
         setSubmissionRef(data.uuid || data.id);
         setSubmitted(true);
+        // Clear draft
+        localStorage.removeItem(`draft_tp_${touchpoint.slug}`);
       }
     });
   };
@@ -181,8 +160,13 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
         <div className={styles.logoWrapper}>
           <Image src="/Faan.logo_.png" alt="FAAN Logo" width={80} height={80} />
         </div>
-        <h1 className={styles.brandTitle}>{theme.title}</h1>
-        <p className={styles.brandSubtitle}>{theme.subtitle}</p>
+        <h1 className={styles.brandTitle}>{touchpoint.title || theme.title}</h1>
+        <p className={styles.brandSubtitle}>
+          {touchpoint.department?.name} • {touchpoint.location?.name}
+        </p>
+        {touchpoint.description && (
+          <p className={styles.brandDesc}>{touchpoint.description}</p>
+        )}
       </div>
 
       <div className={styles.formCard}>
@@ -283,83 +267,15 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
                 </div>
               ))}
 
-              {/* CONTACT SECTION (Optional for passengers) */}
-              <div className={styles.contactSection}>
-                <div className={styles.contactHeader}>
-                  <h3 className={styles.contactTitle}>Provide your details if you would like a response</h3>
-                  <p className={styles.trustLabel}>
-                    Contact details are only required if you would like a response from FAAN staff.
-                  </p>
-                </div>
-                
-                <div className={styles.contactGrid}>
-                  <div className={styles.contactField}>
-                    <label className={styles.contactLabel}>Full Name</label>
-                    <input 
-                      type="text" 
-                      className={styles.contactInput} 
-                      placeholder="Your Name"
-                      value={personalDetails.name}
-                      onChange={(e) => setPersonalDetails({ ...personalDetails, name: e.target.value })}
-                    />
-                  </div>
-                  <div className={styles.contactGridRow}>
-                    <div className={styles.contactField}>
-                      <label className={styles.contactLabel}>Phone Number</label>
-                      <input 
-                        type="tel" 
-                        className={styles.contactInput} 
-                        placeholder="+234..." 
-                        value={personalDetails.phone}
-                        onChange={(e) => setPersonalDetails({ ...personalDetails, phone: e.target.value })}
-                      />
-                    </div>
-                    <div className={styles.contactField}>
-                      <label className={styles.contactLabel}>Email Address</label>
-                      <input 
-                        type="email" 
-                        className={styles.contactInput} 
-                        placeholder="email@example.com"
-                        value={personalDetails.email}
-                        onChange={(e) => setPersonalDetails({ ...personalDetails, email: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {!isAuthenticated && (
-                <div className={styles.authPrompt}>
-                  <h4 className={styles.authTitle}><Lock size={16} /> Login Required</h4>
-                  <p className={styles.authText}>To ensure data integrity, passengers must have an account to submit reports.</p>
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                    <span className={styles.loginLink}>Login to Submit</span>
-                    <a 
-                      href={`/register?callbackUrl=${encodeURIComponent(window.location.pathname)}`} 
-                      style={{ 
-                        display: 'inline-block',
-                        padding: '10px 24px',
-                        borderRadius: '10px',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        color: '#ea580c',
-                        border: '2px solid #ea580c'
-                      }}
-                    >
-                      Sign Up
-                    </a>
-                  </div>
-                </div>
-              )}
 
               <button 
                 type="submit" 
                 className={styles.submitBtn}
-                style={{ backgroundColor: theme.color, marginTop: isAuthenticated ? 0 : '16px' }}
-                disabled={createSubmission.isPending}
+                style={{ backgroundColor: theme.color, marginTop: '24px' }}
+                disabled={createSubMutation.isPending || createPublicSubMutation.isPending}
               >
-                {createSubmission.isPending ? "Submitting..." : isAuthenticated ? "Submit Report" : "Login & Submit"}
-                {createSubmission.isPending ? <Loader2 className={styles.spinning} size={18} /> : <Send size={18} />}
+                {(createSubMutation.isPending || createPublicSubMutation.isPending) ? "Submitting..." : "Submit Report"}
+                {(createSubMutation.isPending || createPublicSubMutation.isPending) ? <Loader2 className={styles.spinning} size={18} /> : <Send size={18} />}
               </button>
             </form>
           </div>

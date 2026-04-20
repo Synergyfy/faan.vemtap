@@ -42,6 +42,7 @@ import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/t
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { MultiSelect } from "@/components/displays/MultiSelect";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 const FIELD_TYPES = [
   { value: 'rating', label: 'Rating', icon: Star, color: '#f59e0b' },
@@ -69,16 +70,31 @@ function hashToIndex(input: string, modulo: number) {
   return Math.abs(hash) % modulo;
 }
 
+const normalizeFields = (config: any): FormField[] => {
+  if (!config) return [];
+  if (Array.isArray(config)) return config;
+  if (typeof config === 'string') {
+    try {
+      const parsed = JSON.parse(config);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
 export default function FormsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const { data: touchpointsData, isLoading: formsLoading } = useTouchpoints({ 
     type: 'FEEDBACK',
-    locationId: currentRole !== 'SUPER_ADMIN' ? currentLocation : undefined
+    locationId: currentLocation || undefined
   });
   const { data: locationsData } = useLocations();
   const { data: departmentsData } = useDepartments({ 
-    locationId: currentRole !== 'SUPER_ADMIN' ? (currentLocation || undefined) : undefined 
+    locationId: currentLocation || undefined 
   });
+
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -88,6 +104,23 @@ export default function FormsPage() {
   const [wizardStep, setWizardStep] = useState(1);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    itemName: string;
+    itemType: 'form';
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    itemName: '',
+    itemType: 'form',
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [],
+    onConfirm: () => {},
+  });
 
   const createMutation = useCreateTouchpoint();
   const updateMutation = useUpdateTouchpoint();
@@ -122,11 +155,13 @@ export default function FormsPage() {
     fields: [] as FormField[],
   });
 
-  const filteredGroupedForms = Object.values(groupedForms).filter((f: any) => 
+  const filteredGroupedForms = Object.values(groupedForms).sort((a: any, b: any) => 
+    (b.totalInteractions || 0) - (a.totalInteractions || 0)
+  ).filter((f: any) => 
     !searchTerm || f.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const totalFields = touchpoints.reduce((sum, tp) => sum + (tp.formConfig?.length || 0), 0);
+  const totalFields = touchpoints.reduce((sum, tp) => sum + (normalizeFields(tp.formConfig).length), 0);
   const totalSubmissions = touchpoints.reduce((sum, tp) => sum + (tp.interactions || 0), 0);
 
   const scopeLabel =
@@ -229,6 +264,56 @@ export default function FormsPage() {
     deleteMutation.mutate(id, {
       onSuccess: () => {
         if (selectedForm?.id === id) setSelectedForm(null);
+        toast.success("Form deleted successfully");
+      }
+    });
+  };
+
+  const confirmDeleteForm = (tp: any) => {
+    setDeleteModal({
+      isOpen: true,
+      itemName: tp.title,
+      itemType: 'form',
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [],
+      onConfirm: () => {
+        deleteMutation.mutate(tp.id, {
+          onSuccess: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            toast.success("Form deleted successfully");
+            if (activeDropdown === tp.id) setActiveDropdown(null);
+          }
+        });
+      }
+    });
+  };
+
+  const confirmDeleteGroup = (groupedForm: any) => {
+    const locationsList = groupedForm.instances.map((inst: any) => {
+      const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
+      const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
+      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
+    });
+
+    setDeleteModal({
+      isOpen: true,
+      itemName: groupedForm.title,
+      itemType: 'form',
+      isGroup: true,
+      instanceCount: groupedForm.instances.length,
+      affectedItems: locationsList,
+      onConfirm: () => {
+        const promises = groupedForm.instances.map((inst: any) => deleteMutation.mutateAsync(inst.id));
+        toast.promise(Promise.all(promises), {
+          loading: 'Deleting forms...',
+          success: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            setActiveDropdown(null);
+            return 'All instances deleted successfully';
+          },
+          error: 'Failed to delete some forms'
+        });
       }
     });
   };
@@ -437,7 +522,7 @@ export default function FormsPage() {
                                 departmentIds: tp.departmentIds || [],
                                 allowAnonymous: true,
                                 successMessage: 'Thank you for your feedback!',
-                                fields: tp.formConfig || [],
+                                fields: Array.isArray(tp.formConfig) ? tp.formConfig : [],
                               });
                               setIsEditMode(true);
                               setEditingFormId(tp.id);
@@ -451,11 +536,10 @@ export default function FormsPage() {
                             className={`${styles.dropdownItem} ${styles.danger}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (confirm("Are you sure?")) deleteMutation.mutate(tp.id);
-                              setActiveDropdown(null);
+                              confirmDeleteForm(tp);
                             }}
                           >
-                            <Trash2 size={14} /> Delete
+                            <Trash2 size={14} /> Delete Form
                           </button>
                         </div>
                       )}
@@ -548,7 +632,7 @@ export default function FormsPage() {
                               departmentIds: groupedForm.instances.map((i: any) => i.departmentId),
                               allowAnonymous: true,
                               successMessage: 'Thank you for your feedback!',
-                              fields: groupedForm.formConfig || [],
+                              fields: normalizeFields(groupedForm.formConfig),
                             });
                             setIsEditMode(true);
                             setEditingFormId(groupedForm.id);
@@ -556,7 +640,16 @@ export default function FormsPage() {
                             setActiveDropdown(null);
                           }}
                         >
-                          <Edit size={14} /> Edit Group
+                          <Edit size={14} /> {groupedForm.instances.length > 1 ? "Edit Group" : "Edit"}
+                        </button>
+                        <button
+                          className={`${styles.dropdownItem} ${styles.danger}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirmDeleteGroup(groupedForm);
+                          }}
+                        >
+                          <Trash2 size={14} /> {groupedForm.instances.length > 1 ? "Delete Group" : "Delete"}
                         </button>
                       </div>
                     )}
@@ -577,7 +670,7 @@ export default function FormsPage() {
                 <div className={styles.deptCardMetrics}>
                   <div className={styles.deptMetric}>
                     <FileCheck size={14} />
-                    <span>{groupedForm.formConfig?.length || 0} Fields</span>
+                    <span>{normalizeFields(groupedForm.formConfig).length} Fields</span>
                   </div>
                   <div className={styles.deptMetric}>
                     <MousePointer2 size={14} />
@@ -814,7 +907,7 @@ export default function FormsPage() {
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                        {newForm.fields.map((field, index) => (
+                        {Array.isArray(newForm.fields) && newForm.fields.map((field, index) => (
                           <div key={field.id} style={{ 
                             background: 'white', 
                             border: '1px solid #e2e8f0', 
@@ -986,7 +1079,7 @@ export default function FormsPage() {
                     </div>
                     
                     <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
-                      {newForm.fields.length === 0 ? (
+                      {(!newForm.fields || !Array.isArray(newForm.fields) || newForm.fields.length === 0) ? (
                         <div style={{ 
                           display: 'flex', 
                           flexDirection: 'column', 
@@ -1000,7 +1093,7 @@ export default function FormsPage() {
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {newForm.fields.slice(0, 5).map(field => (
+                          {Array.isArray(newForm.fields) && newForm.fields.slice(0, 5).map(field => (
                             <div key={field.id}>
                               <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
                                 {field.label || 'Field'} {field.required && <span style={{ color: '#ef4444', marginLeft: '2px' }}>*</span>}
@@ -1096,7 +1189,7 @@ export default function FormsPage() {
                               )}
                             </div>
                           ))}
-                          {newForm.fields.length > 5 && (
+                          {Array.isArray(newForm.fields) && newForm.fields.length > 5 && (
                             <div style={{ fontSize: '11px', color: '#94a3b8', textAlign: 'center', marginTop: '8px' }}>
                               +{newForm.fields.length - 5} more fields
                             </div>
@@ -1165,8 +1258,8 @@ export default function FormsPage() {
                 <button 
                   className={styles.createButton}
                   onClick={handleSaveForm}
-                  disabled={newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending}
-                  style={{ opacity: (newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending) ? 0.5 : 1 }}
+                  disabled={(!Array.isArray(newForm.fields) || newForm.fields.length === 0) || createMutation.isPending || updateMutation.isPending}
+                  style={{ opacity: (!Array.isArray(newForm.fields) || newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending) ? 0.5 : 1 }}
                 >
                   {(createMutation.isPending || updateMutation.isPending) ? (
                     'Saving...'
@@ -1201,10 +1294,10 @@ export default function FormsPage() {
               <div className={styles.detailGrid}>
                 <div className={styles.detailMain}>
                   <section className={styles.messageSection}>
-                    <h4 className={styles.detailLabel}>Form Fields ({selectedForm.formConfig?.length || 0})</h4>
+                    <h4 className={styles.detailLabel}>Form Fields ({normalizeFields(selectedForm.formConfig).length})</h4>
                     <div className={styles.messageCard}>
-                      {selectedForm.formConfig?.map((field: FormField, i: number) => (
-                        <div key={field.id} style={{ padding: '16px 0', borderBottom: i < (selectedForm.formConfig?.length || 0) - 1 ? '1px solid #e2e8f0' : 'none' }}>
+                      {normalizeFields(selectedForm.formConfig).map((field: FormField, i: number) => (
+                        <div key={field.id} style={{ padding: '16px 0', borderBottom: i < (normalizeFields(selectedForm.formConfig).length) - 1 ? '1px solid #e2e8f0' : 'none' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                             <span style={{ 
                               fontWeight: 700, 
@@ -1238,7 +1331,7 @@ export default function FormsPage() {
                       </div>
                       <div className={styles.infoCard}>
                         <FileCheck size={18} />
-                        <div><span>Form Fields</span><strong>{selectedForm.formConfig?.length || 0}</strong></div>
+                        <div><span>Form Fields</span><strong>{normalizeFields(selectedForm.formConfig).length}</strong></div>
                       </div>
                       <div className={styles.infoCard}>
                         <Calendar size={18} />
@@ -1247,7 +1340,9 @@ export default function FormsPage() {
                     </div>
                   </div>
                   <div className={styles.dangerZone}>
-                    <button className={styles.archiveBtn} onClick={() => handleDeleteForm(selectedForm.id)}>
+                    <button className={styles.archiveBtn} onClick={() => {
+                      confirmDeleteForm(selectedForm);
+                    }}>
                       <Trash2 size={16} /> Delete Form
                     </button>
                   </div>
@@ -1260,6 +1355,18 @@ export default function FormsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={deleteMutation.isPending}
+      />
     </div>
   );
 }

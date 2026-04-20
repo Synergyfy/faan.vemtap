@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
-import { ApiResponse, AnalyticsSummary, ActivityResponse, AnalyticsDistribution } from '@/types/api';
+import { ApiResponse, AnalyticsSummary, ActivityResponse, AnalyticsDistribution, ZoneHealthMetric } from '@/types/api';
 
 export interface ChartDataPoint {
   name: string;
@@ -85,3 +85,16 @@ export const useAnalyticsDistribution = (params?: Record<string, unknown>) => {
     },
   });
 };
+
+export const useZoneHealth = (params?: Record<string, unknown>) => {
+  return useQuery<ZoneHealthMetric[]>({
+    queryKey: ['analytics-zone-health', params],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<{ data: ZoneHealthMetric[] }>>('/analytics/zone-health', { params });
+      return data.data.data;
+    },
+    staleTime: 30 * 1000, // Refresh every 30 seconds
+  });
+};
+
+
