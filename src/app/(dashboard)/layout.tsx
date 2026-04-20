@@ -32,7 +32,7 @@ import { useAuthContext } from "@/context/AuthContext";
 import { UserRole } from "@/types/rbac";
 import { toast } from "sonner";
 
-export default function DashboardLayout({
+function DashboardLayoutContent({
   children,
 }: {
   children: React.ReactNode;
@@ -261,5 +261,13 @@ export default function DashboardLayout({
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <React.Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f1f5f9', color: '#64748b', fontSize: '14px', fontWeight: 500 }}>Loading dashboard environment...</div>}>
+      <DashboardLayoutContent>{children}</DashboardLayoutContent>
+    </React.Suspense>
   );
 }
