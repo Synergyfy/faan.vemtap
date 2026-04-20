@@ -4460,3 +4460,27 @@ input:checked + .slider:before {
   background-color: #fef3c7;
   color: #d97706;
 }
+
+/* Resource Wizard Styles */
+.miniBtn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.miniBtn:hover {
+  background-color: #f1f5f9;
+}
+
+.wizardSteps {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}

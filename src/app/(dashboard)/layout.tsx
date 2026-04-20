@@ -20,7 +20,8 @@ import {
   ShieldCheck,
   Eye,
   FileText,
-  FileStack
+  FileStack,
+  ClipboardList
 } from "lucide-react";
 import styles from "./Dashboard.module.css";
 import Image from "next/image";
@@ -92,6 +93,12 @@ const MENU_ITEMS: MenuItem[] = [
     icon: BarChart3, 
     label: "Analytics", 
     href: "/dashboard/analytics",
+    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
+  },
+  { 
+    icon: ClipboardList, 
+    label: "Daily / Weekly Summary", 
+    href: "/dashboard/summary-reports",
     allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
   },
   { 

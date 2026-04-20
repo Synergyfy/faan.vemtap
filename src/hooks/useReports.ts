@@ -56,13 +56,14 @@ export const useCreateReportPublic = () => {
     },
   });
 };
-export const useReportTemplates = (params?: Record<string, unknown>) => {
+export const useReportTemplates = (params?: Record<string, unknown>, options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['report-templates', params],
     queryFn: async () => {
       const { data } = await api.get<ApiResponse<PaginatedResponse<ReportTemplate>>>('/report-templates', { params });
       return data.data;
     },
+    ...options,
   });
 };
 
@@ -110,6 +111,20 @@ export const useUpdateReportTemplate = () => {
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<CreateReportTemplateDto> }) => {
       const response = await api.patch<ApiResponse<ReportTemplate>>(`/report-templates/${id}`, data);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['report-templates'] });
+    },
+  });
+};
+
+export const useShareReportTemplate = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, departmentIds, locationIds }: { id: string; departmentIds?: string[]; locationIds?: string[] }) => {
+      const response = await api.post<ApiResponse<ReportTemplate>>(`/report-templates/${id}/share`, { departmentIds, locationIds });
       return response.data.data;
     },
     onSuccess: () => {
