@@ -42,6 +42,7 @@ import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/t
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { MultiSelect } from "@/components/displays/MultiSelect";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 const FIELD_TYPES = [
   { value: 'rating', label: 'Rating', icon: Star, color: '#f59e0b' },
@@ -88,6 +89,15 @@ export default function FormsPage() {
   const [wizardStep, setWizardStep] = useState(1);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    itemName: '',
+    itemType: 'form' as const,
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [] as string[],
+    onConfirm: () => {},
+  });
 
   const createMutation = useCreateTouchpoint();
   const updateMutation = useUpdateTouchpoint();
@@ -229,6 +239,54 @@ export default function FormsPage() {
     deleteMutation.mutate(id, {
       onSuccess: () => {
         if (selectedForm?.id === id) setSelectedForm(null);
+      }
+    });
+  };
+
+  const confirmDeleteForm = (tp: any) => {
+    setDeleteModal({
+      isOpen: true,
+      itemName: tp.title,
+      itemType: 'form',
+      isGroup: false,
+      instanceCount: 1,
+      onConfirm: () => {
+        deleteMutation.mutate(tp.id, {
+          onSuccess: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            toast.success("Form deleted successfully");
+            if (activeDropdown === tp.id) setActiveDropdown(null);
+          }
+        });
+      }
+    });
+  };
+
+  const confirmDeleteGroup = (groupedForm: any) => {
+    const locationsList = groupedForm.instances.map((inst: any) => {
+      const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
+      const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
+      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
+    });
+
+    setDeleteModal({
+      isOpen: true,
+      itemName: groupedForm.title,
+      itemType: 'form',
+      isGroup: true,
+      instanceCount: groupedForm.instances.length,
+      affectedItems: locationsList,
+      onConfirm: () => {
+        const promises = groupedForm.instances.map((inst: any) => deleteMutation.mutateAsync(inst.id));
+        toast.promise(Promise.all(promises), {
+          loading: 'Deleting forms...',
+          success: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            setActiveDropdown(null);
+            return 'All instances deleted successfully';
+          },
+          error: 'Failed to delete some forms'
+        });
       }
     });
   };
@@ -451,8 +509,7 @@ export default function FormsPage() {
                             className={`${styles.dropdownItem} ${styles.danger}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (confirm("Are you sure?")) deleteMutation.mutate(tp.id);
-                              setActiveDropdown(null);
+                              confirmDeleteForm(tp);
                             }}
                           >
                             <Trash2 size={14} /> Delete
@@ -556,7 +613,16 @@ export default function FormsPage() {
                             setActiveDropdown(null);
                           }}
                         >
-                          <Edit size={14} /> Edit Group
+                          <Edit size={14} /> {groupedForm.instances.length > 1 ? "Edit Group" : "Edit"}
+                        </button>
+                        <button
+                          className={`${styles.dropdownItem} ${styles.danger}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirmDeleteGroup(groupedForm);
+                          }}
+                        >
+                          <Trash2 size={14} /> {groupedForm.instances.length > 1 ? "Delete Group" : "Delete"}
                         </button>
                       </div>
                     )}
@@ -1260,6 +1326,18 @@ export default function FormsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={deleteMutation.isPending}
+      />
     </div>
   );
 }

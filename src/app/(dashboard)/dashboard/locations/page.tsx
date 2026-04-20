@@ -34,6 +34,7 @@ import { AxiosError } from "axios";
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
 import { useCreateUser } from "@/hooks/useUsers";
 import { Location, Department, Role } from "@/types/api";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 export default function LocationsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
@@ -50,12 +51,43 @@ export default function LocationsPage() {
     { id: 2, name: "Mrs. Amina Bello", email: "amina.bello@faan.gov.ng", status: "Pending", phone: "+234 803 111 2222" },
   ]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    itemName: '',
+    itemType: 'location' as const,
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [] as string[],
+    onConfirm: () => {},
+  });
 
   const createMutation = useCreateLocation();
   const deleteMutation = useDeleteLocation();
   const createUserMutation = useCreateUser();
 
   const locations = locationsData?.data || [];
+
+  const handleDeleteLocation = (id: string, name: string) => {
+    setDeleteModal({
+      isOpen: true,
+      itemName: name,
+      itemType: 'location',
+      onConfirm: () => {
+        deleteMutation.mutate(id, {
+          onSuccess: () => {
+            toast.success(`${name} deleted successfully`);
+            setSelectedLocation(null);
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+          },
+          onError: (error: any) => {
+            const axiosError = error as AxiosError<{ message: string | string[] }>;
+            const message = axiosError.response?.data?.message || "Failed to delete location";
+            toast.error(Array.isArray(message) ? message[0] : message);
+          }
+        });
+      }
+    });
+  };
 
   const [newAdmin, setNewAdmin] = useState({
     name: '',
@@ -312,10 +344,20 @@ export default function LocationsPage() {
             </div>
             <div style={{ display: 'flex', gap: '12px' }}>
               {selectedLocation && (
-                <button className={styles.createButton} onClick={() => setIsAdminModalOpen(true)}>
-                  <Plus size={18} />
-                  <span>Add Admin</span>
-                </button>
+                <>
+                  <button 
+                    className={styles.cancelBtn} 
+                    style={{ color: '#ef4444', border: '1px solid #fee2e2', background: '#fef2f2' }}
+                    onClick={() => handleDeleteLocation(selectedLocation.id, selectedLocation.name)}
+                  >
+                    <Trash2 size={18} />
+                    <span>Delete Location</span>
+                  </button>
+                  <button className={styles.createButton} onClick={() => setIsAdminModalOpen(true)}>
+                    <Plus size={18} />
+                    <span>Add Admin</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -712,6 +754,18 @@ export default function LocationsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={deleteMutation.isPending}
+      />
     </RoleGuard>
   );
 }

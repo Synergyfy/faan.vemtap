@@ -45,6 +45,7 @@ import { TouchpointType, Touchpoint, Location, Department } from "@/types/api";
 import { MultiSelect } from "@/components/displays/MultiSelect";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 const TOUCHPOINT_ACCENTS = [
   { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
@@ -78,6 +79,15 @@ export default function TouchpointsPage() {
   const [tempLocIds, setTempLocIds] = useState<string[]>([]);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    itemName: '',
+    itemType: 'touchpoint' as const,
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [] as string[],
+    onConfirm: () => {},
+  });
 
   const { data: tpData, isLoading: tpLoading } = useTouchpoints({
     locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : (selectedLocIds.length > 0 ? selectedLocIds[0] : undefined)) || undefined
@@ -181,6 +191,54 @@ export default function TouchpointsPage() {
     updateMutation.mutate({ 
       uuid: id, 
       data: { isActive: !currentStatus }
+    });
+  };
+
+  const confirmArchiveTouchpoint = (tp: any) => {
+    setDeleteModal({
+      isOpen: true,
+      itemName: tp.title,
+      itemType: 'touchpoint',
+      isGroup: false,
+      instanceCount: 1,
+      onConfirm: () => {
+        archiveMutation.mutate(tp.id, {
+          onSuccess: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            toast.success("Touchpoint archived successfully");
+            if (activeDropdown === tp.id) setActiveDropdown(null);
+          }
+        });
+      }
+    });
+  };
+
+  const confirmArchiveGroup = (gtp: any) => {
+    const locationsList = gtp.instances.map((inst: any) => {
+      const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
+      const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
+      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
+    });
+
+    setDeleteModal({
+      isOpen: true,
+      itemName: gtp.title,
+      itemType: 'touchpoint',
+      isGroup: true,
+      instanceCount: gtp.instances.length,
+      affectedItems: locationsList,
+      onConfirm: () => {
+        const promises = gtp.instances.map((inst: any) => archiveMutation.mutateAsync(inst.id));
+        toast.promise(Promise.all(promises), {
+          loading: 'Archiving touchpoints...',
+          success: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            setActiveDropdown(null);
+            return 'All instances archived successfully';
+          },
+          error: 'Failed to archive some touchpoints'
+        });
+      }
     });
   };
 
@@ -449,9 +507,7 @@ export default function TouchpointsPage() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 if (tp.isActive) {
-                                  if (confirm("Are you sure you want to archive this touchpoint?")) {
-                                    archiveMutation.mutate(tp.id);
-                                  }
+                                  confirmArchiveTouchpoint(tp);
                                 } else {
                                   toggleStatus(tp.id, tp.isActive);
                                 }
@@ -562,6 +618,15 @@ export default function TouchpointsPage() {
                           >
                             <Edit size={14} /> {gtp.instances.length > 1 ? "Edit Group" : "Edit"}
                           </button>
+                          <button
+                            className={`${styles.dropdownItem} ${styles.danger}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmArchiveGroup(gtp);
+                            }}
+                          >
+                            <Power size={14} /> {gtp.instances.length > 1 ? "Archive Group" : "Archive"}
+                          </button>
                           {gtp.instances.length === 1 && (
                             <button
                               className={`${styles.dropdownItem} ${!gtp.instances[0].isActive ? styles.success : styles.danger}`}
@@ -569,9 +634,7 @@ export default function TouchpointsPage() {
                                 e.stopPropagation();
                                 const tp = gtp.instances[0];
                                 if (tp.isActive) {
-                                  if (confirm("Are you sure you want to archive this touchpoint?")) {
-                                    archiveMutation.mutate(tp.id);
-                                  }
+                                  confirmArchiveTouchpoint(tp);
                                 } else {
                                   toggleStatus(tp.id, tp.isActive);
                                 }
@@ -1025,6 +1088,18 @@ export default function TouchpointsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={archiveMutation.isPending}
+      />
     </div>
   );
 }

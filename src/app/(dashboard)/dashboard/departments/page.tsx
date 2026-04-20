@@ -60,6 +60,7 @@ import { useLocations } from "@/hooks/useLocations";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { MultiSelect } from "@/components/displays/MultiSelect";
+import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 const DEPT_ACCENTS = [
   { bg: "rgba(21, 115, 71, 0.12)", fg: "#157347", ring: "rgba(21, 115, 71, 0.22)" },
@@ -88,6 +89,15 @@ export default function DepartmentsPage() {
   const [editingDept, setEditingDept] = useState<Department | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    itemName: '',
+    itemType: 'department' as const,
+    isGroup: false,
+    instanceCount: 0,
+    affectedItems: [] as string[],
+    onConfirm: () => {},
+  });
 
   const [newDept, setNewDept] = useState({
     name: '',
@@ -188,6 +198,52 @@ export default function DepartmentsPage() {
   const handleArchiveDept = (uuid: string) => {
     archiveMutation.mutate(uuid);
     setActiveDropdown(null);
+  };
+
+  const confirmArchive = (uuid: string, name: string) => {
+    setDeleteModal({
+      isOpen: true,
+      itemName: name,
+      itemType: 'department',
+      isGroup: false,
+      instanceCount: 1,
+      onConfirm: () => {
+        archiveMutation.mutate(uuid, {
+          onSuccess: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            toast.success(`${name} archived successfully`);
+          }
+        });
+      }
+    });
+  };
+
+  const confirmArchiveGroup = (groupedDept: any) => {
+    const locationsList = groupedDept.instances.map((inst: any) => {
+      const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
+      return locName;
+    });
+
+    setDeleteModal({
+      isOpen: true,
+      itemName: groupedDept.name,
+      itemType: 'department',
+      isGroup: true,
+      instanceCount: groupedDept.instances.length,
+      affectedItems: locationsList,
+      onConfirm: () => {
+        const promises = groupedDept.instances.map((inst: any) => archiveMutation.mutateAsync(inst.id));
+        toast.promise(Promise.all(promises), {
+          loading: 'Archiving instances...',
+          success: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            setActiveDropdown(null);
+            return 'All instances archived successfully';
+          },
+          error: 'Failed to archive some instances'
+        });
+      }
+    });
   };
 
   const departments = deptsData?.data || [];
@@ -521,6 +577,15 @@ export default function DepartmentsPage() {
                           >
                             <Edit size={14} /> Edit
                           </button>
+                          <button
+                            className={`${styles.dropdownItem} ${styles.danger}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmArchive(inst.id as string, inst.name);
+                            }}
+                          >
+                            <Trash2 size={14} /> Archive
+                          </button>
                         </div>
                       )}
                     </div>
@@ -614,7 +679,16 @@ export default function DepartmentsPage() {
                             setActiveDropdown(null);
                           }}
                         >
-                          <Edit size={14} /> Edit Group
+                          <Edit size={14} /> {groupedDept.instances.length > 1 ? "Edit Group" : "Edit"}
+                        </button>
+                        <button
+                          className={`${styles.dropdownItem} ${styles.danger}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirmArchiveGroup(groupedDept);
+                          }}
+                        >
+                          <Trash2 size={14} /> {groupedDept.instances.length > 1 ? "Archive Group" : "Archive"}
                         </button>
                       </div>
                     )}
@@ -1067,6 +1141,18 @@ export default function DepartmentsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={deleteModal.onConfirm}
+        itemName={deleteModal.itemName}
+        itemType={deleteModal.itemType}
+        isGroup={deleteModal.isGroup}
+        instanceCount={deleteModal.instanceCount}
+        affectedItems={deleteModal.affectedItems}
+        isPending={archiveMutation.isPending}
+      />
     </div>
   );
 }
