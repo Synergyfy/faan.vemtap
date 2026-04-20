@@ -54,6 +54,7 @@ import {
   useCreateDepartment,
   useUpdateDepartment,
   useArchiveDepartment,
+  useDeleteDepartment,
   useAssignDepartmentAdmin
 } from "@/hooks/useDepartments";
 import { useLocations } from "@/hooks/useLocations";
@@ -123,14 +124,16 @@ export default function DepartmentsPage() {
 
   // Queries
   const { data: deptsData, isLoading: deptsLoading } = useDepartments({
-    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : undefined) || undefined
+    locationId: currentLocation || undefined
   });
+
   const { data: locationsData } = useLocations();
 
   // Mutations
   const createMutation = useCreateDepartment();
   const updateMutation = useUpdateDepartment();
   const archiveMutation = useArchiveDepartment();
+  const deleteMutation = useDeleteDepartment();
   const assignAdminMutation = useAssignDepartmentAdmin();
 
   const handleAddDept = (e: React.FormEvent) => {
@@ -196,7 +199,52 @@ export default function DepartmentsPage() {
   };
 
   const handleArchiveDept = (uuid: string) => {
-    archiveMutation.mutate(uuid);
+    setConfirmState({
+      isOpen: true,
+      title: "Archive Department",
+      message: "Are you sure you want to archive this department? It will be hidden from normal operations but preserved in the system.",
+      type: 'archive',
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isLoading: true }));
+        archiveMutation.mutate(uuid, {
+          onSuccess: () => {
+            toast.success("Department archived successfully");
+            setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
+          },
+          onError: () => {
+            setConfirmState(prev => ({ ...prev, isLoading: false }));
+          }
+        });
+      }
+    });
+    setActiveDropdown(null);
+  };
+
+  const handleDeleteDept = (id: string, name: string) => {
+    setConfirmState({
+      isOpen: true,
+      title: "Delete Department",
+      message: `Are you sure you want to PERMANENTLY delete the department "${name}"? This action cannot be undone and will remove all associated records.`,
+      itemName: name,
+      type: 'delete',
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isLoading: true }));
+        deleteMutation.mutate(id, {
+          onSuccess: () => {
+            toast.success("Department deleted successfully");
+            if (drilldownGroup && drilldownGroup.instances.length === 1) {
+              setDrilldownGroup(null);
+            }
+            setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
+          },
+          onError: (error: any) => {
+            const axiosError = error as AxiosError<{ message: string }>;
+            toast.error(axiosError.response?.data?.message || "Failed to delete department");
+            setConfirmState(prev => ({ ...prev, isLoading: false }));
+          }
+        });
+      }
+    });
     setActiveDropdown(null);
   };
 
@@ -603,11 +651,11 @@ export default function DepartmentsPage() {
                   <div className={styles.deptCardMetrics}>
                     <div className={styles.deptMetric}>
                       <Users size={14} />
-                      <span>{inst.personnel?.length || 0} Staff</span>
+                      <span>{inst.staffCount || inst.users?.length || 0} Staff</span>
                     </div>
                     <div className={styles.deptMetric}>
                       <MousePointer2 size={14} />
-                      <span>{inst.touchpoints?.length || 0} QRs</span>
+                      <span>{inst.touchpointCount ?? inst.touchpoints?.length ?? 0} QRs</span>
                     </div>
                   </div>
 
@@ -689,6 +737,38 @@ export default function DepartmentsPage() {
                           }}
                         >
                           <Trash2 size={14} /> {groupedDept.instances.length > 1 ? "Archive Group" : "Archive"}
+                        </button>
+                        <button
+                          className={`${styles.dropdownItem} ${styles.deleteItem}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (groupedDept.instances.length === 1) {
+                              handleDeleteDept(primaryInstance.id, groupedDept.name);
+                            } else {
+                              setConfirmState({
+                                isOpen: true,
+                                title: "Delete All Instances",
+                                message: `This will delete ALL ${groupedDept.instances.length} instances of "${groupedDept.name}" across all locations. Are you absolutely sure?`,
+                                itemName: groupedDept.name,
+                                type: 'group_delete',
+                                onConfirm: () => {
+                                  setConfirmState(prev => ({ ...prev, isLoading: true }));
+                                  Promise.all(groupedDept.instances.map((i: any) => deleteMutation.mutateAsync(i.id)))
+                                    .then(() => {
+                                      toast.success("All instances deleted");
+                                      setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
+                                    })
+                                    .catch(() => {
+                                      toast.error("Some instances could not be deleted");
+                                      setConfirmState(prev => ({ ...prev, isLoading: false }));
+                                    });
+                                }
+                              });
+                            }
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <Trash2 size={14} /> {groupedDept.instances.length > 1 ? 'Delete All' : 'Delete'}
                         </button>
                       </div>
                     )}
@@ -907,26 +987,20 @@ export default function DepartmentsPage() {
                     <h4 className={styles.builderLabel}>Department Admins</h4>
                   </div>
                   <div className={styles.resourceItems}>
-                    {deptAdmins.filter(a => a.departmentId === selectedDept?.id).length === 0 ? (
+                    {(selectedDept.users?.filter(u => u.role === 'DEPARTMENT_ADMIN') || []).length === 0 ? (
                       <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                         <Shield size={32} />
                         <p style={{ marginTop: '8px' }}>No admins assigned yet</p>
                         <p style={{ fontSize: '12px' }}>Click &quot;Add Admin&quot; to assign a department administrator</p>
                       </div>
                     ) : (
-                      deptAdmins.filter(a => a.departmentId === selectedDept?.id).map(admin => (
-                        <div key={admin.id} className={`${styles.resourceItem} ${styles.newResource}`}>
+                      (selectedDept.users?.filter(u => u.role === 'DEPARTMENT_ADMIN') || []).map(admin => (
+                        <div key={admin.id} className={styles.resourceItem}>
                           <div className={styles.resourceIcon}><Shield size={16} /></div>
                           <div className={styles.resourceInfo}>
-                            <strong>{admin.name}</strong>
+                            <strong>{admin.firstName} {admin.lastName}</strong>
                             <span>{admin.email}</span>
                           </div>
-                          <button
-                            className={styles.resourceRemove}
-                            onClick={() => setDeptAdmins(deptAdmins.filter(a => a.id !== admin.id))}
-                          >
-                            <X size={14} />
-                          </button>
                         </div>
                       ))
                     )}
@@ -953,14 +1027,13 @@ export default function DepartmentsPage() {
                     </div>
                   )}
                   <div className={styles.resourceItems}>
-                    {[1, 2, 3].map(i => (
-                      <div key={`existing-staff-${i}`} className={styles.resourceItem}>
+                    {(selectedDept.users || []).map(user => (
+                      <div key={user.id} className={styles.resourceItem}>
                         <div className={styles.resourceIcon}><User size={16} /></div>
                         <div className={styles.resourceInfo}>
-                          <strong>Official FAAN-00{i}</strong>
-                          <span>Duty Officer | Shift A</span>
+                          <strong>{user.firstName} {user.lastName}</strong>
+                          <span>{user.role} | {user.email}</span>
                         </div>
-                        <button className={styles.resourceRemove}><X size={14} /></button>
                       </div>
                     ))}
                     {tempStaff.map(staff => (
@@ -1001,14 +1074,13 @@ export default function DepartmentsPage() {
                     </div>
                   )}
                   <div className={styles.resourceItems}>
-                    {[1, 2].map(i => (
-                      <div key={`existing-qr-${i}`} className={styles.resourceItem}>
+                    {(selectedDept.touchpoints || []).map(tp => (
+                      <div key={tp.id} className={styles.resourceItem}>
                         <div className={styles.resourceIcon}><Box size={16} /></div>
                         <div className={styles.resourceInfo}>
-                          <strong>Terminal 2 - Gate {i} Feedback</strong>
-                          <span>Abuja International Airport</span>
+                          <strong>{tp.title}</strong>
+                          <span>{tp.slug}</span>
                         </div>
-                        <button className={styles.resourceRemove}><X size={14} /></button>
                       </div>
                     ))}
                     {tempQR.map(qr => (

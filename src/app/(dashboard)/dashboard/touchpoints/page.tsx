@@ -90,14 +90,15 @@ export default function TouchpointsPage() {
   });
 
   const { data: tpData, isLoading: tpLoading } = useTouchpoints({
-    locationId: (currentRole === 'LOCATION_ADMIN' ? currentLocation : (selectedLocIds.length > 0 ? selectedLocIds[0] : undefined)) || undefined
+    locationId: currentLocation || undefined
   });
 
   const { data: formsData } = useTouchpoints();
   const { data: locationsData } = useLocations();
   const { data: deptsData } = useDepartments({ 
-    locationId: currentRole === 'LOCATION_ADMIN' ? (currentLocation || undefined) : (selectedLocIds.length > 0 ? selectedLocIds[0] : undefined) 
+    locationId: currentLocation || undefined 
   });
+
 
   const createMutation = useCreateTouchpoint();
   const updateMutation = useUpdateTouchpoint();
@@ -133,7 +134,7 @@ export default function TouchpointsPage() {
 
   const [newTouchpoint, setNewTouchpoint] = useState({
     title: "",
-    location: "",
+    description: "",
     departmentIds: [] as string[],
     type: TouchpointType.FEEDBACK,
     templateIds: [] as string[]
@@ -159,7 +160,7 @@ export default function TouchpointsPage() {
         if (dept && (dept.locationId === locId || dept.location?.id === locId)) {
           creations.push({
             title: newTouchpoint.title,
-            description: "",
+            description: newTouchpoint.description,
             type: newTouchpoint.type,
             departmentId: deptId,
             locationId: locId,
@@ -178,7 +179,7 @@ export default function TouchpointsPage() {
         toast.success(`${creations.length} touchpoint(s) created successfully`);
         setIsModalOpen(false);
         setWizardStep(1);
-        setNewTouchpoint({ title: "", location: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
+        setNewTouchpoint({ title: "", description: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
       })
       .catch((error) => {
         const axiosError = error as AxiosError<{ message: string | string[] }>;
@@ -317,6 +318,7 @@ export default function TouchpointsPage() {
           <button
             className={styles.createButton}
             onClick={() => {
+              setNewTouchpoint({ title: "", description: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
               if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
                 setSelectedLocIds([currentLocation]);
                 setIsModalOpen(true);
@@ -430,6 +432,7 @@ export default function TouchpointsPage() {
               <button
                 className={styles.createButton}
                 onClick={() => {
+                  setNewTouchpoint({ title: "", description: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
                   if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
                     setSelectedLocIds([currentLocation]);
                     setIsModalOpen(true);
@@ -491,7 +494,7 @@ export default function TouchpointsPage() {
                                 e.stopPropagation();
                                 setNewTouchpoint({
                                   title: tp.title,
-                                  location: tp.locationId,
+                                  description: tp.description || "",
                                   departmentIds: tp.departmentIds || [],
                                   type: tp.type,
                                   templateIds: tp.templateIds || []
@@ -607,7 +610,7 @@ export default function TouchpointsPage() {
                               e.stopPropagation();
                               setNewTouchpoint({
                                 title: gtp.title,
-                                location: gtp.location,
+                                description: gtp.description || "",
                                 departmentIds: gtp.instances.map((i: any) => i.departmentId),
                                 type: gtp.type,
                                 templateIds: gtp.templateIds || []
@@ -767,8 +770,8 @@ export default function TouchpointsPage() {
                         type="text" 
                         placeholder="e.g. Gate A - Restroom" 
                         required 
-                        value={newTouchpoint.location}
-                        onChange={(e) => setNewTouchpoint({...newTouchpoint, location: e.target.value})}
+                        value={newTouchpoint.description}
+                        onChange={(e) => setNewTouchpoint({...newTouchpoint, description: e.target.value})}
                       />
                     </div>
                   </div>
@@ -927,8 +930,8 @@ export default function TouchpointsPage() {
                   type="button" 
                   className={styles.createButton} 
                   onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={!newTouchpoint.title || !newTouchpoint.location || newTouchpoint.departmentIds.length === 0}
-                  style={{ opacity: (!newTouchpoint.title || !newTouchpoint.location || newTouchpoint.departmentIds.length === 0) ? 0.5 : 1 }}
+                  disabled={!newTouchpoint.title || !newTouchpoint.description || newTouchpoint.departmentIds.length === 0}
+                  style={{ opacity: (!newTouchpoint.title || !newTouchpoint.description || newTouchpoint.departmentIds.length === 0) ? 0.5 : 1 }}
                 >
                   Continue
                 </button>

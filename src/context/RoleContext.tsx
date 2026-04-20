@@ -29,7 +29,7 @@ interface RoleContextType {
   availableDepartments: Department[];
   isLoading: boolean;
   switchRole: (role: UserRole) => void;
-  switchLocation: (locationId: string) => void;
+  switchLocation: (locationId: string | null) => void;
   switchDepartment: (departmentId: string) => void;
   checkPermission: (permission: keyof Permission) => boolean;
   hasAccessToLocation: (locationId: string) => boolean;
@@ -141,28 +141,46 @@ export function RoleProvider({ children }: RoleProviderProps) {
   }, [profile, currentRole, currentLocation, currentDepartment]);
 
   const switchRole = useCallback((role: UserRole) => {
-    setCurrentRole(role);
-    
-    if (role === UserRole.SUPER_ADMIN) {
-      setCurrentLocation(null);
-      setCurrentDepartment(null);
-    } else if (role === UserRole.LOCATION_ADMIN) {
-      if (!currentLocation && locationsData?.data?.length) {
-        setCurrentLocation(locationsData.data[0].id);
+    setCurrentRole(prevRole => {
+      // If role hasn't changed, don't do anything that might trigger downstream resets
+      if (prevRole === role) return prevRole;
+      
+      // If switching to Super Admin, we clear location/department filters
+      if (role === UserRole.SUPER_ADMIN) {
+        setCurrentLocation(null);
+        setCurrentDepartment(null);
+      } else if (role === UserRole.LOCATION_ADMIN) {
+        // For Location Admin, try to default to the first available location if none set
+        setCurrentLocation(prevLoc => {
+          if (!prevLoc && locationsData?.data?.length) {
+            return locationsData.data[0].id;
+          }
+          return prevLoc;
+        });
+        setCurrentDepartment(null);
+      } else if (role === UserRole.DEPARTMENT_ADMIN) {
+        // For Department Admin, ensure a location and department are set
+        setCurrentLocation(prevLoc => {
+          const locId = prevLoc || locationsData?.data?.[0]?.id || null;
+          
+          setCurrentDepartment(prevDept => {
+            if (!prevDept && deptsData?.data?.length) {
+              const firstLocDepts = deptsData.data.filter((d: Department) => d.locationId === locId);
+              return firstLocDepts[0]?.id || null;
+            }
+            return prevDept;
+          });
+          
+          return locId;
+        });
       }
-      setCurrentDepartment(null);
-    } else if (role === UserRole.DEPARTMENT_ADMIN) {
-      if (!currentLocation && locationsData?.data?.length) {
-        setCurrentLocation(locationsData.data[0].id);
-      }
-      if (!currentDepartment && deptsData?.data?.length) {
-        const firstLocDepts = deptsData.data.filter((d: Department) => d.locationId === (currentLocation || locationsData?.data?.[0]?.id));
-        setCurrentDepartment(firstLocDepts[0]?.id || null);
-      }
-    }
-  }, [currentLocation, currentDepartment, locationsData, deptsData]);
+      
+      return role;
+    });
+  }, [locationsData, deptsData]);
 
-  const switchLocation = useCallback((locationId: string) => {
+
+  const switchLocation = useCallback((locationId: string | null) => {
     if (!permissions.canSwitchLocations && currentRole !== UserRole.SUPER_ADMIN) {
       return;
     }

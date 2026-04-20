@@ -77,7 +77,8 @@ export default function SubmissionsPage() {
   });
 
   const { data: detail, isLoading: detailLoading } = useSubmission(selectedUuid || "");
-  const { data: deptsData } = useDepartments();
+  const { data: deptsData } = useDepartments({ locationId: currentLocation || undefined });
+
 
   const updateMutation = useUpdateSubmission();
   const noteMutation = useAddSubmissionNote();

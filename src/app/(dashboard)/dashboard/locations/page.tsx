@@ -33,8 +33,10 @@ import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
 import { useCreateUser } from "@/hooks/useUsers";
+import { useZoneHealth } from "@/hooks/useAnalytics";
 import { Location, Department, Role } from "@/types/api";
 import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
+
 
 export default function LocationsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
@@ -42,6 +44,12 @@ export default function LocationsPage() {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [selectedZone, setSelectedZone] = useState<Department | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+
+  const { data: heatmapData, isLoading: isHeatmapLoading } = useZoneHealth({
+    locationId: selectedLocation?.id,
+    departmentId: selectedZone?.id
+  });
+
   const [activeTooltip, setActiveTooltip] = useState<number | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
@@ -422,44 +430,43 @@ export default function LocationsPage() {
             </div>
 
             <div className={styles.heatmapGrid}>
-              {[
-                { id: 1, label: "Cleaning Level", value: 94, status: "green", desc: "Maintenance staff actively present. No pending tasks." },
-                { id: 2, label: "Staff Presence", value: 88, status: "green", desc: "Full team rotation on-site. Average response time: 4m." },
-                { id: 3, label: "Equipment Health", value: 42, status: "red", desc: "Elevator B-14 reported offline. Service technician dispatched." },
-                { id: 4, label: "Wait Time", value: 65, status: "yellow", desc: "Higher than average peak. 12m wait time currently." },
-                { id: 5, label: "Complaint Rate", value: 12, status: "green", desc: "Negligible complaint volume in the last 2 hours." },
-                { id: 6, label: "Passenger Flow", value: 92, status: "green", desc: "Smooth transitions. No congestion reported." },
-                { id: 7, label: "Security Status", value: 35, status: "red", desc: "Screening point 4 jammed. Redirecting passengers." },
-                { id: 8, label: "Lighting", value: 98, status: "green", desc: "Optimal illumination level. No fixtures require repair." },
-                { id: 9, label: "Feedback Loop", value: 75, status: "yellow", desc: "Interaction rate falling. Check engagement kiosks." },
-                { id: 10, label: "HVAC System", value: 91, status: "green", desc: "Ambient temperature at 22.5°C. System performing well." },
-                { id: 11, label: "Internet Access", value: 68, status: "yellow", desc: "Minor interference in Gate 12 area. IT investigating." },
-                { id: 12, label: "Power Supply", value: 100, status: "green", desc: "Consistent power flow. Backup generators on standby." }
-              ].map((block) => (
-                <div
-                  key={block.id}
-                  className={`${styles.heatmapBlock} ${styles[block.status]} ${activeTooltip === block.id ? styles.activeBlock : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleTooltip(block.id);
-                  }}
-                >
-                  <div className={styles.blockContent}>
-                    <span className={styles.blockLabel}>{block.label}</span>
-                    <span className={styles.blockValue}>{block.value}%</span>
-                  </div>
-                  <div className={`${styles.heatmapTooltip} ${activeTooltip === block.id ? styles.activeTooltip : ""}`}>
-                    <h4 className={styles.tooltipTitle}>{block.label}</h4>
-                    <p className={styles.tooltipDesc}>{block.desc}</p>
-                    <div className={styles.tooltipStatus}>
-                      <div className={`${styles.statusBadge} ${styles[block.status]}`}>
-                        Status: {block.status.toUpperCase()}
+              {isHeatmapLoading ? (
+                Array.from({ length: 12 }).map((_, i) => (
+                  <div key={i} className={`${styles.heatmapBlock} ${styles.loadingBlock}`} style={{ height: '80px', background: '#f8fafc', borderRadius: '12px', animation: 'pulse 2s infinite' }} />
+                ))
+
+              ) : heatmapData && heatmapData.length > 0 ? (
+                heatmapData.map((block) => (
+                  <div
+                    key={block.id}
+                    className={`${styles.heatmapBlock} ${styles[block.status]} ${activeTooltip === block.id ? styles.activeBlock : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleTooltip(block.id);
+                    }}
+                  >
+                    <div className={styles.blockContent}>
+                      <span className={styles.blockLabel}>{block.label}</span>
+                      <span className={styles.blockValue}>{block.value}%</span>
+                    </div>
+                    <div className={`${styles.heatmapTooltip} ${activeTooltip === block.id ? styles.activeTooltip : ""}`}>
+                      <h4 className={styles.tooltipTitle}>{block.label}</h4>
+                      <p className={styles.tooltipDesc}>{block.desc}</p>
+                      <div className={styles.tooltipStatus}>
+                        <div className={`${styles.statusBadge} ${styles[block.status]}`}>
+                          Status: {block.status.toUpperCase()}
+                        </div>
                       </div>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className={styles.emptyHeatmap} style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '20px' }}>
+                  <p style={{ color: '#64748b' }}>No operational health data available for this selection.</p>
                 </div>
-              ))}
+              )}
             </div>
+
           </section>
 
           {/* ADMINS SECTION */}

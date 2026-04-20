@@ -189,7 +189,8 @@ export default function IssueManagementPage() {
   });
 
   const { data: locationsData } = useLocations();
-  const { data: deptsData } = useDepartments();
+  const { data: deptsData } = useDepartments({ locationId: currentLocation || undefined });
+
 
   const { data: issuesData, isLoading: issuesLoading } = useIssues({
     locationId: currentLocation || undefined,

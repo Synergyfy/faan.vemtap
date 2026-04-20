@@ -82,8 +82,8 @@ api.interceptors.response.use(
 
       const refreshToken = getRefreshToken();
       if (!refreshToken) {
+        console.warn('Authentication: No refresh token found, logging out.');
         clearTokens();
-        // Redirect to login if in browser and not already on the login page
         if (typeof window !== 'undefined' && window.location.pathname !== '/') {
           window.location.href = '/';
         }
@@ -91,18 +91,28 @@ api.interceptors.response.use(
       }
 
       try {
+        console.log('Authentication: Access token expired, attempting refresh...');
         const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
           refreshToken,
         });
 
+        // Backend response is wrapped in 'data' by TransformInterceptor
         const { accessToken: newAccessToken, refreshToken: newRefreshToken } = data.data;
+        
+        console.log('Authentication: Token refresh successful.');
         setTokens(newAccessToken, newRefreshToken);
 
         api.defaults.headers.common.Authorization = `Bearer ${newAccessToken}`;
+        
+        if (originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        }
+        
         processQueue(null, newAccessToken);
         
         return api(originalRequest);
       } catch (refreshError) {
+        console.error('Authentication: Token refresh failed:', refreshError);
         processQueue(refreshError as any, null);
         clearTokens();
         if (typeof window !== 'undefined' && window.location.pathname !== '/') {
