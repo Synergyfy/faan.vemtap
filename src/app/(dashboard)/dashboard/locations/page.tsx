@@ -59,13 +59,22 @@ export default function LocationsPage() {
     { id: 2, name: "Mrs. Amina Bello", email: "amina.bello@faan.gov.ng", status: "Pending", phone: "+234 803 111 2222" },
   ]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [deleteModal, setDeleteModal] = useState({
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    title?: string;
+    itemName: string;
+    itemType: 'location';
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
     isOpen: false,
     itemName: '',
-    itemType: 'location' as const,
+    itemType: 'location',
     isGroup: false,
     instanceCount: 0,
-    affectedItems: [] as string[],
+    affectedItems: [],
     onConfirm: () => {},
   });
 
@@ -78,8 +87,12 @@ export default function LocationsPage() {
   const handleDeleteLocation = (id: string, name: string) => {
     setDeleteModal({
       isOpen: true,
+      title: "Delete Location",
       itemName: name,
       itemType: 'location',
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [],
       onConfirm: () => {
         deleteMutation.mutate(id, {
           onSuccess: () => {

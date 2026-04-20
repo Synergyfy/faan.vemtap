@@ -1,521 +1,459 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { 
-  Calendar, 
-  ChevronLeft, 
-  ChevronRight, 
-  Download, 
-  Mail, 
-  Share2, 
-  Printer, 
-  FileText, 
-  CheckCircle2, 
-  AlertCircle,
-  BarChart3,
-  Building2,
-  MapPin,
-  Clock,
-  ArrowRight,
-  Loader2
+import React, { useState, useEffect, useRef, Suspense } from "react";
+import axios from "axios";
+import { useSearchParams } from "next/navigation";
+import { format, startOfWeek, endOfWeek, addDays, subDays, startOfMonth, endOfMonth } from "date-fns";
+import ReactMarkdown from "react-markdown";
+import {
+  PieChart, Pie, Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
+} from "recharts";
+import {
+  Calendar, ChevronLeft, ChevronRight, Download, Mail, Share2, Printer, FileText,
+  MapPin, Loader2, Sparkles, Wand2
 } from "lucide-react";
-import { format, startOfWeek, endOfWeek, addDays, subDays, isSameDay, isSameWeek, parseISO } from "date-fns";
-import styles from "../../Dashboard.module.css";
-import { useSubmissions } from "@/hooks/useSubmissions";
-import { useIssues } from "@/hooks/useIssues";
-import { useTouchpoints } from "@/hooks/useTouchpoints";
-import { useRole } from "@/context/RoleContext";
 import { toast } from "sonner";
+import { useRole } from "@/context/RoleContext";
+import styles from "../../Dashboard.module.css";
 import Image from "next/image";
 
-export default function SummaryReportsPage() {
-  const { locationName } = useRole();
-  const [reportType, setReportType] = useState<'daily' | 'weekly'>('daily');
-  const [selectedDate, setSelectedDate] = useState(new Date());
+// --- TYPES ---
+export enum SystemReportType {
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+  MONTHLY = 'MONTHLY',
+}
+
+export enum SystemReportCategory {
+  GENERAL = 'GENERAL',
+  INTERNAL = 'INTERNAL',
+}
+
+export interface DistributionItem {
+  name: string;
+  count: number;
+  percentage: number;
+}
+
+export interface ChartData {
+  title: string;
+  data: DistributionItem[];
+  explanation: string;
+}
+
+export interface SystemReport {
+  id: string;
+  reportType: SystemReportType;
+  category: SystemReportCategory;
+  date: string;
+  weekRange?: string | null;
+  month?: string | null;
+  content: string;
+  metrics: Record<string, any>;
+  graphData: ChartData[];
+  pdfFileUrl?: string | null;
+  locationId?: string | null;
+  departmentId?: string | null;
+  createdAt: string;
+}
+
+const COLORS = ['#157347', '#0284c7', '#ea580c', '#db2777', '#9333ea', '#dc2626', '#0d9488'];
+
+function SummaryReportsContents() {
+  const { locationName, currentRole, currentLocation } = useRole();
+  const isSuperAdmin = currentRole === 'SUPER_ADMIN';
+  const locationId = currentLocation;
+  
+  const searchParams = useSearchParams();
+  const categoryParam = searchParams.get('category') as SystemReportCategory;
+  const category = categoryParam || SystemReportCategory.INTERNAL;
+
+  const [reportType, setReportType] = useState<SystemReportType>(SystemReportType.DAILY);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  
   const [isGenerating, setIsGenerating] = useState(false);
-  const [showReport, setShowReport] = useState(false);
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
+  const [currentReport, setCurrentReport] = useState<SystemReport | null>(null);
+  
   const reportRef = useRef<HTMLDivElement>(null);
 
-  // Data fetching
-  const { data: touchpointsData } = useTouchpoints();
-  const { data: submissionsData } = useSubmissions({
-    limit: 100 // Get enough for summary
-  });
-  const { data: issuesData } = useIssues();
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
-  const generateReport = () => {
-    setIsGenerating(true);
-    // Simulate generation delay for "premium" feel
-    setTimeout(() => {
-      setIsGenerating(false);
-      setShowReport(true);
-      toast.success(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} report generated!`);
-    }, 1500);
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleEmail = () => {
-    const email = prompt("Enter email address(es) separated by comma:");
-    if (email) {
-      toast.success("Report sent successfully to: " + email);
+  const fetchReports = async () => {
+    setIsLoadingReports(true);
+    try {
+      const res = await axios.get(`${API_URL}/reports/automated`, {
+        params: {
+          reportType,
+          category,
+          locationId: isSuperAdmin ? undefined : locationId
+        }
+      });
+      const data = res.data.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      if (data.length > 0) {
+        if (reportType === SystemReportType.DAILY) {
+          const targetStr = format(selectedDate, 'yyyy-MM-dd');
+          const match = data.find((r: SystemReport) => r.date && r.date.startsWith(targetStr));
+          setCurrentReport(match || null);
+        } else {
+          setCurrentReport(data[0]);
+        }
+      } else {
+        setCurrentReport(null);
+      }
+    } catch (error) {
+      console.error("Failed to load reports", error);
+    } finally {
+      setIsLoadingReports(false);
     }
   };
 
-  const handleWhatsApp = () => {
-    toast.success("Preparing PDF for WhatsApp sharing...");
+  useEffect(() => {
+    fetchReports();
+  }, [reportType, category, selectedDate, locationId, isSuperAdmin]);
+
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    setCurrentReport(null);
+    try {
+      const res = await axios.post(`${API_URL}/reports/automated/generate`, {
+        reportType,
+        category,
+        locationId: isSuperAdmin ? undefined : locationId,
+        date: format(selectedDate, 'yyyy-MM-dd')
+      });
+      
+      setCurrentReport(res.data);
+      toast.success("AI Report successfully generated!");
+    } catch (error: any) {
+      console.error("Error generating report", error);
+      toast.error(error?.response?.data?.message || "Generation failed.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  // Logic to process data based on selected date/week
-  const processReportData = () => {
-    const submissions = submissionsData?.data || [];
-    const issues = issuesData?.data || [];
-    const touchpoints = touchpointsData?.data || [];
+  const downloadPdf = async (id: string) => {
+    try {
+      const url = `${API_URL}/reports/automated/${id}/pdf`;
+      window.open(url, '_blank');
+      toast.success("Opening PDF...");
+    } catch {
+      toast.error("Failed to download PDF.");
+    }
+  };
 
-    const filteredSubmissions = submissions.filter(s => {
-      const date = parseISO(s.submittedAt);
-      if (reportType === 'daily') {
-        return isSameDay(date, selectedDate);
-      } else {
-        return isSameWeek(date, selectedDate, { weekStartsOn: 1 });
-      }
-    });
+  const handleEmailShare = async (id: string) => {
+    const email = prompt("Enter recipient email address:");
+    if (!email) return;
 
-    const filteredIssues = issues.filter(i => {
-      const date = parseISO(i.createdAt);
-      if (reportType === 'daily') {
-        return isSameDay(date, selectedDate);
-      } else {
-        return isSameWeek(date, selectedDate, { weekStartsOn: 1 });
-      }
-    });
+    try {
+      toast.loading("Sending email...", { id: 'emailSend' });
+      await axios.post(`${API_URL}/reports/automated/${id}/share`, { email });
+      toast.success("Report sent successfully!", { id: 'emailSend' });
+    } catch (err) {
+      toast.error("Failed to send email.", { id: 'emailSend' });
+    }
+  };
 
-    const resolvedCount = filteredIssues.filter(i => i.status === 'RESOLVED').length;
-    const pendingCount = filteredIssues.length - resolvedCount;
-    const uniqueTouchpointIds = new Set(filteredSubmissions.map(s => s.touchpointId));
+  const handleWhatsAppShare = (id: string) => {
+    const url = `${API_URL}/reports/automated/${id}/pdf`;
+    const message = `Here is the latest ${reportType} report from FAAN VEMTAP: ${url}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+    toast.success("Prepared for WhatsApp sharing.");
+  };
 
-    // Grouping by department for touchpoint breakdown
-    const deptStats: Record<string, { forms: number, actions: number, name: string, location: string }> = {};
-    
-    filteredSubmissions.forEach(s => {
-      const tp = touchpoints.find(t => t.id === s.touchpointId);
-      if (tp) {
-        const key = tp.departmentId;
-        if (!deptStats[key]) {
-          deptStats[key] = { 
-            forms: 0, 
-            actions: 0, 
-            name: tp.department?.name || "Other", 
-            location: tp.location?.name || locationName 
-          };
-        }
-        deptStats[key].forms += 1;
-        deptStats[key].actions += tp.interactions || 0;
-      }
-    });
+  const renderDateControls = () => {
+    let displayText = "";
+    if (reportType === SystemReportType.DAILY) {
+      displayText = format(selectedDate, "EEEE, MMMM do, yyyy");
+    } else if (reportType === SystemReportType.WEEKLY) {
+       displayText = `Week of ${format(startOfWeek(selectedDate, { weekStartsOn: 1 }), "MMM do")} - ${format(endOfWeek(selectedDate, { weekStartsOn: 1 }), "MMM do")}`;
+    } else {
+      displayText = format(selectedDate, "MMMM yyyy");
+    }
 
-    return {
-      totalForms: filteredSubmissions.length,
-      touchpointsUsed: uniqueTouchpointIds.size,
-      resolvedCount,
-      pendingCount,
-      totalIssues: filteredIssues.length,
-      deptStats: Object.values(deptStats),
-      weeklyStats: filteredSubmissions.length // simplified for summary
+    const handlePrev = () => {
+      if (reportType === SystemReportType.DAILY) setSelectedDate(subDays(selectedDate, 1));
+      if (reportType === SystemReportType.WEEKLY) setSelectedDate(subDays(selectedDate, 7));
+      if (reportType === SystemReportType.MONTHLY) setSelectedDate(subDays(startOfMonth(selectedDate), 1));
     };
-  };
 
-  const data = processReportData();
+    const handleNext = () => {
+      if (reportType === SystemReportType.DAILY) setSelectedDate(addDays(selectedDate, 1));
+      if (reportType === SystemReportType.WEEKLY) setSelectedDate(addDays(selectedDate, 7));
+      if (reportType === SystemReportType.MONTHLY) setSelectedDate(addDays(endOfMonth(selectedDate), 1));
+    };
+
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button onClick={handlePrev} className={styles.iconButton}><ChevronLeft size={18} /></button>
+        <span style={{ fontSize: '15px', fontWeight: 600, color: '#1e293b', minWidth: '200px', textAlign: 'center' }}>
+          {displayText}
+        </span>
+        <button onClick={handleNext} className={styles.iconButton}><ChevronRight size={18} /></button>
+      </div>
+    );
+  };
 
   return (
     <div className={styles.pageContainer}>
-      {/* Header Actions */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
         <div>
-          <h1 className={styles.pageTitle}>Daily & Weekly Reports</h1>
-          <p className={styles.pageSubtitle}>Generate easy-to-read summaries for stakeholders</p>
+          <h1 className={styles.pageTitle} style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <Sparkles className="text-brand-green" /> 
+            AI Reporting Engine
+          </h1>
+          <p className={styles.pageSubtitle}>Automatically generate stunning, human-readable insights from your operational data.</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <div className={styles.tabSwitcher} style={{ margin: 0, padding: '4px' }}>
-            <button 
-              className={reportType === 'daily' ? styles.tabActive : ''} 
-              onClick={() => { setReportType('daily'); setShowReport(false); }}
-              style={{ fontSize: '13px', padding: '6px 16px' }}
-            >
-              Daily
-            </button>
-            <button 
-              className={reportType === 'weekly' ? styles.tabActive : ''} 
-              onClick={() => { setReportType('weekly'); setShowReport(false); }}
-              style={{ fontSize: '13px', padding: '6px 16px' }}
-            >
-              Weekly
-            </button>
-          </div>
+        
+        <div style={{ background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(10px)', padding: '6px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', gap: '6px' }}>
+            {Object.values(SystemReportType).map(type => (
+              <button
+                key={type}
+                onClick={() => setReportType(type)}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '12px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  transition: 'all 0.2s',
+                  background: reportType === type ? 'var(--brand-green)' : 'transparent',
+                  color: reportType === type ? '#fff' : '#64748b',
+                  boxShadow: reportType === type ? '0 4px 12px rgba(21, 115, 71, 0.2)' : 'none',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {type.charAt(0) + type.slice(1).toLowerCase()}
+              </button>
+            ))}
         </div>
       </div>
 
-      {/* Control Panel */}
-      <div className={styles.card} style={{ marginBottom: reportType === 'daily' ? '12px' : '24px' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ 
-              width: '40px', 
-              height: '40px', 
-              borderRadius: '10px', 
-              background: 'rgba(21, 115, 71, 0.1)', 
-              color: 'var(--brand-green)', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center' 
-            }}>
-              <Calendar size={20} />
-            </div>
-            <div>
-              <p style={{ fontSize: '12px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>
-                {reportType === 'daily' ? 'Select Day' : 'Select Week'}
+      <div className={styles.card} style={{ marginBottom: '32px', background: 'linear-gradient(to right, #ffffff, #f8fafc)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>
+                Period Selection
               </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button 
-                  onClick={() => setSelectedDate(subDays(selectedDate, reportType === 'daily' ? 1 : 7))}
-                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: '#1e293b', minWidth: '160px', textAlign: 'center' }}>
-                  {reportType === 'daily' 
-                    ? format(selectedDate, "EEEE, MMMM do") 
-                    : `Week of ${format(startOfWeek(selectedDate, { weekStartsOn: 1 }), "MMM do")} - ${format(endOfWeek(selectedDate, { weekStartsOn: 1 }), "MMM do")}`
-                  }
-                </span>
-                <button 
-                  onClick={() => setSelectedDate(addDays(selectedDate, reportType === 'daily' ? 1 : 7))}
-                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </div>
+              {renderDateControls()}
             </div>
-          </div>
 
           <button 
-            className={styles.createButton} 
-            style={{ 
-              padding: '12px 32px', 
-              fontSize: '15px', 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '8px',
-              height: '48px',
-              minWidth: '200px',
-              justifyContent: 'center'
-            }}
-            onClick={generateReport}
+            onClick={handleGenerate}
             disabled={isGenerating}
+            style={{
+              background: 'linear-gradient(135deg, var(--brand-green) 0%, #0d9488 100%)',
+              color: 'white',
+              border: 'none',
+              padding: '12px 28px',
+              borderRadius: '14px',
+              fontSize: '15px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              cursor: isGenerating ? 'not-allowed' : 'pointer',
+              opacity: isGenerating ? 0.7 : 1,
+              boxShadow: '0 8px 20px rgba(13, 148, 136, 0.25)',
+              transition: 'transform 0.2s',
+            }}
           >
-            {isGenerating ? (
-              <>
-                <Loader2 size={18} className={`${styles.animateSpin} spin`} />
-                Generating...
-              </>
-            ) : (
-              <>
-                <BarChart3 size={18} />
-                Generate {reportType === 'daily' ? 'Daily' : 'Weekly'} Report
-              </>
-            )}
+            {isGenerating ? <Loader2 size={18} className="spin" /> : <Wand2 size={18} />}
+            Generate AI Report
           </button>
         </div>
       </div>
 
-      {/* Report Content */}
-      {showReport ? (
-        <div style={{ animation: 'fadeIn 0.4s ease-out' }}>
-          <div id="report-content" ref={reportRef} style={{ 
+      {isLoadingReports && !currentReport && !isGenerating && (
+         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px', color: '#94a3b8' }}>
+            <Loader2 className="spin" size={32} />
+         </div>
+      )}
+
+      {currentReport && !isGenerating ? (
+        <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
+          <div ref={reportRef} style={{ 
             background: 'white', 
             borderRadius: '24px', 
-            padding: '48px', 
-            boxShadow: '0 10px 30px rgba(0,0,0,0.05)',
-            border: '1px solid #f1f5f9',
-            maxWidth: '900px',
+            padding: '56px', 
+            boxShadow: '0 20px 50px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)',
+            maxWidth: '960px',
             margin: '0 auto',
-            color: '#1e293b'
+            color: '#1e293b',
+            position: 'relative',
+            overflow: 'hidden'
           }}>
-            {/* Report Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px', borderBottom: '2px solid #f8fafc', paddingBottom: '30px' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '8px', background: 'linear-gradient(90deg, var(--brand-green), #0d9488)' }} />
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px', borderBottom: '2px solid #f1f5f9', paddingBottom: '32px' }}>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                  <Image src="/Faan.logo_.png" alt="Logo" width={60} height={30} />
-                  <span style={{ fontWeight: 800, fontSize: '18px', color: 'var(--brand-green)', letterSpacing: '-0.5px' }}>VEMTAP</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <Image src="/Faan.logo_.png" alt="FAAN" width={70} height={35} />
+                  <span style={{ fontWeight: 800, fontSize: '20px', color: 'var(--brand-green)', letterSpacing: '-0.5px' }}>VEMTAP</span>
                 </div>
-                <h2 style={{ fontSize: '32px', fontWeight: 800, marginBottom: '4px' }}>
-                  {reportType === 'daily' ? 'Daily Activity Summary' : 'Weekly Operations Summary'}
+                <h2 style={{ fontSize: '36px', fontWeight: 800, letterSpacing: '-1px', marginBottom: '8px', color: '#0f172a' }}>
+                  {currentReport.reportType} REPORT
                 </h2>
-                <p style={{ color: '#64748b', fontSize: '16px' }}>
-                  For {locationName} • {reportType === 'daily' ? format(selectedDate, "MMMM do, yyyy") : `Week ${format(selectedDate, "w")} of ${format(selectedDate, "yyyy")}`}
+                <p style={{ color: '#64748b', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <MapPin size={18} /> {locationName || 'All Locations'} • {category}
                 </p>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ display: 'inline-block', padding: '6px 12px', borderRadius: '8px', background: '#f0fdf4', color: 'var(--brand-green)', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
-                  System Generated
+              <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <span style={{ display: 'inline-block', padding: '6px 14px', borderRadius: '10px', background: 'rgba(21,115,71,0.08)', color: 'var(--brand-green)', fontSize: '13px', fontWeight: 700, textTransform: 'uppercase' }}>
+                   AI Generated
                 </span>
-                <p style={{ fontSize: '14px', color: '#94a3b8' }}>ID: {reportType.toUpperCase()}-{format(selectedDate, "yyyyMMdd")}</p>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{ fontSize: '16px', fontWeight: 700, color: '#334155' }}>
+                    {format(new Date(currentReport.date || currentReport.createdAt), "MMMM do, yyyy")}
+                  </p>
+                  <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Ref: {currentReport.id.split('-')[0]}</p>
+                </div>
               </div>
             </div>
 
-            {/* Plain English Summary */}
-            <div style={{ marginBottom: '40px' }}>
-              <p style={{ fontSize: '20px', lineHeight: '1.6', fontWeight: 500, color: '#334155' }}>
-                {reportType === 'daily' ? (
-                  <>
-                    On <strong>{format(selectedDate, "EEEE, MMMM do")}</strong>, staff at {locationName} filled a total of <strong>{data.totalForms} forms</strong> across <strong>{data.touchpointsUsed}</strong> different areas of the airport.
-                  </>
-                ) : (
-                  <>
-                    This week at {locationName}, a total of <strong>{data.totalForms} forms</strong> were submitted across the system. It was a productive week with consistent reporting from all major departments.
-                  </>
-                )}
-              </p>
-            </div>
-
-            {/* Quick Stats Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '40px' }}>
-              <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '16px' }}>
-                <p style={{ fontSize: '13px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>Forms Filled</p>
-                <p style={{ fontSize: '28px', fontWeight: 800 }}>{data.totalForms}</p>
-                <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>Reports generated today</p>
+            <div style={{ marginBottom: '56px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <Sparkles size={20} color="var(--brand-green)" />
+                <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>Executive Summary</h3>
               </div>
-              <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '16px' }}>
-                <p style={{ fontSize: '13px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>Areas Active</p>
-                <p style={{ fontSize: '28px', fontWeight: 800 }}>{data.touchpointsUsed}</p>
-                <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>Unique locations used</p>
-              </div>
-              <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '16px' }}>
-                <p style={{ fontSize: '13px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>Issues Resolved</p>
-                <p style={{ fontSize: '28px', fontWeight: 800 }}>{data.resolvedCount} <span style={{ fontSize: '16px', color: '#94a3b8', fontWeight: 400 }}>of {data.totalIssues}</span></p>
-                <p style={{ fontSize: '13px', color: 'var(--brand-green)', fontWeight: 600, marginTop: '4px' }}>
-                  {data.totalIssues > 0 ? `${Math.round((data.resolvedCount/data.totalIssues)*100)}% Success Rate` : 'No issues raised'}
-                </p>
+              <div className="report-markdown" style={{ 
+                fontSize: '18px', 
+                lineHeight: '1.8', 
+                color: '#334155',
+                background: '#f8fafc',
+                padding: '32px',
+                borderRadius: '20px',
+                borderLeft: '4px solid var(--brand-green)'
+              }}>
+                <ReactMarkdown>{currentReport.content}</ReactMarkdown>
               </div>
             </div>
 
-            {/* Detailed Breakdown */}
-            <div style={{ marginBottom: '48px' }}>
-              <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Building2 size={20} color="var(--brand-green)" />
-                What happened in each department
-              </h3>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {data.deptStats.length > 0 ? data.deptStats.map((dept, idx) => (
-                  <div key={idx} style={{ 
-                    padding: '20px', 
-                    border: '1px solid #f1f5f9', 
-                    borderRadius: '16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                      <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-                        <MapPin size={18} />
+            {currentReport.graphData && currentReport.graphData.length > 0 && (
+              <div style={{ marginBottom: '40px' }}>
+                <h3 style={{ fontSize: '22px', fontWeight: 700, marginBottom: '24px', color: '#0f172a' }}>Data Visualizations</h3>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: currentReport.graphData.length > 1 ? '1fr 1fr' : '1fr', gap: '32px' }}>
+                  {currentReport.graphData.map((graph, idx) => (
+                    <div key={idx} style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '20px', background: 'white' }}>
+                      <h4 style={{ fontWeight: 600, fontSize: '16px', color: '#475569', marginBottom: '24px', textAlign: 'center' }}>{graph.title}</h4>
+                      
+                      <div style={{ height: '240px', width: '100%' }}>
+                        {idx % 2 === 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={graph.data}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={80}
+                                paddingAngle={5}
+                                dataKey="count"
+                              >
+                                {graph.data.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                              <Legend />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={graph.data}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
+                              <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
+                              <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                              <Bar dataKey="count" fill="var(--brand-green)" radius={[6, 6, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        )}
                       </div>
-                      <div>
-                        <p style={{ fontWeight: 700, fontSize: '16px', color: '#1e293b' }}>{dept.name}</p>
-                        <p style={{ fontSize: '13px', color: '#64748b' }}>Located at {dept.location}</p>
+                      
+                      <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '12px', fontSize: '14px', color: '#475569', lineHeight: '1.6' }}>
+                        <ReactMarkdown>{graph.explanation}</ReactMarkdown>
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <p style={{ fontWeight: 800, fontSize: '18px' }}>{dept.forms} <span style={{ fontSize: '12px', fontWeight: 400, color: '#94a3b8' }}>forms</span></p>
-                      <p style={{ fontSize: '12px', color: 'var(--brand-green)', fontWeight: 600 }}>{dept.actions} actions recorded</p>
-                    </div>
-                  </div>
-                )) : (
-                  <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '16px', color: '#94a3b8' }}>
-                    No department activity recorded for this period.
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Actions Taken Section */}
-            <div style={{ marginBottom: '48px' }}>
-              <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CheckCircle2 size={20} color="var(--brand-green)" />
-                Actions taken {reportType === 'daily' ? 'today' : 'this week'}
-              </h3>
-              <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <li style={{ display: 'flex', gap: '12px' }}>
-                  <div style={{ marginTop: '4px' }}><ArrowRight size={14} color="var(--brand-green)" /></div>
-                  <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.5' }}>
-                    Staff performed regular inspections across <strong>{data.touchpointsUsed}</strong> vital areas, ensuring all facilities are operating as expected.
-                  </p>
-                </li>
-                <li style={{ display: 'flex', gap: '12px' }}>
-                  <div style={{ marginTop: '4px' }}><ArrowRight size={14} color="var(--brand-green)" /></div>
-                  <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.5' }}>
-                    A total of <strong>{data.resolvedCount}</strong> reported issues were successfully closed and verified by the relevant managers.
-                  </p>
-                </li>
-                {data.pendingCount > 0 && (
-                  <li style={{ display: 'flex', gap: '12px' }}>
-                    <div style={{ marginTop: '4px' }}><ArrowRight size={14} color="var(--brand-green)" /></div>
-                    <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.5' }}>
-                      There are currently <strong>{data.pendingCount}</strong> items still being worked on. We expect these to be updated in the next report.
-                    </p>
-                  </li>
-                )}
-              </ul>
-            </div>
-
-            {/* Resolution Narrative */}
-            <div style={{ padding: '32px', background: 'rgba(21, 115, 71, 0.03)', border: '1px dashed var(--brand-green)', borderRadius: '20px' }}>
-              <h4 style={{ fontWeight: 700, color: 'var(--brand-green)', marginBottom: '12px' }}>Resolution Summary</h4>
-              <p style={{ fontSize: '15px', color: '#475569', lineHeight: '1.6' }}>
-                {data.totalIssues > 0 ? (
-                  <>
-                    Out of the {data.totalIssues} issues raised {reportType === 'daily' ? 'today' : 'this week'}, {data.resolvedCount} were successfully resolved. 
-                    {data.pendingCount > 0 
-                      ? ` The remaining ${data.pendingCount} are being tracked and priority has been assigned to ensure they are handled quickly.`
-                      : " Everything raised has been successfully handled."}
-                  </>
-                ) : (
-                  "The systems were stable during this period, with no new major issues reported by the staff. This indicates an excellent operational standing."
-                )}
-              </p>
-            </div>
-
-            <div style={{ marginTop: '60px', textAlign: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '30px' }}>
-              <p style={{ fontSize: '12px', color: '#94a3b8' }}>
-                Report Generated: {format(new Date(), "PPpp")} • FAAN Vemtap Operations Intelligence
+            <div style={{ marginTop: '60px', textAlign: 'center', borderTop: '2px solid #f1f5f9', paddingTop: '32px' }}>
+              <p style={{ fontSize: '13px', color: '#94a3b8', fontWeight: 500 }}>
+                Generated dynamically by GEMINI AI Engine • Automated Reporting System
               </p>
             </div>
           </div>
 
-          {/* Export Floating Bar */}
           <div style={{ 
             marginTop: '32px', 
             background: 'white', 
             padding: '16px 24px', 
             borderRadius: '20px', 
-            boxShadow: '0 10px 40px rgba(0,0,0,0.1)',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.02)',
             display: 'flex',
             justifyContent: 'center',
             gap: '16px',
             position: 'sticky',
             bottom: '32px',
-            border: '1px solid #e2e8f0',
             width: 'fit-content',
-            margin: '32px auto'
+            margin: '40px auto 0 auto',
+            zIndex: 10
           }}>
-            <button onClick={handlePrint} style={{ 
-                border: 'none',
-                background: '#f1f5f9',
-                width: '48px', 
-                height: '48px', 
-                borderRadius: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-            }} title="Download/Print PDF">
+            <button onClick={() => downloadPdf(currentReport.id)} style={{ border: 'none', background: '#f1f5f9', width: '50px', height: '50px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Download PDF">
               <Download size={20} color="#1e293b" />
             </button>
-            <button onClick={handlePrint} style={{ 
-                border: 'none',
-                background: '#f1f5f9',
-                width: '48px', 
-                height: '48px', 
-                borderRadius: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-            }} title="Print">
+            <button onClick={() => window.print()} style={{ border: 'none', background: '#f1f5f9', width: '50px', height: '50px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Print">
               <Printer size={20} color="#1e293b" />
             </button>
             <div style={{ width: '1px', background: '#e2e8f0', margin: '8px 0' }}></div>
-            <button onClick={handleEmail} className={styles.createButton} style={{ gap: '8px', padding: '0 24px' }}>
-              <Mail size={18} />
-              Send to CEO
+            <button onClick={() => handleEmailShare(currentReport.id)} className={styles.createButton} style={{ gap: '10px', padding: '0 24px', height: '50px', borderRadius: '14px' }}>
+              <Mail size={18} /> Send via Email
             </button>
-            <button onClick={handleWhatsApp} className={styles.createButton} style={{ gap: '8px', padding: '0 24px', background: '#25D366' }}>
-              <Share2 size={18} />
-              WhatsApp Share
+            <button onClick={() => handleWhatsAppShare(currentReport.id)} style={{ background: '#25D366', color: 'white', border: 'none', borderRadius: '14px', padding: '0 24px', height: '50px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 14px rgba(37, 211, 102, 0.3)' }}>
+              <Share2 size={18} /> WhatsApp
             </button>
           </div>
         </div>
-      ) : (
-        <div style={{ 
-          height: '500px', 
-          display: 'flex', 
-          flexDirection: 'column', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          background: 'white',
-          borderRadius: '24px',
-          border: '2px dashed #e2e8f0',
-          color: '#94a3b8'
-        }}>
-          <div style={{ background: '#f1f5f9', padding: '24px', borderRadius: '50%', marginBottom: '20px' }}>
-            <FileText size={48} color="#cbd5e1" />
+      ) : !isGenerating ? (
+        <div style={{ minHeight: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(10px)', borderRadius: '24px', border: '2px dashed #cbd5e1', color: '#94a3b8' }}>
+          <div style={{ background: '#f1f5f9', padding: '24px', borderRadius: '24px', marginBottom: '24px' }}>
+            <FileText size={48} color="#94a3b8" />
           </div>
-          <h3 style={{ color: '#64748b', fontWeight: 600, fontSize: '18px' }}>No report displayed</h3>
-          <p style={{ marginTop: '8px' }}>Select a date and click "Generate Report" to begin</p>
-          
-          <div style={{ marginTop: '32px', textAlign: 'left', width: '400px' }}>
-            <p style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '16px' }}>Recent Summary Downloads</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {[1, 2, 3].map(i => (
-                <div key={i} style={{ padding: '12px 16px', borderRadius: '12px', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <FileText size={16} color="#94a3b8" />
-                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#475569' }}>
-                      {i === 1 ? 'Daily Summary' : i === 2 ? 'Weekly Overview' : 'Operational Status'}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>{i} days ago</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <h3 style={{ color: '#475569', fontWeight: 700, fontSize: '22px', marginBottom: '8px' }}>No report available</h3>
+          <p style={{ fontSize: '15px' }}>Click <strong style={{color: 'var(--brand-green)'}}>Generate AI Report</strong> to analyze the data and generate insights.</p>
         </div>
-      )}
+      ) : null}
 
-      {/* Print & Animation Styles */}
       <style jsx global>{`
         @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          #report-content, #report-content * {
-            visibility: visible !important;
-          }
-          #report-content {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            padding: 0 !important;
-            box-shadow: none !important;
-            border: none !important;
-            margin: 0 !important;
-          }
+          body * { visibility: hidden !important; }
+          #report-content, #report-content * { visibility: visible !important; }
+          #report-content { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 0 !important; box-shadow: none !important; border: none !important; margin: 0 !important; }
         }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .spin {
-          animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); filter: blur(5px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .iconButton { border: none; background: #f1f5f9; width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #64748b; transition: all 0.2s; }
+        .iconButton:hover { background: #e2e8f0; color: #1e293b; }
+        .report-markdown p { margin-bottom: 1em; }
+        .report-markdown strong { color: #0f172a; font-weight: 700; }
       `}</style>
     </div>
+  );
+}
+
+export default function SummaryReportsPage() {
+  return (
+    <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', padding: '100px' }}><Loader2 className="spin" size={48} /></div>}>
+      <SummaryReportsContents />
+    </Suspense>
   );
 }

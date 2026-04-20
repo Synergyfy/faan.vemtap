@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, AlertTriangle, Trash2, Info, LayoutTemplate, Shield, MapPin, FileStack, QrCode } from 'lucide-react';
+import { X, AlertTriangle, Trash2, Info, LayoutTemplate, Shield, MapPin, FileStack, QrCode, AlertCircle } from 'lucide-react';
 import styles from './DeleteConfirmationModal.module.css';
 
 export type DeletableItemType = 'location' | 'department' | 'form' | 'touchpoint' | 'report' | 'template' | 'issue';

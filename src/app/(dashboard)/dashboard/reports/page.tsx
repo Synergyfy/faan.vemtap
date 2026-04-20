@@ -98,7 +98,16 @@ export default function ReportsPage() {
   const [filterDateTo, setFilterDateTo] = useState<string>("");
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
-  const [deleteModal, setDeleteModal] = useState({
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    title?: string;
+    itemName: string;
+    itemType: any;
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
     isOpen: false,
     itemName: '',
     itemType: 'report' as any,
@@ -438,10 +447,12 @@ export default function ReportsPage() {
   const confirmDeleteReport = (report: any) => {
     setDeleteModal({
       isOpen: true,
+      title: "Delete Report",
       itemName: report.title,
       itemType: 'report',
       isGroup: false,
       instanceCount: 1,
+      affectedItems: [],
       onConfirm: () => {
         // Implement delete report mutation if available, 
         // for now we just handle local state if it's mock or needs implementation
@@ -456,10 +467,12 @@ export default function ReportsPage() {
   const confirmDeleteTemplate = (template: any) => {
     setDeleteModal({
       isOpen: true,
+      title: "Delete Template",
       itemName: template.name,
       itemType: 'template',
       isGroup: false,
       instanceCount: 1,
+      affectedItems: [],
       onConfirm: () => {
         deleteTemplateMutation.mutate(template.id, {
           onSuccess: () => {

@@ -95,13 +95,22 @@ export default function DepartmentsPage() {
   const [editingDept, setEditingDept] = useState<Department | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [deleteModal, setDeleteModal] = useState({
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    title?: string;
+    itemName: string;
+    itemType: 'department';
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
     isOpen: false,
     itemName: '',
-    itemType: 'department' as const,
+    itemType: 'department',
     isGroup: false,
     instanceCount: 0,
-    affectedItems: [] as string[],
+    affectedItems: [],
     onConfirm: () => {},
   });
 
@@ -203,8 +212,7 @@ export default function DepartmentsPage() {
       return;
     }
 
-    const currentDeptIds = template.departmentIds || [];
-    if (currentDeptIds.includes(selectedDept.id)) {
+    if (template.departmentId === selectedDept.id) {
       toast.error("This form is already added to this department");
       return;
     }
@@ -315,21 +323,19 @@ export default function DepartmentsPage() {
     }
   };
 
-  const handleArchiveDept = (uuid: string) => {
-    setConfirmState({
+  const handleArchiveDept = (uuid: string, name: string) => {
+    setDeleteModal({
       isOpen: true,
       title: "Archive Department",
-      message: "Are you sure you want to archive this department? It will be hidden from normal operations but preserved in the system.",
-      type: 'archive',
+      itemName: name,
+      itemType: 'department',
+      isGroup: false,
+      instanceCount: 1,
       onConfirm: () => {
-        setConfirmState(prev => ({ ...prev, isLoading: true }));
         archiveMutation.mutate(uuid, {
           onSuccess: () => {
             toast.success("Department archived successfully");
-            setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
-          },
-          onError: () => {
-            setConfirmState(prev => ({ ...prev, isLoading: false }));
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
           }
         });
       }
@@ -338,26 +344,25 @@ export default function DepartmentsPage() {
   };
 
   const handleDeleteDept = (id: string, name: string) => {
-    setConfirmState({
+    setDeleteModal({
       isOpen: true,
       title: "Delete Department",
-      message: `Are you sure you want to PERMANENTLY delete the department "${name}"? This action cannot be undone and will remove all associated records.`,
       itemName: name,
-      type: 'delete',
+      itemType: 'department',
+      isGroup: false,
+      instanceCount: 1,
       onConfirm: () => {
-        setConfirmState(prev => ({ ...prev, isLoading: true }));
         deleteMutation.mutate(id, {
           onSuccess: () => {
             toast.success("Department deleted successfully");
             if (drilldownGroup && drilldownGroup.instances.length === 1) {
               setDrilldownGroup(null);
             }
-            setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
           },
           onError: (error: any) => {
             const axiosError = error as AxiosError<{ message: string }>;
             toast.error(axiosError.response?.data?.message || "Failed to delete department");
-            setConfirmState(prev => ({ ...prev, isLoading: false }));
           }
         });
       }
@@ -368,10 +373,12 @@ export default function DepartmentsPage() {
   const confirmArchive = (uuid: string, name: string) => {
     setDeleteModal({
       isOpen: true,
+      title: "Confirm Archive",
       itemName: name,
       itemType: 'department',
       isGroup: false,
       instanceCount: 1,
+      affectedItems: [],
       onConfirm: () => {
         archiveMutation.mutate(uuid, {
           onSuccess: () => {
@@ -386,11 +393,13 @@ export default function DepartmentsPage() {
   const confirmArchiveGroup = (groupedDept: any) => {
     const locationsList = groupedDept.instances.map((inst: any) => {
       const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
-      return locName;
+      const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
+      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
     });
 
     setDeleteModal({
       isOpen: true,
+      title: "Archive Group",
       itemName: groupedDept.name,
       itemType: 'department',
       isGroup: true,
@@ -860,25 +869,41 @@ export default function DepartmentsPage() {
                           onClick={(e) => {
                             e.stopPropagation();
                             if (groupedDept.instances.length === 1) {
-                              handleDeleteDept(primaryInstance.id, groupedDept.name);
+                              setDeleteModal({
+                                isOpen: true,
+                                title: "Delete Department",
+                                itemName: groupedDept.name,
+                                itemType: 'department',
+                                isGroup: false,
+                                instanceCount: 1,
+                                onConfirm: () => {
+                                  deleteMutation.mutate(primaryInstance.id);
+                                  setDeleteModal(prev => ({ ...prev, isOpen: false }));
+                                  setActiveDropdown(null);
+                                }
+                              });
                             } else {
-                              setConfirmState({
+                              setDeleteModal({
                                 isOpen: true,
                                 title: "Delete All Instances",
-                                message: `This will delete ALL ${groupedDept.instances.length} instances of "${groupedDept.name}" across all locations. Are you absolutely sure?`,
                                 itemName: groupedDept.name,
-                                type: 'group_delete',
+                                itemType: 'department',
+                                isGroup: true,
+                                instanceCount: groupedDept.instances.length,
+                                affectedItems: groupedDept.instances.map((inst: any) => 
+                                  typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport')
+                                ),
                                 onConfirm: () => {
-                                  setConfirmState(prev => ({ ...prev, isLoading: true }));
-                                  Promise.all(groupedDept.instances.map((i: any) => deleteMutation.mutateAsync(i.id)))
-                                    .then(() => {
-                                      toast.success("All instances deleted");
-                                      setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }));
-                                    })
-                                    .catch(() => {
-                                      toast.error("Some instances could not be deleted");
-                                      setConfirmState(prev => ({ ...prev, isLoading: false }));
-                                    });
+                                  const promises = groupedDept.instances.map((inst: any) => deleteMutation.mutateAsync(inst.id));
+                                  toast.promise(Promise.all(promises), {
+                                    loading: 'Deleting instances...',
+                                    success: () => {
+                                      setDeleteModal(prev => ({ ...prev, isOpen: false }));
+                                      setActiveDropdown(null);
+                                      return 'All instances deleted successfully';
+                                    },
+                                    error: 'Failed to delete some instances'
+                                  });
                                 }
                               });
                             }
@@ -1251,8 +1276,8 @@ export default function DepartmentsPage() {
                             {(formSubTab === 'internal' ? wizardTemplates : wizardTouchpoints)
                               .map(item => {
                                 const isAlreadyLinked = formSubTab === 'internal' 
-                                  ? (item.departmentIds?.includes(selectedDept.id) || item.departmentId === selectedDept.id)
-                                  : (item.departmentId === selectedDept.id);
+                                  ? (item as any).departmentId === selectedDept.id
+                                  : (item as any).departmentId === selectedDept.id;
 
                                 return (
                                   <button
@@ -1278,7 +1303,9 @@ export default function DepartmentsPage() {
                                         {formSubTab === 'internal' ? <ClipboardList size={16} /> : <CheckCircle2 size={16} />}
                                       </div>
                                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>{item.name || item.title}</span>
+                                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                                          {'name' in item ? item.name : item.title}
+                                        </span>
                                         {isAlreadyLinked && <span style={{ fontSize: '10px', color: 'var(--brand-green)', fontWeight: 700, textTransform: 'uppercase' }}>Already in this Department</span>}
                                       </div>
                                     </div>
@@ -1292,9 +1319,9 @@ export default function DepartmentsPage() {
                             )}
 
                             {selectedFormId && (
-                              <button 
+                               <button 
                                 className={styles.createButton} 
-                                style={{ marginTop: '12px', width: '100%', py: '10px' }}
+                                style={{ marginTop: '12px', width: '100%', padding: '10px 0' }}
                                 onClick={formSubTab === 'internal' ? handleLinkTemplate : handleLinkTouchpoint}
                                 disabled={shareTemplateMutation.isPending || updateTouchpointMutation.isPending}
                               >
@@ -1310,7 +1337,7 @@ export default function DepartmentsPage() {
                   <div className={styles.resourceItems}>
                     {formSubTab === 'internal' ? (
                       allTemplates
-                        .filter(t => t.departmentIds?.includes(selectedDept.id) || t.departmentId === selectedDept.id)
+                        .filter(t => (t as any).departmentId === selectedDept.id)
                         .map(item => (
                           <div key={item.id} className={styles.resourceItem} style={{ padding: '16px' }}>
                             <div className={styles.resourceIcon}><ClipboardList size={16} /></div>
@@ -1321,10 +1348,10 @@ export default function DepartmentsPage() {
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
                                 <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <MapPin size={10} /> {item.locationName || (item.location?.name && item.location.name !== 'Current Location' ? item.location.name : locMap[item.locationId]) || 'Original Location'}
+                                  <MapPin size={10} /> {item.locationName || locMap[item.locationId] || 'Original Location'}
                                 </span>
                                 <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <Shield size={10} /> {item.departmentName || (item.department?.name && item.department.name !== 'Shared / Global' ? item.department.name : deptMap[item.departmentId]) || 'Original Dept'}
+                                  <Shield size={10} /> {item.departmentName || deptMap[item.departmentId] || 'Original Dept'}
                                 </span>
                               </div>
                             </div>
@@ -1354,7 +1381,7 @@ export default function DepartmentsPage() {
                         ))
                     )}
                     
-                    {((formSubTab === 'internal' && allTemplates.filter(t => t.departmentIds?.includes(selectedDept.id) || t.departmentId === selectedDept.id).length === 0) ||
+                    {((formSubTab === 'internal' && allTemplates.filter(t => (t as any).departmentId === selectedDept.id).length === 0) ||
                       (formSubTab === 'feedback' && allTouchpoints.filter(tp => tp.departmentId === selectedDept.id && tp.type === 'FEEDBACK').length === 0)) && (
                       <div style={{ padding: '60px 40px', textAlign: 'center', color: '#94a3b8' }}>
                         <ClipboardList size={32} />

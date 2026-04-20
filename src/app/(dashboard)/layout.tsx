@@ -1,113 +1,36 @@
 "use client";
 
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { 
   LayoutDashboard, 
-  MapPin, 
-  MousePointer2, 
-  Inbox, 
+  FileStack, 
   AlertCircle, 
-  Users, 
-  BarChart3, 
-  Settings,
-  LogOut,
-  Bell,
-  Search,
+  ClipboardList, 
+  FileText, 
+  MapPin, 
+  Building2, 
+  Settings, 
+  LogOut, 
+  Search, 
+  Bell, 
   User,
   ChevronDown,
-  Building2,
-  ShieldCheck,
-  Eye,
-  FileText,
-  FileStack,
-  ClipboardList
+  LayoutTemplate,
+  BarChart3,
+  QrCode,
+  FileBarChart,
+  Menu,
+  X
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import styles from "./Dashboard.module.css";
-import Image from "next/image";
-import { useState, useEffect } from "react";
 import { useRole } from "@/context/RoleContext";
+import { useAuthContext } from "@/context/AuthContext";
 import { UserRole } from "@/types/rbac";
-import { useProfile, useLogout } from "@/hooks/useAuth";
-
-interface MenuItem {
-  icon: React.ComponentType<{ size?: number }>;
-  label: string;
-  href: string;
-  allowedRoles?: UserRole[];
-  requiredPermission?: keyof ReturnType<typeof useRole>['permissions'];
-}
-
-const MENU_ITEMS: MenuItem[] = [
-  { 
-    icon: LayoutDashboard, 
-    label: "Dashboard", 
-    href: "/dashboard",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
-  },
-  { 
-    icon: MapPin, 
-    label: "Locations", 
-    href: "/dashboard/locations",
-    allowedRoles: [UserRole.SUPER_ADMIN],
-    requiredPermission: "canViewAllLocations"
-  },
-  { 
-    icon: Users, 
-    label: "Departments", 
-    href: "/dashboard/departments",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN],
-    requiredPermission: "canManageAllDepartments"
-  },
-  { 
-    icon: FileStack, 
-    label: "Forms", 
-    href: "/dashboard/forms",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]
-  },
-  { 
-    icon: MousePointer2, 
-    label: "Touchpoints", 
-    href: "/dashboard/touchpoints",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]
-  },
-  { 
-    icon: Inbox, 
-    label: "Submissions", 
-    href: "/dashboard/submissions",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
-  },
-  { 
-    icon: AlertCircle, 
-    label: "Issue Management", 
-    href: "/dashboard/issues",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
-  },
-  { 
-    icon: FileText, 
-    label: "Internal Reports", 
-    href: "/dashboard/reports",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
-  },
-  { 
-    icon: BarChart3, 
-    label: "Analytics", 
-    href: "/dashboard/analytics",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
-  },
-  { 
-    icon: ClipboardList, 
-    label: "Daily / Weekly Summary", 
-    href: "/dashboard/summary-reports",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
-  },
-  { 
-    icon: Settings, 
-    label: "Settings", 
-    href: "/dashboard/settings",
-    allowedRoles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN]
-  },
-];
+import { toast } from "sonner";
 
 export default function DashboardLayout({
   children,
@@ -115,180 +38,193 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { 
-    currentRole, 
-    currentUser,
-    roleLabel,
-    locationName,
-    departmentName,
-    permissions,
-    availableLocations,
-    switchLocation,
-    switchRole,
-    currentLocation
-  } = useRole();
-  
-  const { data: profile } = useProfile();
-  const logoutMutation = useLogout();
-  
-  const [locationDropdownOpen, setLocationDropdownOpen] = useState(false);
-  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { currentUser, currentRole, roleLabel, locationName, departmentName, isLoading } = useRole();
+  const { logout: authLogout } = useAuthContext();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
 
-  // Sync real profile role to mock switcher on initial load
   useEffect(() => {
-    if (profile?.role && (profile.role as unknown as UserRole) !== currentRole) {
-      switchRole(profile.role as any);
-    }
-  }, [profile?.role, currentRole, switchRole]);
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
-
-  const filteredMenuItems = MENU_ITEMS.filter((item) => {
-    if (!item.allowedRoles) return true;
-    if (!item.allowedRoles.includes(currentRole as any)) return false;
-    if (item.requiredPermission && !permissions[item.requiredPermission]) return false;
-    
-    // Hide "Locations" management link if a specific location is selected
-    if (item.href === "/dashboard/locations" && currentLocation) return false;
-    
-    return true;
-  });
-
-  const getRoleDisplayName = () => {
-    if (currentRole === UserRole.SUPER_ADMIN) {
-      return `Super Admin • ${locationName}`;
-    }
-    if (currentRole === UserRole.LOCATION_ADMIN) {
-      return `Location Admin • ${locationName}`;
-    }
-    return `${departmentName} • ${locationName}`;
+  const handleLogout = () => {
+    authLogout();
+    toast.success("Logged out successfully");
   };
 
-  const getRoleBadgeColor = () => {
-    if (currentRole === UserRole.SUPER_ADMIN) return styles.roleBadgeSuper;
-    if (currentRole === UserRole.LOCATION_ADMIN) return styles.roleBadgeLocation;
-    return styles.roleBadgeDepartment;
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(["Reports"]);
+
+  const navItems = [
+    { 
+      group: "Menu",
+      items: [
+        { name: "Dashboard", icon: LayoutDashboard, href: "/dashboard", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN] },
+        { name: "Locations", icon: MapPin, href: "/dashboard/locations", roles: [UserRole.SUPER_ADMIN] },
+        { name: "Departments", icon: Building2, href: "/dashboard/departments", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN] },
+        { name: "Forms", icon: ClipboardList, href: "/dashboard/forms", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN] },
+        { name: "Touchpoints", icon: QrCode, href: "/dashboard/touchpoints", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN] },
+        { name: "Submissions", icon: FileStack, href: "/dashboard/submissions", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN] },
+        { name: "Issue Management", icon: AlertCircle, href: "/dashboard/issues", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN] },
+        { name: "Internal Reports", icon: FileText, href: "/dashboard/reports", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN] },
+        { 
+          name: "Reports", 
+          icon: FileBarChart, 
+          href: "/dashboard/summary-reports", 
+          roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN],
+          subItems: [
+            { name: "General", href: "/dashboard/summary-reports?category=GENERAL" },
+            { name: "Internal", href: "/dashboard/summary-reports?category=INTERNAL" },
+          ]
+        },
+        { name: "Analytics", icon: BarChart3, href: "/dashboard/analytics", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN] },
+        { name: "Settings", icon: Settings, href: "/dashboard/settings", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN] },
+      ]
+    }
+  ];
+
+  const toggleMenu = (name: string) => {
+    setExpandedMenus(prev => 
+      prev.includes(name) ? prev.filter(m => m !== name) : [...prev, name]
+    );
   };
+
+  const filteredNav = navItems.map(group => ({
+    ...group,
+    items: group.items.filter(item => item.roles.includes(currentRole))
+  })).filter(group => group.items.length > 0);
 
   return (
     <div className={styles.container}>
       {/* Sidebar */}
       <aside className={styles.sidebar}>
         <div className={styles.logoContainer}>
-          <Image
-            src="/Faan.logo_.png"
-            alt="FAAN Logo"
-            width={120}
-            height={60}
+          <Image 
+            src="/Faan.logo_.png" 
+            alt="FAAN Logo" 
+            width={140} 
+            height={50} 
             className={styles.sidebarLogo}
+            priority
           />
         </div>
 
-        <div className={styles.roleIndicator}>
-          <div className={`${styles.roleBadge} ${getRoleBadgeColor()}`}>
-            {currentRole === UserRole.SUPER_ADMIN && <ShieldCheck size={14} />}
-            {currentRole === UserRole.LOCATION_ADMIN && <Building2 size={14} />}
-            {currentRole === UserRole.DEPARTMENT_ADMIN && <User size={14} />}
-            <span>{roleLabel}</span>
-          </div>
-          {(currentRole === UserRole.LOCATION_ADMIN || currentRole === UserRole.DEPARTMENT_ADMIN) && (
-            <span className={styles.roleScope}>{locationName}</span>
-          )}
-        </div>
-        
-
         <nav className={styles.nav}>
-          {filteredMenuItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || (item.href === "/dashboard" && pathname === "/dashboard");
-            return (
-              <Link
-                key={item.label}
-                href={item.href}
-                className={`${styles.navItem} ${isActive ? styles.navItemActive : ""}`}
-              >
-                <Icon size={20} />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+          {filteredNav.map((group, groupIdx) => (
+            <div key={group.group} className={styles.navGroup}>
+              <div style={{ padding: '24px 16px 8px', fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {group.group}
+              </div>
+              {group.items.map((item) => {
+                const isExpanded = expandedMenus.includes(item.name);
+                const hasSubItems = item.subItems && item.subItems.length > 0;
+                const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                const Icon = item.icon;
+                
+                return (
+                  <div key={item.name} className={styles.navGroupItem}>
+                    {hasSubItems ? (
+                      <>
+                        <button 
+                          onClick={() => toggleMenu(item.name)}
+                          className={`${styles.navItem} ${isActive ? styles.navItemActive : ""}`}
+                          style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer' }}
+                        >
+                          <Icon size={20} />
+                          <span>{item.name}</span>
+                          <ChevronDown 
+                            size={16} 
+                            className={`${styles.subMenuChevron} ${isExpanded ? styles.chevronRotated : ""}`} 
+                          />
+                        </button>
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div 
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className={styles.subMenu}
+                            >
+                              {item.subItems?.map(sub => {
+                                const subUrl = new URL(sub.href, 'http://localhost');
+                                const subCategory = subUrl.searchParams.get('category');
+                                const currentCategory = searchParams.get('category');
+                                const isSubActive = pathname === subUrl.pathname && currentCategory === subCategory;
+                                
+                                return (
+                                  <Link 
+                                    key={sub.href} 
+                                    href={sub.href}
+                                    className={`${styles.subNavItem} ${isSubActive ? styles.subNavItemActive : ""}`}
+                                  >
+                                    <div className={styles.subMenuDot} />
+                                    {sub.name}
+                                  </Link>
+                                );
+                              })}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </>
+                    ) : (
+                      <Link 
+                        href={item.href} 
+                        className={`${styles.navItem} ${isActive ? styles.navItemActive : ""}`}
+                      >
+                        <Icon size={20} />
+                        <span>{item.name}</span>
+                        {isActive && (
+                          <motion.div 
+                            layoutId="navActive"
+                            className={styles.activeIndicator}
+                          />
+                        )}
+                      </Link>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <button 
-            className={styles.logoutButton} 
-            onClick={() => logoutMutation.mutate()}
-            disabled={logoutMutation.isPending}
-          >
+          <button onClick={handleLogout} className={styles.logoutButton}>
             <LogOut size={20} />
-            <span>{logoutMutation.isPending ? 'Logging out...' : 'Logout'}</span>
+            <span>Logout</span>
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <div className={styles.mainWrapper}>
-        <header className={styles.header}>
+      <main className={styles.mainWrapper}>
+        <header className={`${styles.header} ${isScrolled ? styles.headerScrolled : ""}`}>
           <div className={styles.headerLeft}>
             <div className={styles.searchBar}>
               <Search size={18} className={styles.searchIcon} />
-              <input type="text" placeholder="Search anything..." className={styles.searchInput} />
+              <input 
+                type="text" 
+                placeholder="Search everything..." 
+                className={styles.searchInput}
+              />
             </div>
-            
-            {/* Location Switcher for Super Admin */}
-            {permissions.canSwitchLocations && (
-              <div className={styles.locationSwitcher}>
-                <button 
-                  className={styles.locationSwitcherBtn}
-                  onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}
-                >
-                  <MapPin size={16} />
-                  <span>{locationName}</span>
-                  <ChevronDown size={14} className={locationDropdownOpen ? styles.chevronUp : ""} />
-                </button>
-                {locationDropdownOpen && (
-                  <div className={styles.locationDropdown}>
-                    <div className={styles.dropdownHeader}>Select Location</div>
-                    {currentLocation && (
-                      <button
-                        className={styles.dropdownItem}
-                        onClick={() => {
-                          switchLocation(null);
-                          setLocationDropdownOpen(false);
-                        }}
-                      >
-                        <Building2 size={14} />
-                        <span>All Locations</span>
-                      </button>
-                    )}
-                    {availableLocations
-                      .filter(loc => loc.id !== currentLocation)
-                      .map((loc) => (
-                        <button
-                          key={loc.id}
-                          className={`${styles.dropdownItem} ${locationName === loc.name ? styles.dropdownItemActive : ""}`}
-                          onClick={() => {
-                            switchLocation(loc.id);
-                            setLocationDropdownOpen(false);
-                          }}
-                        >
-                          <MapPin size={14} />
-                          <span>{loc.name}</span>
-                        </button>
-                      ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
+
           <div className={styles.headerRight}>
-            <button className={styles.iconButton}>
+            <button className={styles.iconButton} aria-label="Notifications">
               <Bell size={20} />
-              <span className={styles.badge}></span>
+              <span className={styles.badge} />
             </button>
+
             <div className={styles.userProfile}>
               <div className={styles.userInfo}>
-                <span className={styles.userName}>{profile ? `${profile.firstName} ${profile.lastName}` : 'Loading...'}</span>
-                <span className={styles.userRole}>{getRoleDisplayName()}</span>
+                <span className={styles.userName}>{currentUser?.name || "Loading..."}</span>
+                <span className={styles.userRole}>{roleLabel}</span>
               </div>
               <div className={styles.userAvatar}>
                 <User size={20} />
@@ -297,11 +233,33 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        <main className={styles.content}>
-          {children}
-        </main>
-      </div>
+        <div className={styles.content}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </main>
 
+      {/* Mobile Menu Backdrop */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className={styles.mobileBackdrop}
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

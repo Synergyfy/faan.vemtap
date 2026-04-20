@@ -79,13 +79,21 @@ export default function TouchpointsPage() {
   const [tempLocIds, setTempLocIds] = useState<string[]>([]);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
-  const [deleteModal, setDeleteModal] = useState({
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    itemName: string;
+    itemType: 'touchpoint';
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
     isOpen: false,
     itemName: '',
-    itemType: 'touchpoint' as const,
+    itemType: 'touchpoint',
     isGroup: false,
     instanceCount: 0,
-    affectedItems: [] as string[],
+    affectedItems: [],
     onConfirm: () => {},
   });
 
@@ -202,6 +210,7 @@ export default function TouchpointsPage() {
       itemType: 'touchpoint',
       isGroup: false,
       instanceCount: 1,
+      affectedItems: [],
       onConfirm: () => {
         archiveMutation.mutate(tp.id, {
           onSuccess: () => {

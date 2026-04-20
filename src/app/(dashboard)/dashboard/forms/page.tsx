@@ -104,13 +104,21 @@ export default function FormsPage() {
   const [wizardStep, setWizardStep] = useState(1);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
-  const [deleteModal, setDeleteModal] = useState({
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    itemName: string;
+    itemType: 'form';
+    isGroup: boolean;
+    instanceCount: number;
+    affectedItems?: string[];
+    onConfirm: () => void;
+  }>({
     isOpen: false,
     itemName: '',
-    itemType: 'form' as const,
+    itemType: 'form',
     isGroup: false,
     instanceCount: 0,
-    affectedItems: [] as string[],
+    affectedItems: [],
     onConfirm: () => {},
   });
 
@@ -268,6 +276,7 @@ export default function FormsPage() {
       itemType: 'form',
       isGroup: false,
       instanceCount: 1,
+      affectedItems: [],
       onConfirm: () => {
         deleteMutation.mutate(tp.id, {
           onSuccess: () => {
@@ -1332,12 +1341,7 @@ export default function FormsPage() {
                   </div>
                   <div className={styles.dangerZone}>
                     <button className={styles.archiveBtn} onClick={() => {
-                      setDeleteData({
-                        type: 'SINGLE',
-                        id: selectedForm.id,
-                        title: selectedForm.title
-                      });
-                      setShowDeleteModal(true);
+                      confirmDeleteForm(selectedForm);
                     }}>
                       <Trash2 size={16} /> Delete Form
                     </button>
