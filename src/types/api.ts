@@ -251,6 +251,7 @@ export interface Department {
   _count?: {
     touchpoints: number;
   };
+  touchpoints?: Touchpoint[];
   staffCount?: number;
   touchpointCount?: number;
   activeIssueCount?: number;
@@ -260,7 +261,7 @@ export interface Department {
 
 export interface FormField {
   id: string;
-  type: 'text' | 'dropdown' | 'file' | 'date' | 'rating' | 'textarea' | 'email' | 'number';
+  type: 'text' | 'dropdown' | 'file' | 'date' | 'rating' | 'textarea' | 'email' | 'number' | 'select' | 'checkbox';
   label: string;
   name?: string;
   required?: boolean;
@@ -390,6 +391,7 @@ export interface ReportTemplate {
   departmentId: string;
   departmentName?: string;
   schema: ReportTemplateField[];
+  status: TemplateStatus;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

@@ -129,7 +129,7 @@ export default function DashboardLayout({
 
   // Sync real profile role to mock switcher on initial load
   useEffect(() => {
-    if (profile?.role && profile.role !== currentRole) {
+    if (profile?.role && (profile.role as unknown as UserRole) !== currentRole) {
       switchRole(profile.role as any);
     }
   }, [profile?.role, currentRole, switchRole]);
@@ -137,7 +137,7 @@ export default function DashboardLayout({
 
   const filteredMenuItems = MENU_ITEMS.filter((item) => {
     if (!item.allowedRoles) return true;
-    if (!item.allowedRoles.includes(currentRole)) return false;
+    if (!item.allowedRoles.includes(currentRole as any)) return false;
     if (item.requiredPermission && !permissions[item.requiredPermission]) return false;
     
     // Hide "Locations" management link if a specific location is selected
