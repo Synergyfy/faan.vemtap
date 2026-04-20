@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, type CSSProperties } from "react";
+import { useState, useMemo, useEffect, useRef, type CSSProperties } from "react";
 import { 
   FileText, 
   Plus, 
@@ -27,8 +27,10 @@ import {
   Clock,
   BarChart3,
   CheckSquare,
-  Square
+  Square,
+  QrCode
 } from "lucide-react";
+import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
 import Image from "next/image";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
@@ -78,13 +80,14 @@ import {
   useCreateReport, 
   useReportTemplates, 
   useCreateReportTemplate,
-  useDeleteReportTemplate
+  useDeleteReportTemplate,
+  useUpdateReportTemplate
 } from "@/hooks/useReports";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
 
 export default function ReportsPage() {
-  const { currentRole, currentLocation, locationName: roleLocationName, availableDepartments } = useRole();
+  const { currentRole, currentLocation, locationName: roleLocationName, availableDepartments, currentUser } = useRole();
   const [activeView, setActiveView] = useState<'reports' | 'templates'>('reports');
   const [selectedReport, setSelectedReport] = useState<InternalReport | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -98,23 +101,88 @@ export default function ReportsPage() {
   const [isCreateTemplateOpen, setIsCreateTemplateOpen] = useState(false);
   const [isSubmitReportOpen, setIsSubmitReportOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
+  const [submitWizardStep, setSubmitWizardStep] = useState(1);
+  const [submitLocationId, setSubmitLocationId] = useState<string>("");
+  const [submitDepartmentId, setSubmitDepartmentId] = useState<string>("");
+  const [showQrPreview, setShowQrPreview] = useState(false);
+  const [currentTemplate, setCurrentTemplate] = useState<ReportTemplate | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<ReportTemplate | null>(null);
+  const [editTemplateData, setEditTemplateData] = useState({
+    name: '',
+    description: '',
+    fields: [] as ReportTemplateField[],
+    status: 'ACTIVE' as any
+  });
+  const [origin, setOrigin] = useState("");
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+  const qrRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const handleDownload = (format: 'png' | 'svg' | 'jpg') => {
+    if (!currentTemplate) return;
+    
+    const id = currentTemplate.uuid || currentTemplate.id;
+    const canvas = document.getElementById(`qr-canvas-${id}`) as HTMLCanvasElement;
+    const svg = document.getElementById(`qr-svg-${id}`) as unknown as SVGElement;
+    
+    if (format === 'svg' && svg) {
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `qr-report-${currentTemplate.name.toLowerCase().replace(/\s+/g, '-')}.svg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else if (canvas) {
+      const url = canvas.toDataURL(format === 'jpg' ? "image/jpeg" : "image/png");
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `qr-report-${currentTemplate.name.toLowerCase().replace(/\s+/g, '-')}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
 
   const { data: reportsData, isLoading: reportsLoading } = useReports({
     status: filterStatus !== 'all' ? filterStatus : undefined,
     departmentId: filterDepartment !== 'all' ? filterDepartment : undefined,
-    locationId: currentRole !== 'SUPER_ADMIN' ? (currentLocation || undefined) : undefined,
+    locationId: currentLocation || undefined,
     from: filterDateFrom || undefined,
     to: filterDateTo || undefined,
   });
   const { data: templatesData, isLoading: templatesLoading } = useReportTemplates({
-    locationId: currentRole !== 'SUPER_ADMIN' ? (currentLocation || undefined) : undefined,
+    locationId: currentLocation || undefined,
   });
   const { data: locationsData } = useLocations();
-  const { data: departmentsData } = useDepartments();
+  const { data: departmentsData } = useDepartments({ 
+    locationId: currentLocation || undefined 
+  });
+
 
   const createReportMutation = useCreateReport();
   const createTemplateMutation = useCreateReportTemplate();
   const deleteTemplateMutation = useDeleteReportTemplate();
+  const updateTemplateMutation = useUpdateReportTemplate();
+
+  useEffect(() => {
+    if (editingTemplate) {
+      setEditTemplateData({
+        name: editingTemplate.name,
+        description: editingTemplate.description || '',
+        fields: (editingTemplate.schema || []) as unknown as ReportTemplateField[],
+        status: editingTemplate.status as any
+      });
+      setIsEditOpen(true);
+    }
+  }, [editingTemplate]);
 
   const reports = reportsData?.data || [];
   const templates = (templatesData?.data || []) as ReportTemplate[];
@@ -155,9 +223,45 @@ export default function ReportsPage() {
   });
 
   const selectedTemplate = useMemo(() => 
-    templates.find(t => t.uuid === newReport.templateId || t.id === newReport.templateId),
+    templates.find((t: any) => t.uuid === newReport.templateId || t.id === newReport.templateId),
     [templates, newReport.templateId]
   );
+
+  const openSubmitWizard = (template?: any) => {
+    if (template) {
+      setNewReport({
+        templateId: template.uuid || template.id,
+        templateName: template.name,
+        title: '',
+        date: new Date().toISOString().split('T')[0],
+        fieldValues: {},
+      });
+      setSubmitWizardStep(4); // Go straight to form entry
+    } else {
+      setNewReport({
+        templateId: '',
+        templateName: '',
+        title: '',
+        date: new Date().toISOString().split('T')[0],
+        fieldValues: {},
+      });
+      
+      // Determine starting step
+      if (currentRole === UserRole.SUPER_ADMIN) {
+        setSubmitWizardStep(1);
+      } else if (currentRole === UserRole.LOCATION_ADMIN) {
+        setSubmitLocationId(currentLocation || "");
+        setSubmitWizardStep(2);
+      } else if (currentRole === UserRole.DEPARTMENT_ADMIN) {
+        setSubmitLocationId(currentLocation || "");
+        setSubmitDepartmentId(currentUser?.departmentId || "");
+        setSubmitWizardStep(3);
+      } else {
+        setSubmitWizardStep(1);
+      }
+    }
+    setIsSubmitReportOpen(true);
+  };
 
   const handleLocationChange = (ids: string[]) => {
     setNewTemplate(prev => ({
@@ -193,7 +297,64 @@ export default function ReportsPage() {
     });
   };
 
+  const handleUpdateTemplate = () => {
+    if (!editingTemplate) return;
+    if (!editTemplateData.name.trim()) return toast.error("Template name is required");
+    if (editTemplateData.fields.length === 0) return toast.error("Please add at least one field");
+
+    const payload = {
+      name: editTemplateData.name,
+      description: editTemplateData.description,
+      schema: editTemplateData.fields.map((f, idx) => ({
+        id: f.id || `field_${idx + 1}`,
+        type: f.type === 'dropdown' ? 'select' : f.type,
+        label: f.label,
+        name: f.name || f.label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
+        required: f.required || false,
+        options: f.options
+      }))
+    };
+    const templateId = editingTemplate.uuid || editingTemplate.id;
+    updateTemplateMutation.mutate({ id: templateId, data: payload }, {
+      onSuccess: () => {
+        toast.success("Template updated successfully");
+        setIsEditOpen(false);
+        setEditingTemplate(null);
+      },
+      onError: () => {
+        toast.error("Failed to update template");
+      }
+    });
+  };
+
+  const handleAddEditField = () => {
+    const newField: ReportTemplateField = {
+      id: `field-${Date.now()}`,
+      type: 'text',
+      label: 'New Field',
+      name: 'new_field',
+      required: false,
+    };
+    setEditTemplateData({ ...editTemplateData, fields: [...editTemplateData.fields, newField] });
+  };
+
+  const handleUpdateEditField = (fieldId: string | number, updates: Partial<ReportTemplateField>) => {
+    setEditTemplateData({
+      ...editTemplateData,
+      fields: editTemplateData.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
+    });
+  };
+
+  const handleRemoveEditField = (fieldId: string | number) => {
+    setEditTemplateData({
+      ...editTemplateData,
+      fields: editTemplateData.fields.filter(f => f.id !== fieldId)
+    });
+  };
+
   const handleCreateTemplate = () => {
+    // ... validation and payload creation ...
+    // (Existing handleCreateTemplate code continues)
     // Validation
     if (!newTemplate.name.trim()) return toast.error("Template name is required");
     if (newTemplate.locationIds.length === 0 && newTemplate.departmentIds.length === 0) {
@@ -241,6 +402,9 @@ export default function ReportsPage() {
     }, {
       onSuccess: () => {
         setIsSubmitReportOpen(false);
+        setSubmitWizardStep(1);
+        setSubmitLocationId("");
+        setSubmitDepartmentId("");
         setNewReport({ 
           templateId: '', 
           templateName: '', 
@@ -299,6 +463,19 @@ export default function ReportsPage() {
     !searchTerm || t.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const filteredSubmitDepartments = useMemo(() => {
+    if (!submitLocationId) return [];
+    return availableDepartments.filter(d => 
+      d.locationId === submitLocationId || 
+      (d.location?.id === submitLocationId)
+    );
+  }, [availableDepartments, submitLocationId]);
+
+  const filteredSubmitTemplates = useMemo(() => {
+    if (!submitDepartmentId) return [];
+    return templates.filter(t => t.departmentId === submitDepartmentId);
+  }, [templates, submitDepartmentId]);
+
   const totalFields = templates.reduce((sum, t) => sum + (t.schema?.length || 0), 0);
   const recentReports = reports.filter((r: any) => {
     const date = new Date(r.createdAt);
@@ -344,7 +521,7 @@ export default function ReportsPage() {
         <div className={styles.deptHeroActions}>
           <button
             className={styles.createButton}
-            onClick={() => activeView === 'templates' ? setIsCreateTemplateOpen(true) : setIsSubmitReportOpen(true)}
+            onClick={() => activeView === 'templates' ? setIsCreateTemplateOpen(true) : openSubmitWizard()}
           >
             <Plus size={18} />
             <span>{activeView === 'templates' ? 'Create Template' : 'Submit Report'}</span>
@@ -464,7 +641,7 @@ export default function ReportsPage() {
               ) : (
                 <button
                   className={styles.createButton}
-                  onClick={() => setIsSubmitReportOpen(true)}
+                  onClick={() => openSubmitWizard()}
                 >
                   <Plus size={18} />
                   <span>Submit Report</span>
@@ -666,6 +843,30 @@ export default function ReportsPage() {
                           {activeDropdown === inst.id && (
                             <div className={styles.cardDropdown}>
                               <button
+                                className={styles.dropdownItem}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCurrentTemplate(inst);
+                                  setShowQrPreview(true);
+                                  setActiveDropdown(null);
+                                }}
+                              >
+                                <QrCode size={14} /> View QR Code
+                              </button>
+                              <div className={styles.dropdownSeparator} />
+                              <button
+                                className={styles.dropdownItem}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingTemplate(inst);
+                                  setIsEditOpen(true);
+                                  setActiveDropdown(null);
+                                }}
+                              >
+                                <Plus size={14} /> Edit Template
+                              </button>
+                              <div className={styles.dropdownSeparator} />
+                              <button
                                 className={`${styles.dropdownItem} ${styles.danger}`}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -699,16 +900,7 @@ export default function ReportsPage() {
 
                       <button 
                         className={styles.deptManageBtn}
-                        onClick={() => {
-                          setNewReport({
-                            templateId: inst.uuid || inst.id,
-                            templateName: inst.name,
-                            title: '',
-                            date: new Date().toISOString().split('T')[0],
-                            fieldValues: {},
-                          });
-                          setIsSubmitReportOpen(true);
-                        }}
+                        onClick={() => openSubmitWizard(inst)}
                       >
                         Use Template
                         <ChevronRight size={16} />
@@ -760,6 +952,57 @@ export default function ReportsPage() {
                       </div>
                     </div>
 
+                    {(template.instances.length === 1) && (
+                      <div className={styles.cardMenuWrapper} style={{ position: 'absolute', top: '16px', right: '16px' }}>
+                        <button
+                          className={styles.cardMore}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveDropdown(activeDropdown === primaryInstance.id ? null : primaryInstance.id);
+                          }}
+                        >
+                          <MoreVertical size={18} />
+                        </button>
+                        {activeDropdown === primaryInstance.id && (
+                          <div className={styles.cardDropdown}>
+                            <button
+                              className={styles.dropdownItem}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentTemplate(primaryInstance);
+                                setShowQrPreview(true);
+                                setActiveDropdown(null);
+                              }}
+                            >
+                              <QrCode size={14} /> View QR Code
+                            </button>
+                            <div className={styles.dropdownSeparator} />
+                            <button
+                              className={styles.dropdownItem}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingTemplate(primaryInstance);
+                                setIsEditOpen(true);
+                                setActiveDropdown(null);
+                              }}
+                            >
+                              <Plus size={14} /> Edit Template
+                            </button>
+                            <div className={styles.dropdownSeparator} />
+                            <button
+                              className={`${styles.dropdownItem} ${styles.danger}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteTemplate(primaryInstance.id);
+                              }}
+                            >
+                              <Trash2 size={14} /> Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {template.instances.length > 1 ? (
                       <button 
                         className={styles.groupCardManageBtn}
@@ -770,16 +1013,7 @@ export default function ReportsPage() {
                     ) : (
                       <button 
                         className={styles.deptManageBtn}
-                        onClick={() => {
-                          setNewReport({
-                            templateId: primaryInstance.uuid || primaryInstance.id,
-                            templateName: primaryInstance.name,
-                            title: '',
-                            date: new Date().toISOString().split('T')[0],
-                            fieldValues: {},
-                          });
-                          setIsSubmitReportOpen(true);
-                        }}
+                        onClick={() => openSubmitWizard(primaryInstance)}
                       >
                         Use Template
                         <ChevronRight size={16} />
@@ -1273,68 +1507,478 @@ export default function ReportsPage() {
         </div>
       )}
 
+      {isEditOpen && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent} style={{ 
+            maxWidth: '1240px', 
+            width: '96%', 
+            height: '92vh',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'row',
+            overflow: 'hidden',
+            background: '#fff'
+          }}>
+            {/* Left Panel: Editor */}
+            <div style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              borderRight: '1px solid #f1f5f9',
+              background: '#fff',
+              minWidth: 0
+            }}>
+              <div className={styles.modalHeader} style={{ padding: '24px 32px' }}>
+                <div className={styles.modalTitleGroup}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'var(--brand-green-light)', color: 'var(--brand-green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Wrench size={20} />
+                    </div>
+                    <h3 className={styles.modalTitle}>Refine Template</h3>
+                  </div>
+                  <p className={styles.modalSubtitle}>Update fields and metadata for {editingTemplate?.name}</p>
+                </div>
+              </div>
+
+              <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }} className={styles.customScrollbar}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '40px' }}>
+                  <div className={styles.inputGroup}>
+                    <label className={styles.inputLabel}>Template Name</label>
+                    <div className={styles.modalInputWrapper}>
+                      <LayoutTemplate size={18} />
+                      <input 
+                        type="text" 
+                        value={editTemplateData.name}
+                        onChange={(e) => setEditTemplateData({ ...editTemplateData, name: e.target.value })}
+                        placeholder="e.g. Daily Shift Report"
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.inputGroup}>
+                    <label className={styles.inputLabel}>Description</label>
+                    <div className={styles.modalInputWrapper}>
+                      <FileStack size={18} />
+                      <input 
+                        type="text" 
+                        value={editTemplateData.description}
+                        onChange={(e) => setEditTemplateData({ ...editTemplateData, description: e.target.value })}
+                        placeholder="Standardizing data for operational checks"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+                  <h4 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <List size={20} color="var(--brand-green)" />
+                    Form Schema
+                  </h4>
+                  <button className={styles.addFieldBtn} onClick={handleAddEditField} style={{ background: '#f1f5f9', color: '#0f172a', fontWeight: 600, padding: '8px 16px', borderRadius: '10px' }}>
+                    <Plus size={16} /> Add New Field
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {editTemplateData.fields.map((field, index) => (
+                    <div key={field.id} className={styles.animateIn} style={{ 
+                      animationDelay: `${index * 0.05}s`,
+                      background: '#fff', 
+                      borderRadius: '20px', 
+                      padding: '24px', 
+                      border: '1.5px solid #edf2f7',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                      transition: 'all 0.2s ease'
+                    }}>
+                      <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#64748b', fontSize: '14px' }}>
+                          {index + 1}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: '16px', marginBottom: '16px' }}>
+                            <div className={styles.inputGroup} style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Field Label</label>
+                              <input 
+                                type="text" 
+                                className={styles.input}
+                                value={field.label}
+                                onChange={(e) => handleUpdateEditField(field.id, { label: e.target.value })}
+                                placeholder="What is the question?"
+                              />
+                            </div>
+                            <div className={styles.inputGroup} style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Type</label>
+                              <select 
+                                className={styles.input}
+                                value={field.type}
+                                onChange={(e) => handleUpdateEditField(field.id, { type: e.target.value as any })}
+                              >
+                                <option value="text">Text Input</option>
+                                <option value="textarea">Long Text</option>
+                                <option value="number">Number</option>
+                                <option value="dropdown">Dropdown</option>
+                                <option value="date">Date</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {field.type === 'dropdown' && (
+                            <div style={{ marginTop: '16px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                              <label style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', marginBottom: '8px', display: 'block' }}>Dropdown Options (Comma separated)</label>
+                              <input 
+                                type="text" 
+                                className={styles.input}
+                                value={field.options?.join(', ') || ''}
+                                onChange={(e) => handleUpdateEditField(field.id, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                                placeholder="Option 1, Option 2, Option 3..."
+                              />
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', fontWeight: 600, color: '#334155' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={field.required}
+                                onChange={(e) => handleUpdateEditField(field.id, { required: e.target.checked })}
+                                style={{ width: '18px', height: '18px', accentColor: 'var(--brand-green)', borderRadius: '6px' }}
+                              />
+                              Required Entry
+                            </label>
+                            <button className={styles.removeFieldBtn} onClick={() => handleRemoveEditField(field.id)} style={{ color: '#ef4444', background: '#fef2f2', border: 'none', padding: '8px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <Trash2 size={14} /> Remove
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ padding: '24px 32px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: '#fff' }}>
+                <button className={styles.cancelBtn} onClick={() => { setIsEditOpen(false); setEditingTemplate(null); }}>
+                  Discard Changes
+                </button>
+                <button 
+                  className={styles.createButton} 
+                  onClick={handleUpdateTemplate}
+                  disabled={updateTemplateMutation.isPending}
+                  style={{ padding: '12px 32px', fontWeight: 700 }}
+                >
+                  {updateTemplateMutation.isPending ? 'Saving...' : 'Update Template'}
+                </button>
+              </div>
+            </div>
+
+            {/* Right Panel: Live Preview */}
+            <div style={{ 
+              width: '420px', 
+              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
+              display: 'flex', 
+              flexDirection: 'column',
+              position: 'relative'
+            }}>
+              <div style={{ 
+                height: '80px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'flex-end', 
+                padding: '0 24px', 
+                gap: '12px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
+              }}>
+                <button 
+                  className={styles.closeBtn} 
+                  onClick={() => { setIsEditOpen(false); setEditingTemplate(null); }}
+                  style={{ color: '#fff', marginLeft: '8px', background: 'rgba(255, 255, 255, 0.1)' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px 0 40px 0' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(148, 163, 184, 0.6)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '24px' }}>
+                  EDITION PREVIEW
+                </div>
+                
+                <div style={{ 
+                  width: '300px', 
+                  height: '620px', 
+                  flexShrink: 0, 
+                  background: '#000', 
+                  borderRadius: '44px', 
+                  padding: '12px', 
+                  position: 'relative', 
+                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+                  border: '4px solid #334155'
+                }}>
+                  <div style={{ width: '100px', height: '30px', background: '#000', borderRadius: '16px', position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }} />
+                  <div style={{ height: '100%', background: '#fff', borderRadius: '34px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ height: '46px', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>
+                      <span>9:41</span>
+                    </div>
+
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: 'linear-gradient(to bottom, #fafafa, #ffffff)' }}>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>{editTemplateData.name || 'Untitled Template'}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{editingTemplate?.departmentName} • {editingTemplate?.locationName}</div>
+                    </div>
+
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                      {editTemplateData.fields.length === 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', opacity: 0.5 }}>
+                          <FileStack size={48} />
+                          <p style={{ fontSize: '13px', marginTop: '12px', fontWeight: 500 }}>No fields left</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          {editTemplateData.fields.map(field => (
+                            <div key={field.id}>
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
+                                {field.label || 'New Question'} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
+                              </div>
+                              <div style={{ height: '40px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '12px', color: '#9ca3af' }}>
+                                {field.type === 'text' && 'Text input...'}
+                                {field.type === 'number' && '0.00'}
+                                {field.type === 'textarea' && 'Long text entry...'}
+                                {field.type === 'dropdown' && 'Select option...'}
+                                {field.type === 'date' && 'Select date...'}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9', background: '#fff' }}>
+                      <div style={{ width: '100%', background: 'var(--brand-green)', color: 'white', padding: '14px', borderRadius: '14px', textAlign: 'center', fontSize: '15px', fontWeight: 700, opacity: 0.9 }}>
+                        Submit Report
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isSubmitReportOpen && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: '600px' }}>
+          <div className={styles.modalContent} style={{ maxWidth: '600px', minHeight: '500px', display: 'flex', flexDirection: 'column' }}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
-                <span className={styles.wizardBadge}>Form Entry</span>
+                <span className={styles.wizardBadge}>Step {submitWizardStep} of 4</span>
                 <h3 className={styles.modalTitle}>Submit Internal Report</h3>
-                <p className={styles.modalSubtitle}>Fill out the report form</p>
+                <p className={styles.modalSubtitle}>
+                  {submitWizardStep === 1 && "Select the location for this report"}
+                  {submitWizardStep === 2 && "Select the department"}
+                  {submitWizardStep === 3 && "Choose a report template"}
+                  {submitWizardStep === 4 && "Fill out the report details"}
+                </p>
               </div>
-              <button className={styles.closeBtn} onClick={() => setIsSubmitReportOpen(false)}>
+              <button 
+                className={styles.closeBtn} 
+                onClick={() => {
+                  setIsSubmitReportOpen(false);
+                  setSubmitWizardStep(1);
+                }}
+              >
                 <X size={20} />
               </button>
             </div>
-            <div className={styles.modalBody}>
-              <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
-                <div className={styles.labelGroup}>
-                  <label className={styles.formLabel}>Select Report *</label>
-                  <span className={styles.fieldDesc}>Choose a report form</span>
-                </div>
-                <div className={styles.modalInputWrapper}>
-                  <LayoutTemplate size={18} />
-                  <select value={newReport.templateId} onChange={(e) => { 
-                    const t = templates.find(t => t.uuid === e.target.value || t.id === e.target.value); 
-                    setNewReport({ 
-                      ...newReport, 
-                      templateId: e.target.value, 
-                      templateName: t?.name || '',
-                    }); 
-                  }}>
-                    <option value="">Select a Report</option>
-                    {templates.map(t => (<option key={t.uuid || t.id} value={t.uuid || t.id}>{t.name}</option>))}
-                  </select>
-                </div>
-              </div>
-              {newReport.templateId && (
-                <>
-                    <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
-                      <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Report Title *</label>
-                        <span className={styles.fieldDesc}>Brief title for this submission</span>
-                      </div>
-                      <div className={styles.modalInputWrapper}>
-                        <FileText size={18} />
-                        <input type="text" placeholder="e.g. Weekly Operations Summary" value={newReport.title} onChange={(e) => setNewReport({ ...newReport, title: e.target.value })} />
-                      </div>
-                    </div>
 
-                    <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
-                      <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Report Date *</label>
-                        <span className={styles.fieldDesc}>Select the date for this report</span>
-                      </div>
-                      <div className={styles.modalInputWrapper}>
-                        <Calendar size={18} />
-                        <input 
-                          type="date" 
-                          value={newReport.date} 
-                          onChange={(e) => setNewReport({ ...newReport, date: e.target.value })} 
-                          required
-                        />
-                      </div>
+            <div className={styles.wizardProgress} style={{ padding: '0 32px 24px 32px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <div className={`${styles.progressStep} ${submitWizardStep >= 1 ? styles.active : ''}`} style={{ flex: 1, height: '4px', borderRadius: '2px' }} />
+                <div className={`${styles.progressStep} ${submitWizardStep >= 2 ? styles.active : ''}`} style={{ flex: 1, height: '4px', borderRadius: '2px' }} />
+                <div className={`${styles.progressStep} ${submitWizardStep >= 3 ? styles.active : ''}`} style={{ flex: 1, height: '4px', borderRadius: '2px' }} />
+                <div className={`${styles.progressStep} ${submitWizardStep >= 4 ? styles.active : ''}`} style={{ flex: 1, height: '4px', borderRadius: '2px' }} />
+              </div>
+            </div>
+
+            <div className={styles.modalBody} style={{ flex: 1, overflowY: 'auto' }}>
+              {/* STEP 1: LOCATION SELECTION */}
+              {submitWizardStep === 1 && (
+                <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Location *</label>
+                      <span className={styles.fieldDesc}>Which airport is this for?</span>
                     </div>
+                    <div className={styles.modalInputWrapper}>
+                      <MapPin size={18} />
+                      <select 
+                        value={submitLocationId} 
+                        onChange={(e) => {
+                          setSubmitLocationId(e.target.value);
+                          setSubmitDepartmentId("");
+                        }}
+                      >
+                        <option value="">Select Location</option>
+                        {(locationsData?.data || []).map((loc: any) => (
+                          <option key={loc.id} value={loc.id}>{loc.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {submitLocationId && (
+                    <div style={{ marginTop: '32px', display: 'flex', justifyContent: 'center' }}>
+                      <button 
+                        className={styles.createButton}
+                        onClick={() => setSubmitWizardStep(2)}
+                        style={{ width: '100%' }}
+                      >
+                        Continue to Department <ChevronRight size={18} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 2: DEPARTMENT SELECTION */}
+              {submitWizardStep === 2 && (
+                <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Department *</label>
+                      <span className={styles.fieldDesc}>Department responsible for this report</span>
+                    </div>
+                    {filteredSubmitDepartments.length === 0 ? (
+                      <div className={styles.deptEmptyState} style={{ padding: '24px' }}>
+                        <Shield size={24} style={{ opacity: 0.3, marginBottom: '12px' }} />
+                        <p style={{ fontSize: '14px', color: '#64748b' }}>No departments found for this location.</p>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
+                        {filteredSubmitDepartments.map((dept: any) => (
+                          <button
+                            key={dept.id}
+                            onClick={() => {
+                              setSubmitDepartmentId(dept.id);
+                              setNewReport(prev => ({ ...prev, templateId: '' }));
+                              setSubmitWizardStep(3);
+                            }}
+                            style={{
+                              padding: '16px',
+                              borderRadius: '16px',
+                              border: submitDepartmentId === dept.id ? '2px solid var(--brand-green)' : '1px solid #e2e8f0',
+                              background: submitDepartmentId === dept.id ? 'rgba(21, 115, 71, 0.05)' : 'white',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '12px'
+                            }}
+                          >
+                            <div style={{ 
+                              width: '32px', 
+                              height: '32px', 
+                              borderRadius: '8px', 
+                              background: submitDepartmentId === dept.id ? 'var(--brand-green)' : '#f1f5f9',
+                              color: submitDepartmentId === dept.id ? 'white' : '#64748b',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}>
+                              <Shield size={16} />
+                            </div>
+                            <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>{dept.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3: TEMPLATE SELECTION */}
+              {submitWizardStep === 3 && (
+                <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+                  <div className={styles.formGroup}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Select Template *</label>
+                      <span className={styles.fieldDesc}>Choose the type of report you want to submit</span>
+                    </div>
+                    {filteredSubmitTemplates.length === 0 ? (
+                      <div className={styles.deptEmptyState} style={{ padding: '24px' }}>
+                        <LayoutTemplate size={24} style={{ opacity: 0.3, marginBottom: '12px' }} />
+                        <p style={{ fontSize: '14px', color: '#64748b' }}>No report templates found for this department.</p>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                        {filteredSubmitTemplates.map((t: any) => (
+                          <button
+                            key={t.uuid || t.id}
+                            onClick={() => {
+                              setNewReport({ 
+                                ...newReport, 
+                                templateId: t.uuid || t.id, 
+                                templateName: t.name,
+                              });
+                              setSubmitWizardStep(4);
+                            }}
+                            style={{
+                              padding: '16px 20px',
+                              borderRadius: '14px',
+                              border: newReport.templateId === (t.uuid || t.id) ? '2px solid var(--brand-green)' : '1px solid #e2e8f0',
+                              background: newReport.templateId === (t.uuid || t.id) ? 'rgba(21, 115, 71, 0.05)' : 'white',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <div style={{ color: 'var(--brand-green)' }}><LayoutTemplate size={20} /></div>
+                              <span style={{ fontWeight: 600, color: '#1e293b' }}>{t.name}</span>
+                            </div>
+                            <ChevronRight size={18} style={{ color: '#94a3b8' }} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 4: DATA ENTRY */}
+              {submitWizardStep === 4 && (
+                <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+                  <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Report Title *</label>
+                      <span className={styles.fieldDesc}>Brief title for this submission</span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <FileText size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Weekly Operations Summary" 
+                        value={newReport.title} 
+                        onChange={(e) => setNewReport({ ...newReport, title: e.target.value })} 
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
+                    <div className={styles.labelGroup}>
+                      <label className={styles.formLabel}>Report Date *</label>
+                      <span className={styles.fieldDesc}>Select the date for this report</span>
+                    </div>
+                    <div className={styles.modalInputWrapper}>
+                      <Calendar size={18} />
+                      <input 
+                        type="date" 
+                        value={newReport.date} 
+                        onChange={(e) => setNewReport({ ...newReport, date: e.target.value })} 
+                        required
+                      />
+                    </div>
+                  </div>
+
                   {selectedTemplate?.schema?.map((field: ReportTemplateField) => (
                     <div key={field.id} className={styles.formGroup} style={{ marginTop: '16px' }}>
                       <div className={styles.labelGroup}>
@@ -1422,12 +2066,63 @@ export default function ReportsPage() {
                       )}
                     </div>
                   ))}
-                </>
+                </div>
               )}
             </div>
+
             <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={() => setIsSubmitReportOpen(false)}>Cancel</button>
-              <button className={styles.createButton} onClick={handleSubmitReport} disabled={!newReport.templateId || !newReport.title} style={{ opacity: (!newReport.templateId || !newReport.title) ? 0.5 : 1 }}><CheckCircle2 size={18} /> Submit Report</button>
+              {submitWizardStep > 1 && (
+                <button 
+                  className={styles.cancelBtn} 
+                  onClick={() => {
+                    // Logic to handle skipping steps backwards
+                    if (submitWizardStep === 4 && newReport.templateId) {
+                      // If we went straight to step 4 via "Use Template", we might want to close or go back
+                      // But the simple way is just step - 1
+                    }
+                    
+                    if (submitWizardStep === 3 && currentRole === UserRole.DEPARTMENT_ADMIN) {
+                      // Can't go back from step 3 if Dept Admin (L/D are fixed)
+                    } else if (submitWizardStep === 2 && currentRole === UserRole.LOCATION_ADMIN) {
+                      // Can't go back from step 2 if Loc Admin (L is fixed)
+                    } else {
+                      setSubmitWizardStep(submitWizardStep - 1);
+                    }
+                  }}
+                  disabled={
+                    (submitWizardStep === 3 && currentRole === UserRole.DEPARTMENT_ADMIN) ||
+                    (submitWizardStep === 2 && currentRole === UserRole.LOCATION_ADMIN)
+                  }
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px',
+                    opacity: ((submitWizardStep === 3 && currentRole === UserRole.DEPARTMENT_ADMIN) || (submitWizardStep === 2 && currentRole === UserRole.LOCATION_ADMIN)) ? 0 : 1
+                  }}
+                >
+                  <ChevronLeft size={18} /> Back
+                </button>
+              )}
+              <div style={{ flex: 1 }} />
+              <button 
+                className={styles.cancelBtn} 
+                onClick={() => {
+                  setIsSubmitReportOpen(false);
+                  setSubmitWizardStep(1);
+                }}
+              >
+                Cancel
+              </button>
+              {submitWizardStep === 4 && (
+                <button 
+                  className={styles.createButton} 
+                  onClick={handleSubmitReport} 
+                  disabled={!newReport.templateId || !newReport.title} 
+                  style={{ opacity: (!newReport.templateId || !newReport.title) ? 0.5 : 1 }}
+                >
+                  <CheckCircle2 size={18} /> Submit Report
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1493,6 +2188,103 @@ export default function ReportsPage() {
             </div>
             <div className={styles.modalActions}>
               <button className={styles.cancelBtn} onClick={() => setSelectedReport(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showQrPreview && currentTemplate && (
+        <div className={styles.modalOverlay} onClick={() => { setShowQrPreview(false); setDownloadDropdownOpen(false); }}>
+          <div className={styles.previewCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.previewHeader}>
+              <div className={styles.modalTitleGroup}>
+                <h3 className={styles.previewTitle}>Template QR Code</h3>
+                <p className={styles.modalSubtitle}>{currentTemplate.name}</p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => { setShowQrPreview(false); setDownloadDropdownOpen(false); }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className={styles.fullQrWrapper}>
+              <div className={styles.qrBackground} ref={qrRef} style={{ border: '8px solid var(--brand-green)' }}>
+                <QRCodeSVG 
+                  id={`qr-svg-${currentTemplate.uuid || currentTemplate.id}`}
+                  value={`${origin}/r/${currentTemplate.uuid || currentTemplate.id}`} 
+                  size={200} 
+                  includeMargin={true}
+                  level="H" 
+                  className={styles.fullQr}
+                  imageSettings={{
+                    src: "/Faan.logo_.png",
+                    height: 40,
+                    width: 40,
+                    excavate: true,
+                  }}
+                />
+                <div style={{ display: 'none' }}>
+                  <QRCodeCanvas
+                    id={`qr-canvas-${currentTemplate.uuid || currentTemplate.id}`}
+                    value={`${origin}/r/${currentTemplate.uuid || currentTemplate.id}`}
+                    size={1024}
+                    includeMargin={true}
+                    level="H"
+                    imageSettings={{
+                      src: "/Faan.logo_.png",
+                      height: 200,
+                      width: 200,
+                      excavate: true,
+                    }}
+                  />
+                </div>
+              </div>
+              <div className={styles.qrInfo}>
+                <div 
+                  className={styles.qrLinkContainer}
+                  onClick={() => {
+                    const link = `${origin}/r/${currentTemplate.uuid || currentTemplate.id}`;
+                    navigator.clipboard.writeText(link);
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2000);
+                  }}
+                >
+                  <p className={styles.qrLinkText}>{origin}/r/{(currentTemplate.uuid || currentTemplate.id).substring(0, 12)}...</p>
+                  <button className={styles.copyBtn} aria-label="Copy link">
+                    {copySuccess ? <ChevronRight size={14} color="#10b981" /> : <Plus size={14} />}
+                  </button>
+                </div>
+                <span className={styles.qrScanHint}>Staff can scan this code to submit a {currentTemplate.name}</span>
+              </div>
+            </div>
+            <div className={styles.previewActionsCentered}>
+              <div className={styles.downloadDropdownWrapper}>
+                <button 
+                  className={styles.downloadBtn} 
+                  onClick={() => setDownloadDropdownOpen(!downloadDropdownOpen)}
+                  style={{ backgroundColor: 'var(--brand-green)' }}
+                >
+                  <Download size={18} />
+                  Download QR Code
+                  <ChevronRight size={16} style={{ transform: downloadDropdownOpen ? 'rotate(-90deg)' : 'rotate(90deg)', transition: 'transform 0.2s' }} />
+                </button>
+                
+                {downloadDropdownOpen && (
+                  <div className={styles.downloadMenu}>
+                    {(['png', 'svg', 'jpg'] as const).map((format) => (
+                      <button 
+                        key={format}
+                        className={styles.downloadMenuItem}
+                        onClick={() => {
+                          handleDownload(format);
+                          setDownloadDropdownOpen(false);
+                        }}
+                      >
+                        <span className={styles.formatTag}>{format.toUpperCase()}</span>
+                        <span>Format</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

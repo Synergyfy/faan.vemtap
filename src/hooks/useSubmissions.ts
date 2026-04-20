@@ -61,3 +61,12 @@ export const useCreateSubmission = () => {
     },
   });
 };
+
+export const useCreatePublicSubmission = () => {
+  return useMutation({
+    mutationFn: async (submissionData: Record<string, unknown>) => {
+      const { data } = await api.post<ApiResponse<Submission>>('/submissions/public', submissionData);
+      return data.data;
+    },
+  });
+};

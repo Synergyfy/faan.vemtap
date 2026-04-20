@@ -1069,8 +1069,34 @@
   border: none;
   outline: none;
   width: 100%;
+  color: #1e293b;
+}
+
+.input {
+  width: 100%;
+  padding: 12px 16px;
+  background-color: #f8fafc;
+  border: 1.5px solid #edf2f7;
+  border-radius: 12px;
   font-size: 14px;
   color: #1e293b;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.input:focus {
+  background-color: #ffffff;
+  border-color: var(--brand-green);
+  box-shadow: 0 0 0 4px var(--brand-green-light);
+}
+
+.input:hover:not(:focus) {
+  border-color: #cbd5e1;
+  background-color: #f1f5f9;
+}
+
+.input::placeholder {
+  color: #94a3b8;
 }
 
 .generatedSection {
@@ -4386,4 +4412,51 @@ input:checked + .slider:before {
 .exportBtnPrimary:hover {
   background-color: #105936;
   transform: translateY(-1px);
+}
+
+.deleteItem {
+  color: #ef4444 !important;
+}
+
+.deleteItem:hover {
+  background-color: #fef2f2 !important;
+}
+
+.dangerButton {
+  background-color: #ef4444;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+  transition: all 0.2s;
+}
+
+.dangerButton:hover {
+  background-color: #dc2626;
+  transform: translateY(-1px);
+}
+
+.modalSmall {
+  max-width: 480px;
+}
+
+.modalIconBox {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.modalIconBox.danger {
+  background-color: #fee2e2;
+  color: #ef4444;
+}
+
+.modalIconBox.warning {
+  background-color: #fef3c7;
+  color: #d97706;
 }
