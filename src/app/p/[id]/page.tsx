@@ -6,7 +6,7 @@ import styles from "./Passenger.module.css";
 import Image from "next/image";
 import { useTouchpointBySlug } from "@/hooks/useTouchpoints";
 import { useCreateSubmission, useCreatePublicSubmission } from "@/hooks/useSubmissions";
-import { FormField, Submission, ReportTemplate, Touchpoint } from "@/types/api";
+import { FormField, Submission, ReportTemplate, Touchpoint, FeedbackForm, FeedbackFormField } from "@/types/api";
 import { useAuthContext } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -31,7 +31,7 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
   const createPublicSubMutation = useCreatePublicSubmission();
 
   const [step, setStep] = useState<PageStep>('selection');
-  const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplate | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplate | FeedbackForm | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [submissionRef, setSubmissionRef] = useState("");
   const [formData, setFormData] = useState<Record<string, any>>({});
@@ -40,11 +40,12 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
   useEffect(() => {
     if (!touchpoint) return;
 
-    // Check if there are assigned templates
+    // Check if there are assigned templates (legacy and relational)
     const templates = touchpoint.templates || [];
+    const feedbackForms = touchpoint.feedbackForms || [];
     
-    // Auto-select if only one template exists and no formConfig
-    const hasManyTemplates = templates.length > 0;
+    // Auto-select if only one template exists total and no formConfig
+    const totalTemplates = templates.length + feedbackForms.length;
     const hasFormConfig = touchpoint.formConfig && touchpoint.formConfig.length > 0;
 
     // Load draft if exists
@@ -64,7 +65,11 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
       }
     }
 
-    if (!hasManyTemplates || (!hasManyTemplates && hasFormConfig)) {
+    if (totalTemplates === 1 && !hasFormConfig) {
+      const singleTemplate = feedbackForms.length > 0 ? feedbackForms[0] : templates[0];
+      setSelectedTemplate(singleTemplate);
+      setStep('form');
+    } else if (totalTemplates === 0 && hasFormConfig) {
       setStep('form');
     } else {
       setStep('selection');
@@ -95,10 +100,12 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
   const theme = TYPE_THEMES[touchpoint.type] || TYPE_THEMES.FEEDBACK;
   
   // Determine which fields to show
-  const getFields = (): FormField[] => {
-    const raw = selectedTemplate ? selectedTemplate.schema : touchpoint.formConfig;
-    if (Array.isArray(raw)) return raw as unknown as FormField[];
-    return [];
+  const getFields = (): (FormField | FeedbackFormField)[] => {
+    if (selectedTemplate) {
+      if ('schema' in selectedTemplate) return selectedTemplate.schema as unknown as FormField[];
+      if ('fields' in selectedTemplate) return selectedTemplate.fields;
+    }
+    return (touchpoint.formConfig || []) as unknown as FormField[];
   };
 
   const fields = getFields();
@@ -107,7 +114,7 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
     setFormData({ ...formData, [fieldId]: value });
   };
 
-  const handleSelectTemplate = (template: ReportTemplate | null) => {
+  const handleSelectTemplate = (template: ReportTemplate | FeedbackForm | null) => {
     setSelectedTemplate(template);
     setStep('form');
   };
@@ -117,11 +124,35 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
 
     const mutation = isAuthenticated ? createSubMutation : createPublicSubMutation;
     
-    const payload = isAuthenticated 
-      ? { touchpointId: touchpoint.id, formData }
-      : { slug: touchpoint.slug, formData };
+    // Check if we are using the new relational model or a legacy ReportTemplate
+    const isFeedbackForm = selectedTemplate && 'fields' in selectedTemplate;
+    const isReportTemplate = selectedTemplate && 'schema' in selectedTemplate;
 
-    mutation.mutate(payload, {
+    let formResponses: any[] = [];
+
+    if (isFeedbackForm || isReportTemplate) {
+      formResponses = [{
+        formId: selectedTemplate.id,
+        answers: Object.entries(formData).map(([fieldId, value]) => ({
+          fieldId: String(fieldId),
+          value: String(value)
+        }))
+      }];
+    }
+
+    const payload = isAuthenticated 
+      ? { 
+          touchpointId: touchpoint.id, 
+          formResponses,
+          submittedAt: new Date().toISOString()
+        }
+      : { 
+          slug: touchpoint.slug, 
+          formResponses,
+          submittedAt: new Date().toISOString()
+        };
+
+    mutation.mutate(payload as any, {
       onSuccess: (data: Submission) => {
         setSubmissionRef(data.uuid || data.id);
         setSubmitted(true);
@@ -140,7 +171,7 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
           </div>
           <h1 className={styles.successTitle}>Report Captured</h1>
           <p className={styles.successText}>
-            Thank you for helping us improve. Your {selectedTemplate?.name || touchpoint.type.toLowerCase().replace('_', ' ')} has been logged for FAAN review.
+            Thank you for helping us improve. Your {(selectedTemplate as any)?.title || (selectedTemplate as any)?.name || touchpoint.type.toLowerCase().replace('_', ' ')} has been logged for FAAN review.
           </p>
           <div className={styles.refInfo}>
             <span>REF: {submissionRef.substring(0, 8).toUpperCase()}</span>
@@ -186,7 +217,15 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
                 </button>
               )}
               
-              {/* assigned templates */}
+              {/* Relational feedback forms */}
+              {touchpoint.feedbackForms?.map((form) => (
+                <button key={form.id} className={styles.templateCard} onClick={() => handleSelectTemplate(form)}>
+                  <span className={styles.templateName}>{form.title}</span>
+                  {form.description && <span className={styles.templateDesc}>{form.description}</span>}
+                </button>
+              ))}
+
+              {/* legacy assigned templates */}
               {touchpoint.templates?.map((template) => (
                 <button key={template.id} className={styles.templateCard} onClick={() => handleSelectTemplate(template)}>
                   <span className={styles.templateName}>{template.name}</span>
@@ -200,16 +239,17 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
         {step === 'form' && (
           <div className={styles.animateIn}>
             {/* Back button if multi-template */}
-            {((touchpoint.templates?.length || 0) > 0) && (
+            {((touchpoint.templates?.length || 0) + (touchpoint.feedbackForms?.length || 0) > 1 || 
+              ((touchpoint.templates?.length || 0) + (touchpoint.feedbackForms?.length || 0) > 0 && touchpoint.formConfig && touchpoint.formConfig.length > 0)) && (
               <button className={styles.backBtn} onClick={() => setStep('selection')}>
                 <ChevronLeft size={18} /> Back to options
               </button>
             )}
 
             <form onSubmit={handleSubmit} className={styles.dynamicForm}>
-              <h2 className={styles.selectionTitle}>{selectedTemplate?.name || `General ${touchpoint.type.toLowerCase()}`}</h2>
+              <h2 className={styles.selectionTitle}>{(selectedTemplate as any)?.title || (selectedTemplate as any)?.name || `General ${touchpoint.type.toLowerCase()}`}</h2>
               
-              {fields.map((field: FormField) => (
+              {fields.map((field) => (
                 <div key={field.id} className={styles.fieldGroup}>
                   <label className={styles.label}>
                     {field.label} {field.required && <span className={styles.required}>*</span>}

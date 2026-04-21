@@ -41,9 +41,10 @@ import {
   useDeleteTouchpoint,
   useDownloadQr
 } from "@/hooks/useTouchpoints";
+import { useFeedbackForms } from "@/hooks/useFeedbackForms";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
-import { TouchpointType, Touchpoint, Location, Department } from "@/types/api";
+import { TouchpointType, Touchpoint, Location, Department, FeedbackForm } from "@/types/api";
 import { MultiSelect } from "@/components/displays/MultiSelect";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
@@ -103,7 +104,9 @@ export default function TouchpointsPage() {
     locationId: currentLocation || undefined
   });
 
-  const { data: formsData } = useTouchpoints();
+  const { data: feedbackFormsData } = useFeedbackForms({
+    locationId: currentLocation || undefined
+  });
   const { data: locationsData } = useLocations();
   const { data: deptsData } = useDepartments();
 
@@ -148,7 +151,8 @@ export default function TouchpointsPage() {
     description: "",
     departmentIds: [] as string[],
     type: TouchpointType.FEEDBACK,
-    templateIds: [] as string[]
+    templateIds: [] as string[],
+    feedbackFormIds: [] as string[]
   });
 
   useEffect(() => {
@@ -166,7 +170,6 @@ export default function TouchpointsPage() {
     const creations: any[] = [];
     locationsToUse.forEach(locId => {
       newTouchpoint.departmentIds.forEach(deptId => {
-        // Find if department belongs to this location
         const dept = departments.find(d => d.id === deptId);
         if (dept && (dept.locationId === locId || dept.location?.id === locId)) {
           creations.push({
@@ -175,7 +178,7 @@ export default function TouchpointsPage() {
             type: newTouchpoint.type,
             departmentId: deptId,
             locationId: locId,
-            formConfig: [],
+            feedbackFormIds: newTouchpoint.feedbackFormIds,
             templateIds: newTouchpoint.templateIds
           });
         }
@@ -218,7 +221,14 @@ export default function TouchpointsPage() {
     setWizardStep(1);
     setIsEditMode(false);
     setEditingTouchpointId(null);
-    setNewTouchpoint({ title: "", description: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
+    setNewTouchpoint({ 
+      title: "", 
+      description: "", 
+      departmentIds: [], 
+      type: TouchpointType.FEEDBACK, 
+      templateIds: [],
+      feedbackFormIds: []
+    });
     setSelectedLocIds([]);
     setTempLocIds([]);
   };
@@ -282,7 +292,7 @@ export default function TouchpointsPage() {
   const touchpoints = (tpData?.data || []) as Touchpoint[];
   const locations = (locationsData?.data || []) as Location[];
   const departments = (deptsData?.data || []) as Department[];
-  const forms = (formsData?.data || []) as Touchpoint[];
+  const feedbackForms = (feedbackFormsData?.data || []) as FeedbackForm[];
 
   // Grouping Logic for Touchpoints
   const groupedTPs = touchpoints.reduce((acc: Record<string, any>, tp) => {
@@ -354,7 +364,14 @@ export default function TouchpointsPage() {
           <button
             className={styles.createButton}
             onClick={() => {
-              setNewTouchpoint({ title: "", description: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
+              setNewTouchpoint({ 
+                title: "", 
+                description: "", 
+                departmentIds: [], 
+                type: TouchpointType.FEEDBACK, 
+                templateIds: [],
+                feedbackFormIds: []
+              });
               if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
                 setSelectedLocIds([currentLocation]);
                 setIsModalOpen(true);
@@ -468,7 +485,14 @@ export default function TouchpointsPage() {
               <button
                 className={styles.createButton}
                 onClick={() => {
-                  setNewTouchpoint({ title: "", description: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
+                  setNewTouchpoint({ 
+                    title: "", 
+                    description: "", 
+                    departmentIds: [], 
+                    type: TouchpointType.FEEDBACK, 
+                    templateIds: [],
+                    feedbackFormIds: []
+                  });
                   if (currentRole === 'LOCATION_ADMIN' && currentLocation) {
                     setSelectedLocIds([currentLocation]);
                     setIsModalOpen(true);
@@ -535,11 +559,14 @@ export default function TouchpointsPage() {
                               const deptId = tp.departmentId || tp.department?.id;
                               const templateIds = (tp.templateIds || tp.templates?.map((t: any) => t.id) || tp.formTemplates?.map((t: any) => t.id) || []).map(String);
 
+                              const feedbackFormIds = (tp.feedbackForms || tp.feedbackFormIds || []).map((f: any) => typeof f === 'string' ? f : f.id);
+
                               setNewTouchpoint({
                                 title: tp.title,
                                 description: tp.description || "",
                                 departmentIds: deptId ? [String(deptId)] : [],
                                 type: tp.type,
+                                feedbackFormIds: feedbackFormIds,
                                 templateIds: templateIds
                               });
                               
@@ -652,11 +679,14 @@ export default function TouchpointsPage() {
                             const uniqueDepts = Array.from(new Set(gtp.instances.map((i: any) => String(i.departmentId || i.department?.id)))).filter(id => id !== 'undefined' && id !== 'null');
                             const templateIds = (gtp.templateIds || gtp.instances[0].templates?.map((t: any) => t.id) || gtp.instances[0].formTemplates?.map((t: any) => t.id) || []).map(String);
 
+                            const feedbackFormIds = (gtp.feedbackForms || gtp.feedbackFormIds || gtp.instances[0].feedbackForms?.map((f: any) => f.id) || []).map(String);
+
                             setNewTouchpoint({
                               title: gtp.title,
                               description: gtp.description || "",
                               departmentIds: uniqueDepts as string[],
                               type: gtp.type,
+                              feedbackFormIds: feedbackFormIds,
                               templateIds: templateIds
                             });
                             
@@ -829,21 +859,20 @@ export default function TouchpointsPage() {
 
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Link Forms *</label>
-                        <span className={styles.fieldDesc}>Select one or more forms</span>
+                        <label className={styles.formLabel}>Feedback Form Template *</label>
+                        <span className={styles.fieldDesc}>Select the relational form structure</span>
                       </div>
                       <MultiSelect
-                        options={forms.map(f => ({ id: f.id, name: `${f.title} (${f.type})` }))}
-                        selectedIds={newTouchpoint.templateIds}
+                        options={feedbackForms.map(f => ({ id: f.id, name: f.title }))}
+                        selectedIds={newTouchpoint.feedbackFormIds}
                         onChange={(ids) => {
                           setNewTouchpoint({
                             ...newTouchpoint, 
-                            templateIds: ids,
-                            type: forms.find(f => f.id === ids[0])?.type || TouchpointType.FEEDBACK
+                            feedbackFormIds: ids
                           });
                         }}
-                        placeholder="Select Forms"
-                        icon={<Layers size={18} />}
+                        placeholder="Select Template"
+                        icon={<ClipboardList size={18} />}
                       />
                     </div>
                   </div>
@@ -882,10 +911,10 @@ export default function TouchpointsPage() {
                           </div>
                         </div>
                         <div className={styles.reviewInfoItem}>
-                          <span className={styles.reviewInfoLabel}>Linked Forms</span>
+                          <span className={styles.reviewInfoLabel}>Linked Templates</span>
                           <div className={styles.reviewInfoValue}>
                             <Layers size={16} style={{ color: "#64748b" }} />
-                            {newTouchpoint.templateIds.length} Form(s) Assigned
+                            {newTouchpoint.feedbackFormIds.length} Form(s) Assigned
                           </div>
                         </div>
                       </div>
