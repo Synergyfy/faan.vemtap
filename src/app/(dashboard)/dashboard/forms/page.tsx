@@ -49,6 +49,7 @@ const FIELD_TYPES = [
   { value: 'text', label: 'Text Input', icon: Type, color: '#3b82f6' },
   { value: 'textarea', label: 'Long Text', icon: FileText, color: '#8b5cf6' },
   { value: 'dropdown', label: 'Dropdown', icon: List, color: '#ec4899' },
+  { value: 'checkbox', label: 'Multi-Select', icon: ClipboardList, color: '#14b8a6' },
   { value: 'file', label: 'File Upload', icon: Upload, color: '#10b981' },
   { value: 'date', label: 'Date', icon: Calendar, color: '#f97316' },
 ];
@@ -710,52 +711,46 @@ export default function FormsPage() {
 
       {isCreateModalOpen && (
         <div className={styles.modalOverlay}>
-          <div className={`${styles.modalContent}`} style={{ 
-            maxWidth: '1200px', 
+          <div className={styles.modalContent} style={{ 
+            maxWidth: '1240px', 
             width: '96%', 
+            height: '92vh',
             maxHeight: '92vh',
             display: 'flex',
-            flexDirection: 'column'
+            flexDirection: 'row',
+            overflow: 'hidden',
+            background: '#fff'
           }}>
-            <div className={styles.modalHeader}>
-              <div className={styles.modalTitleGroup}>
-                <span className={styles.wizardBadge}>Step {wizardStep} of 3</span>
-                <h3 className={styles.modalTitle}>{isEditMode ? 'Edit Form' : 'Create New Form'}</h3>
-                <p className={styles.modalSubtitle}>Build a professional passenger feedback form</p>
-              </div>
-              <button className={styles.closeBtn} onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}>
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className={styles.wizardProgress}>
-              <div className={`${styles.progressStep} ${wizardStep >= 1 ? styles.active : ''}`} />
-              <div className={`${styles.progressStep} ${wizardStep >= 2 ? styles.active : ''}`} />
-              <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ''}`} />
-            </div>
-
-            <div className={styles.modalBody} style={{ 
-              display: 'grid', 
-              gridTemplateColumns: '1fr 380px', 
-              gap: '0', 
-              flex: 1,
-              minHeight: 0,
-              padding: '0',
-              overflow: 'hidden'
+            {/* Left Panel: Form Builder */}
+            <div style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              borderRight: '1px solid #f1f5f9',
+              background: '#fff',
+              minWidth: 0
             }}>
-              
-              <div style={{ padding: '32px', borderRight: '1px solid #e2e8f0', overflow: 'auto' }}>
+              <div className={styles.modalHeader} style={{ borderBottom: '1px solid #f1f5f9', padding: '24px 32px' }}>
+                <div className={styles.modalTitleGroup}>
+                  <h3 className={styles.modalTitle}>{isEditMode ? 'Edit Form' : 'Create Passenger Form'}</h3>
+                  <p className={styles.modalSubtitle}>Design a structured passenger form</p>
+                </div>
+              </div>
+
+              <div className={styles.wizardProgress} style={{ padding: '24px 32px', borderBottom: 'none', background: '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                   <span className={styles.wizardBadge} style={{ margin: 0 }}>Step {wizardStep} of 3</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div className={`${styles.progressStep} ${wizardStep >= 1 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                  <div className={`${styles.progressStep} ${wizardStep >= 2 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                  <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                </div>
+              </div>
+
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0 32px 32px 32px' }}>
                 {wizardStep === 1 && (
                   <div>
-                    <div style={{ marginBottom: '32px' }}>
-                      <h4 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-                        Form Details
-                      </h4>
-                      <p style={{ fontSize: '14px', color: '#64748b' }}>
-                        Give your form a name and configure basic settings
-                      </p>
-                    </div>
-                    
                     <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>Form Name *</label>
@@ -805,15 +800,6 @@ export default function FormsPage() {
 
                 {wizardStep === 2 && (
                   <div>
-                    <div style={{ marginBottom: '32px' }}>
-                      <h4 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-                        Assignment
-                      </h4>
-                      <p style={{ fontSize: '14px', color: '#64748b' }}>
-                        Select where this form will be deployed
-                      </p>
-                    </div>
-                    
                     <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>Location *</label>
@@ -866,136 +852,56 @@ export default function FormsPage() {
 
                 {wizardStep === 3 && (
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-                      <div>
-                        <h4 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
-                          Build Fields
-                        </h4>
-                        <p style={{ fontSize: '14px', color: '#64748b' }}>
-                          Add and configure form fields ({newForm.fields.length} added)
-                        </p>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
-                      {FIELD_TYPES.map(ft => {
-                        const Icon = ft.icon;
-                        return (
-                          <button
-                            key={ft.value}
-                            onClick={() => handleAddField(ft.value as FormField['type'])}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '12px 16px',
-                              borderRadius: '12px',
-                              border: '1px solid #e2e8f0',
-                              background: 'white',
-                              fontSize: '13px',
-                              fontWeight: 600,
-                              color: '#475569',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s',
-                            }}
-                          >
-                            <Icon size={14} style={{ color: ft.color }} /> {ft.label}
-                          </button>
-                        );
-                      })}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                      <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Form Fields ({newForm.fields.length})</h4>
+                      <button 
+                        onClick={() => handleAddField('text')}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          padding: '8px 16px', 
+                          borderRadius: '8px', 
+                          border: '1px solid var(--brand-green)', 
+                          background: 'rgba(21, 115, 71, 0.05)', 
+                          color: 'var(--brand-green)', 
+                          fontWeight: 600, 
+                          fontSize: '13px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Plus size={16} /> Add Field
+                      </button>
                     </div>
 
                     {newForm.fields.length === 0 ? (
-                      <div className={styles.emptyStage} style={{ height: '220px', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', border: '2px dashed #e2e8f0', borderRadius: '20px' }}>
-                        <div style={{ padding: '16px', background: 'rgba(21, 115, 71, 0.08)', borderRadius: '16px', marginBottom: '12px' }}>
-                          <FileStack size={32} style={{ color: 'var(--brand-green)' }} />
-                        </div>
-                        <p style={{ fontWeight: 700, color: '#0f172a', fontSize: '15px' }}>No fields added yet</p>
-                        <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Click a field type above to start building</p>
+                      <div className={styles.emptyStage} style={{ height: '220px', background: '#f8fafc', border: '2px dashed #e2e8f0', borderRadius: '16px' }}>
+                        <p style={{ fontSize: '13px', color: '#64748b' }}>No fields added yet</p>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {Array.isArray(newForm.fields) && newForm.fields.map((field, index) => (
-                          <div key={field.id} style={{ 
-                            background: 'white', 
-                            border: '1px solid #e2e8f0', 
-                            borderRadius: '16px', 
-                            padding: '20px',
-                            transition: 'all 0.2s',
-                          }}>
+                          <div key={field.id} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                              <span style={{ 
-                                width: '28px', 
-                                height: '28px', 
-                                borderRadius: '8px', 
-                                background: 'var(--brand-green)', 
-                                color: 'white',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                              }}>
-                                {index + 1}
-                              </span>
-                              <select 
-                                value={field.type}
-                                onChange={(e) => handleUpdateField(field.id, { type: e.target.value as FormField['type'] })}
-                                style={{ fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontWeight: 600, background: '#f8fafc' }}
-                              >
-                                {FIELD_TYPES.map(ft => (
-                                  <option key={ft.value} value={ft.value}>{ft.label}</option>
-                                ))}
+                              <span style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#f1f5f9', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700 }}>{index + 1}</span>
+                              <select value={field.type} onChange={(e) => handleUpdateField(field.id, { type: e.target.value as FormField['type'] })} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontWeight: 600 }}>
+                                {FIELD_TYPES.map(ft => (<option key={ft.value} value={ft.value}>{ft.label}</option>))}
                               </select>
-                              <button 
-                                onClick={() => handleRemoveField(field.id)}
-                                style={{ 
-                                  marginLeft: 'auto', 
-                                  padding: '8px', 
-                                  borderRadius: '8px', 
-                                  border: 'none', 
-                                  background: 'transparent',
-                                  color: '#94a3b8',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                <Trash2 size={16} />
-                              </button>
+                              <button onClick={() => handleRemoveField(field.id)} style={{ marginLeft: 'auto', padding: '4px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}><Trash2 size={16} /></button>
                             </div>
-                            <input 
-                              type="text"
-                              placeholder="Field label (e.g. How would you rate our service?)"
-                              value={field.label}
-                              onChange={(e) => handleUpdateField(field.id, { label: e.target.value })}
-                              style={{ 
-                                width: '100%', 
-                                fontSize: '14px', 
-                                padding: '12px 14px',
-                                borderRadius: '10px',
-                                border: '1px solid #e2e8f0',
-                                marginBottom: '12px',
-                                fontWeight: 500,
-                              }}
-                            />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#475569', fontWeight: 500 }}>
-                                <input 
-                                  type="checkbox"
-                                  checked={field.required}
-                                  onChange={(e) => handleUpdateField(field.id, { required: e.target.checked })}
-                                  style={{ accentColor: 'var(--brand-green)' }}
-                                />
-                                Required field
+                            <input type="text" placeholder="Field label" value={field.label} onChange={(e) => handleUpdateField(field.id, { label: e.target.value })} style={{ width: '100%', fontSize: '13px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '8px' }} />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#475569' }}>
+                                <input type="checkbox" checked={field.required} onChange={(e) => handleUpdateField(field.id, { required: e.target.checked })} />
+                                Required
                               </label>
-                              {field.type === 'dropdown' && (
+                              {(field.type === 'dropdown' || field.type === 'checkbox') && (
                                 <input 
-                                  type="text"
-                                  placeholder="Options: Option 1, Option 2, Option 3"
-                                  value={field.options?.join(', ') || ''}
-                                  onChange={(e) => handleUpdateField(field.id, { 
-                                    options: e.target.value.split(',').map(o => o.trim()).filter(o => o) 
-                                  })}
-                                  style={{ flex: 1, fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                  type="text" 
+                                  placeholder="Options (comma separated)" 
+                                  value={field.options?.join(', ') || ''} 
+                                  onChange={(e) => handleUpdateField(field.id, { options: e.target.value.split(',').map(o => o.trimStart()) })} 
+                                  style={{ flex: 1, fontSize: '12px', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }} 
                                 />
                               )}
                             </div>
@@ -1007,281 +913,255 @@ export default function FormsPage() {
                 )}
               </div>
 
+              {/* Wizard Footer */}
               <div style={{ 
-                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
-                padding: '32px 0 64px 0',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                overflowY: 'auto'
+                padding: '24px 32px', 
+                borderTop: '1px solid #f1f5f9', 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                gap: '12px',
+                background: '#fff',
+                marginTop: 'auto'
               }}>
-                <div style={{ 
-                  fontSize: '11px', 
-                  fontWeight: 700, 
-                  color: '#94a3b8', 
-                  textTransform: 'uppercase', 
-                  letterSpacing: '1.5px', 
-                  marginBottom: '20px',
-                }}>
-                  LIVE PREVIEW
-                </div>
-                
-                <div style={{
-                  width: '280px',
-                  height: '560px',
-                  background: '#000',
-                  borderRadius: '44px',
-                  padding: '10px',
-                  position: 'relative',
-                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-                }}>
-                  <div style={{
-                    width: '90px',
-                    height: '28px',
-                    background: '#000',
-                    borderRadius: '16px',
-                    position: 'absolute',
-                    top: '12px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    zIndex: 10,
-                  }} />
-                  
-                  <div style={{
-                    height: '100%',
-                    background: '#fff',
-                    borderRadius: '34px',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }}>
-                    <div style={{ 
-                      height: '46px', 
-                      padding: '0 20px', 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                    }}>
-                      <span>9:41</span>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <div style={{ width: '16px', height: '10px', background: '#1e293b', borderRadius: '2px' }} />
-                        <div style={{ width: '14px', height: '10px', background: '#1e293b', borderRadius: '2px' }} />
-                      </div>
-                    </div>
+                <button 
+                  className={styles.cancelBtn} 
+                  onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}
+                  style={{ color: '#64748b', border: '1px solid #e2e8f0', padding: '10px 24px', fontSize: '14px', fontWeight: 600 }}
+                >
+                  Cancel
+                </button>
+                {wizardStep > 1 && (
+                  <button 
+                    className={styles.cancelBtn} 
+                    onClick={() => setWizardStep(wizardStep - 1)}
+                    style={{ color: '#0f172a', border: '1px solid #e2e8f0', padding: '10px 24px', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    <ChevronLeft size={16} /> Back
+                  </button>
+                )}
+                {wizardStep < 3 ? (
+                  <button 
+                    className={styles.createButton} 
+                    onClick={() => setWizardStep(wizardStep + 1)} 
+                    disabled={(wizardStep === 1 && !newForm.name) || (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))}
+                    style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600, opacity: ((wizardStep === 1 && !newForm.name) || (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))) ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    Next <ChevronRight size={16} />
+                  </button>
+                ) : (
+                  <button 
+                    className={styles.createButton} 
+                    onClick={handleSaveForm} 
+                    disabled={newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending}
+                    style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600, opacity: (newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending) ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    { (createMutation.isPending || updateMutation.isPending) ? 'Saving...' : <><CheckCircle2 size={18} /> {isEditMode ? 'Update Form' : 'Save Form'}</> }
+                  </button>
+                )}
+              </div>
+            </div>
 
-                    <div style={{ 
-                      padding: '16px 20px', 
-                      borderBottom: '1px solid #f1f5f9',
-                      background: 'linear-gradient(to bottom, #fafafa, #ffffff)',
-                    }}>
-                      <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
-                        {newForm.name || 'Untitled Form'}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                        {locations.find((l: Location) => l.id === newForm.locationIds[0])?.name || 'FAAN'} • {departments.find((d) => d.id === newForm.departmentIds[0])?.name || 'Operations'}
-                      </div>
-                    </div>
-                    
-                    <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
-                      {(!newForm.fields || !Array.isArray(newForm.fields) || newForm.fields.length === 0) ? (
-                        <div style={{ 
-                          display: 'flex', 
-                          flexDirection: 'column', 
-                          alignItems: 'center', 
-                          justifyContent: 'center', 
-                          height: '200px',
-                          color: '#94a3b8',
-                        }}>
-                          <FileStack size={32} />
-                          <p style={{ fontSize: '12px', marginTop: '8px' }}>No fields yet</p>
+              {/* Right Panel: Live Preview */}
+              <div style={{ 
+                width: '420px', 
+                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
+                display: 'flex', 
+                flexDirection: 'column',
+                position: 'relative'
+              }}>
+                {/* Header Bar on Preview Side */}
+                <div style={{ 
+                  height: '80px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'flex-end', 
+                  padding: '0 24px', 
+                  gap: '12px',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
+                }}>
+                  <button 
+                    className={styles.closeBtn} 
+                    onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}
+                    style={{ color: '#fff', marginLeft: '8px', background: 'rgba(255, 255, 255, 0.1)' }}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Preview Content */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px 0 40px 0' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(148, 163, 184, 0.6)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '24px' }}>
+                    LIVE PREVIEW
+                  </div>
+                  
+                  {/* Phone Component */}
+                  <div style={{ 
+                    width: '300px', 
+                    height: '620px', 
+                    flexShrink: 0, 
+                    background: '#000', 
+                    borderRadius: '44px', 
+                    padding: '12px', 
+                    position: 'relative', 
+                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+                    border: '4px solid #334155'
+                  }}>
+                    <div style={{ width: '100px', height: '30px', background: '#000', borderRadius: '16px', position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }} />
+                    <div style={{ height: '100%', background: '#fff', borderRadius: '34px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                      {/* Status Bar */}
+                      <div style={{ height: '46px', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>
+                        <span>9:41</span>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                           <div style={{ width: '18px', height: '10px', border: '1px solid #1e293b', borderRadius: '2px', position: 'relative' }}><div style={{ width: '14px', height: '6px', background: '#1e293b', position: 'absolute', top: 1, left: 1 }} /></div>
                         </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {Array.isArray(newForm.fields) && newForm.fields.slice(0, 5).map(field => (
-                            <div key={field.id}>
-                              <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                                {field.label || 'Field'} {field.required && <span style={{ color: '#ef4444', marginLeft: '2px' }}>*</span>}
-                              </div>
-                              {field.type === 'rating' && (
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                  {[1,2,3,4,5].map(s => (
-                                    <Star key={s} size={20} fill="#fbbf24" color="#fbbf24" />
-                                  ))}
-                                </div>
-                              )}
-                              {field.type === 'text' && (
-                                <input 
-                                  disabled
-                                  placeholder="Enter text..."
-                                  style={{ 
-                                    height: '36px', 
-                                    width: '100%',
-                                    boxSizing: 'border-box',
-                                    background: '#f9fafb', 
-                                    border: '1px solid #e5e7eb', 
-                                    borderRadius: '8px',
-                                    padding: '0 12px',
-                                    fontSize: '13px',
-                                  }}
-                                />
-                              )}
-                              {field.type === 'textarea' && (
-                                <textarea 
-                                  disabled
-                                  placeholder="Enter details..."
-                                  style={{ 
-                                    height: '60px',
-                                    width: '100%',
-                                    boxSizing: 'border-box', 
-                                    background: '#f9fafb', 
-                                    border: '1px solid #e5e7eb', 
-                                    borderRadius: '8px',
-                                    padding: '10px 12px',
-                                    fontSize: '13px',
-                                    resize: 'none',
-                                  }}
-                                />
-                              )}
-                              {field.type === 'dropdown' && (
-                                <div style={{ 
-                                  height: '36px', 
-                                  background: '#f9fafb', 
-                                  border: '1px solid #e5e7eb', 
-                                  borderRadius: '8px', 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  justifyContent: 'space-between', 
-                                  padding: '0 12px',
-                                  fontSize: '12px', 
-                                  color: '#9ca3af',
-                                }}>
-                                  Select option
-                                  <ChevronRight size={14} />
-                                </div>
-                              )}
-                              {field.type === 'date' && (
-                                <div style={{ 
-                                  height: '36px', 
-                                  background: '#f9fafb', 
-                                  border: '1px solid #e5e7eb', 
-                                  borderRadius: '8px', 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  padding: '0 12px',
-                                  fontSize: '12px', 
-                                  color: '#9ca3af',
-                                }}>
-                                  <Calendar size={14} style={{ marginRight: '8px' }} />
-                                  Pick a date
-                                </div>
-                              )}
-                              {field.type === 'file' && (
-                                <div style={{ 
-                                  height: '60px', 
-                                  border: '1.5px dashed #d1d5db', 
-                                  borderRadius: '8px', 
-                                  display: 'flex', 
-                                  flexDirection: 'column', 
-                                  alignItems: 'center', 
-                                  justifyContent: 'center', 
-                                  color: '#9ca3af', 
-                                  fontSize: '11px',
-                                }}>
-                                  <Upload size={18} />
-                                  Tap to upload
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                          {Array.isArray(newForm.fields) && newForm.fields.length > 5 && (
-                            <div style={{ fontSize: '11px', color: '#94a3b8', textAlign: 'center', marginTop: '8px' }}>
-                              +{newForm.fields.length - 5} more fields
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div style={{
-                      padding: '16px 20px',
-                      borderTop: '1px solid #f1f5f9',
-                    }}>
-                      <div style={{
-                        background: 'var(--brand-green)',
-                        color: 'white',
-                        padding: '14px',
-                        borderRadius: '12px',
-                        textAlign: 'center',
-                        fontSize: '14px',
-                        fontWeight: 600,
+                      </div>
+
+                      {/* App Header */}
+                      <div style={{ 
+                        padding: '16px 20px', 
+                        borderBottom: '1px solid #f1f5f9',
+                        background: 'linear-gradient(to bottom, #fafafa, #ffffff)',
                       }}>
-                        Submit
+                        <div style={{ fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>
+                          {newForm.name || 'Untitled Form'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                          {locations.find((l: Location) => l.id === newForm.locationIds[0])?.name || 'FAAN'} • {departments.find((d) => d.id === newForm.departmentIds[0])?.name || 'Operations'}
+                        </div>
+                      </div>
+                      
+                      {/* Form Content */}
+                      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                        {(!newForm.fields || !Array.isArray(newForm.fields) || newForm.fields.length === 0) ? (
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            height: '100%',
+                            color: '#94a3b8',
+                            opacity: 0.5
+                          }}>
+                            <FileStack size={48} />
+                            <p style={{ fontSize: '13px', marginTop: '12px', fontWeight: 500 }}>No fields added yet</p>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {newForm.fields.map(field => (
+                              <div key={field.id}>
+                                <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
+                                  {field.label || 'New Question'} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
+                                </div>
+                                {field.type === 'rating' && (
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    {[1,2,3,4,5].map(s => (
+                                      <Star key={s} size={24} fill="#fbbf24" color="#fbbf24" style={{ cursor: 'pointer' }} />
+                                    ))}
+                                  </div>
+                                )}
+                                {field.type === 'text' && (
+                                  <input 
+                                    type="text" 
+                                    placeholder="Enter text..."
+                                    style={{ 
+                                      height: '40px', 
+                                      background: '#f9fafb', 
+                                      border: '1px solid #e5e7eb', 
+                                      borderRadius: '10px', 
+                                      width: '100%',
+                                      padding: '0 12px',
+                                      fontSize: '13px',
+                                      color: '#1e293b'
+                                    }}
+                                  />
+                                )}
+                                {field.type === 'textarea' && (
+                                  <textarea 
+                                    placeholder="Enter long text..."
+                                    style={{ 
+                                      height: '80px', 
+                                      background: '#f9fafb', 
+                                      border: '1px solid #e5e7eb', 
+                                      borderRadius: '10px', 
+                                      width: '100%',
+                                      padding: '12px',
+                                      fontSize: '13px',
+                                      color: '#1e293b',
+                                      resize: 'none',
+                                      fontFamily: 'inherit'
+                                    }}
+                                  />
+                                )}
+                                {field.type === 'dropdown' && (
+                                  <select
+                                    defaultValue=""
+                                    style={{ 
+                                      height: '40px', 
+                                      background: '#f9fafb', 
+                                      border: '1px solid #e5e7eb', 
+                                      borderRadius: '10px', 
+                                      width: '100%', 
+                                      padding: '0 12px', 
+                                      fontSize: '13px', 
+                                      color: '#1e293b', 
+                                      cursor: 'pointer',
+                                      fontFamily: 'inherit'
+                                    }}
+                                  >
+                                    <option value="" disabled>Select option</option>
+                                    {field.options?.filter(o => o.trim()).map((opt, i) => <option key={`${opt}-${i}`}>{opt}</option>)}
+                                  </select>
+                                )}
+                                {field.type === 'checkbox' && (
+                                  <div style={{ width: '100%' }}>
+                                    <MultiSelect
+                                      options={(field.options || []).filter(o => o.trim()).map(opt => ({ id: opt, name: opt }))}
+                                      selectedIds={[]}
+                                      onChange={() => {}}
+                                      placeholder="Select options..."
+                                    />
+                                  </div>
+                                )}
+                                {field.type === 'date' && (
+                                  <input 
+                                    type="date"
+                                    style={{ height: '40px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', padding: '0 12px', fontSize: '13px', color: '#1e293b', fontFamily: 'inherit', cursor: 'pointer' }}
+                                  />
+                                )}
+                                {field.type === 'file' && (
+                                  <div style={{ height: '80px', border: '2px dashed #e5e7eb', borderRadius: '10px', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#9ca3af', cursor: 'pointer', background: '#f9fafb' }}>
+                                    <Upload size={20} />
+                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>Tap to upload</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9', background: '#fff' }}>
+                        <div style={{ 
+                          width: '100%',
+                          background: 'var(--brand-green)', 
+                          color: 'white', 
+                          padding: '14px', 
+                          borderRadius: '14px', 
+                          textAlign: 'center', 
+                          fontSize: '15px', 
+                          fontWeight: 700, 
+                          opacity: 0.9
+                        }}>
+                          Submit Feedback
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-
-            <div className={styles.modalActions}>
-              {wizardStep > 1 ? (
-                <button 
-                  className={styles.cancelBtn} 
-                  onClick={() => setWizardStep(wizardStep - 1)}
-                  style={{ marginRight: 'auto' }}
-                >
-                  <ChevronLeft size={16} /> Back
-                </button>
-              ) : (
-                <div />
-              )}
-              <button 
-                className={styles.cancelBtn} 
-                onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}
-              >
-                Cancel
-              </button>
-              {wizardStep < 3 ? (
-                <button 
-                  className={styles.createButton}
-                  onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={
-                    (wizardStep === 1 && !newForm.name) || 
-                    (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))
-                  }
-                  style={{ 
-                    opacity: (
-                      (wizardStep === 1 && !newForm.name) || 
-                      (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))
-                    ) ? 0.5 : 1 
-                  }}
-                >
-                  Next <ChevronRight size={16} />
-                </button>
-              ) : (
-                <button 
-                  className={styles.createButton}
-                  onClick={handleSaveForm}
-                  disabled={(!Array.isArray(newForm.fields) || newForm.fields.length === 0) || createMutation.isPending || updateMutation.isPending}
-                  style={{ opacity: (!Array.isArray(newForm.fields) || newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending) ? 0.5 : 1 }}
-                >
-                  {(createMutation.isPending || updateMutation.isPending) ? (
-                    'Saving...'
-                  ) : (
-                    <>
-                      <CheckCircle2 size={18} /> {isEditMode ? 'Update Form' : 'Save Form'}
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {selectedForm && (
         <div className={styles.modalOverlay}>
