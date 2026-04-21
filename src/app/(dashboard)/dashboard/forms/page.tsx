@@ -31,14 +31,15 @@ import Image from "next/image";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { 
-  useTouchpoints, 
-  useCreateTouchpoint, 
-  useUpdateTouchpoint,
-  useDeleteTouchpoint
-} from "@/hooks/useTouchpoints";
+  useFeedbackForms, 
+  useCreateFeedbackForm, 
+  useUpdateFeedbackForm,
+  useDeleteFeedbackForm
+} from "@/hooks/useFeedbackForms";
+import { useTouchpoints } from "@/hooks/useTouchpoints";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
-import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/types/api";
+import { FeedbackForm, FeedbackFormField, Touchpoint, Location, Department, FormField, TouchpointType } from "@/types/api";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { MultiSelect } from "@/components/displays/MultiSelect";
@@ -86,7 +87,10 @@ const normalizeFields = (config: any): FormField[] => {
 
 export default function FormsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
-  const { data: touchpointsData, isLoading: formsLoading } = useTouchpoints({ 
+  const { data: formsData, isLoading: formsLoading } = useFeedbackForms({ 
+    locationId: currentLocation || undefined
+  });
+  const { data: touchpointsData } = useTouchpoints({ 
     type: 'FEEDBACK',
     locationId: currentLocation || undefined
   });
@@ -98,7 +102,7 @@ export default function FormsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingFormId, setEditingFormId] = useState<string | null>(null);
-  const [selectedForm, setSelectedForm] = useState<Touchpoint | null>(null);
+  const [selectedForm, setSelectedForm] = useState<FeedbackForm | null>(null);
   const [wizardStep, setWizardStep] = useState(1);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
@@ -119,38 +123,40 @@ export default function FormsPage() {
     affectedItems: [],
     onConfirm: () => {},
   });
+  
+  const createMutation = useCreateFeedbackForm();
+  const updateMutation = useUpdateFeedbackForm();
+  const deleteMutation = useDeleteFeedbackForm();
 
-  const createMutation = useCreateTouchpoint();
-  const updateMutation = useUpdateTouchpoint();
-  const deleteMutation = useDeleteTouchpoint();
-
-  const touchpoints = touchpointsData?.data || [];
+  const forms = formsData?.data || [];
   const locations = locationsData?.data || [];
   const departments = departmentsData?.data || [];
+  const touchpoints = touchpointsData?.data || [];
 
-  // Grouping Logic for Forms
-  const groupedForms = touchpoints.reduce((acc: Record<string, any>, tp) => {
-    const key = tp.title; // Using title as grouping key
+  // Grouping Logic for Forms (based on title)
+  const groupedForms = forms.reduce((acc: Record<string, any>, form) => {
+    const key = form.title; 
     if (!acc[key]) {
       acc[key] = {
-        ...tp,
-        instances: [tp],
-        totalInteractions: tp.interactions || 0
+        ...form,
+        title: form.title,
+        instances: [form],
+        totalInteractions: 0 // Will need to sum from linked touchpoints later if available
       };
     } else {
-      acc[key].instances.push(tp);
-      acc[key].totalInteractions += tp.interactions || 0;
+      acc[key].instances.push(form);
     }
     return acc;
   }, {});
 
   const [newForm, setNewForm] = useState({
-    name: '',
+    title: '',
+    description: '',
+    successMessage: '',
     locationIds: (currentLocation ? [currentLocation] : []) as string[],
     departmentIds: [] as string[],
-    allowAnonymous: true,
-    successMessage: 'Thank you for your feedback!',
-    fields: [] as FormField[],
+    isActive: true,
+    fields: [] as Partial<FeedbackFormField>[],
   });
 
   const filteredGroupedForms = Object.values(groupedForms).sort((a: any, b: any) => 
@@ -159,7 +165,7 @@ export default function FormsPage() {
     !searchTerm || f.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const totalFields = touchpoints.reduce((sum, tp) => sum + (normalizeFields(tp.formConfig).length), 0);
+  const totalFields = forms.reduce((sum, form) => sum + (form.fields?.length || 0), 0);
   const totalSubmissions = touchpoints.reduce((sum, tp) => sum + (tp.interactions || 0), 0);
 
   const scopeLabel =
@@ -176,70 +182,67 @@ export default function FormsPage() {
   };
 
   const handleAddField = (type: string = 'text') => {
-    const newField: FormField = {
-      id: String(Date.now()),
-      type: type as FormField['type'],
+    const newField: Partial<FeedbackFormField> = {
+      type: type,
       label: 'New Field',
+      name: `field_${Date.now()}`,
       required: false,
       options: type === 'dropdown' ? ['Option 1', 'Option 2'] : [],
+      order: newForm.fields.length,
     };
     setNewForm({...newForm, fields: [...newForm.fields, newField]});
   };
 
-  const handleUpdateField = (fieldId: string, updates: Partial<FormField>) => {
+  const handleUpdateField = (index: number, updates: Partial<FeedbackFormField>) => {
     setNewForm({
       ...newForm,
-      fields: newForm.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
+      fields: newForm.fields.map((f, i) => i === index ? { ...f, ...updates } : f)
     });
   };
 
-  const handleRemoveField = (fieldId: string) => {
+  const handleRemoveField = (index: number) => {
     setNewForm({
       ...newForm,
-      fields: newForm.fields.filter(f => f.id !== fieldId)
+      fields: newForm.fields.filter((_, i) => i !== index)
     });
   };
 
   const handleSaveForm = () => {
-    // Validation
-    // Validation
-    if (!newForm.name.trim()) return toast.error("Form name is required");
+    if (!newForm.title.trim()) return toast.error("Form title is required");
     if (newForm.locationIds.length === 0) return toast.error("Please select at least one location");
     if (newForm.departmentIds.length === 0) return toast.error("Please select at least one department");
     if (newForm.fields.length === 0) return toast.error("Please add at least one field to the form");
 
-    // We'll create a combination of all selected locations and departments
     const creations: any[] = [];
     newForm.locationIds.forEach(locId => {
       newForm.departmentIds.forEach(deptId => {
-        // Only add if the department belongs to this location
         const dept = departments.find(d => d.id === deptId);
         if (dept && (dept.locationId === locId || dept.location?.id === locId)) {
           creations.push({
-            title: newForm.name,
+            title: newForm.title,
+            description: newForm.description,
             locationId: locId,
             departmentId: deptId,
-            type: 'FEEDBACK' as TouchpointType,
-            formConfig: newForm.fields,
+            isActive: newForm.isActive,
+            fields: newForm.fields.map((f, i) => ({ ...f, order: i })),
           });
         }
       });
     });
 
     if (creations.length === 0) {
-      return toast.error("No valid Location-Department combinations found. Please ensure selected departments belong to the selected locations.");
+      return toast.error("No valid Location-Department combinations found.");
     }
 
     if (isEditMode && editingFormId) {
-      updateMutation.mutate({ uuid: editingFormId, data: creations[0] }, {
+      updateMutation.mutate({ id: editingFormId, data: creations[0] }, {
         onSuccess: () => {
           toast.success("Form updated successfully");
           setIsCreateModalOpen(false);
           resetWizard();
         },
-        onError: (error) => {
-          const axiosError = error as AxiosError<{ message: string | string[] }>;
-          const message = axiosError.response?.data?.message || "Failed to update form";
+        onError: (error: any) => {
+          const message = error.response?.data?.message || "Failed to update form";
           toast.error(Array.isArray(message) ? message[0] : message);
         }
       });
@@ -250,9 +253,8 @@ export default function FormsPage() {
           setIsCreateModalOpen(false);
           resetWizard();
         })
-        .catch((error) => {
-          const axiosError = error as AxiosError<{ message: string | string[] }>;
-          const message = axiosError.response?.data?.message || "Failed to create forms";
+        .catch((error: any) => {
+          const message = error.response?.data?.message || "Failed to create forms";
           toast.error(Array.isArray(message) ? message[0] : message);
         });
     }
@@ -267,20 +269,20 @@ export default function FormsPage() {
     });
   };
 
-  const confirmDeleteForm = (tp: any) => {
+  const confirmDeleteForm = (form: FeedbackForm) => {
     setDeleteModal({
       isOpen: true,
-      itemName: tp.title,
+      itemName: form.title,
       itemType: 'form',
       isGroup: false,
       instanceCount: 1,
       affectedItems: [],
       onConfirm: () => {
-        deleteMutation.mutate(tp.id, {
+        deleteMutation.mutate(form.id, {
           onSuccess: () => {
             setDeleteModal(prev => ({ ...prev, isOpen: false }));
             toast.success("Form deleted successfully");
-            if (activeDropdown === tp.id) setActiveDropdown(null);
+            if (activeDropdown === form.id) setActiveDropdown(null);
           }
         });
       }
@@ -289,9 +291,9 @@ export default function FormsPage() {
 
   const confirmDeleteGroup = (groupedForm: any) => {
     const locationsList = groupedForm.instances.map((inst: any) => {
-      const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
-      const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
-      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
+      const loc = locations.find(l => l.id === inst.locationId);
+      const dept = departments.find(d => d.id === inst.departmentId);
+      return `${loc?.name || 'Unknown'}${dept ? ` - ${dept.name}` : ''}`;
     });
 
     setDeleteModal({
@@ -319,13 +321,16 @@ export default function FormsPage() {
   const resetWizard = () => {
     setWizardStep(1);
     setNewForm({
-      name: '',
+      title: '',
+      description: '',
+      successMessage: '',
       locationIds: currentLocation ? [currentLocation] : [],
       departmentIds: [],
-      allowAnonymous: true,
-      successMessage: 'Thank you for your feedback!',
+      isActive: true,
       fields: [],
     });
+    setEditingFormId(null);
+    setIsEditMode(false);
   };
 
   return (
@@ -484,16 +489,19 @@ export default function FormsPage() {
           </div>
 
           <div className={styles.deptGrid}>
-            {drilldownGroup.instances.map((tp: any) => {
-              const accent = FORM_ACCENTS[hashToIndex(tp.title, FORM_ACCENTS.length)];
+            {drilldownGroup.instances.map((form: FeedbackForm) => {
+              const accent = FORM_ACCENTS[hashToIndex(form.title, FORM_ACCENTS.length)];
               const accentStyle = {
                 "--accent-bg": accent.bg,
                 "--accent-fg": accent.fg,
                 "--accent-ring": accent.ring,
               } as React.CSSProperties;
 
+              const loc = locations.find(l => l.id === form.locationId);
+              const dept = departments.find(d => d.id === form.departmentId);
+
               return (
-                <div key={tp.id} className={styles.deptCard}>
+                <div key={form.id} className={styles.deptCard}>
                   <div className={styles.deptCardHeader}>
                     <div className={styles.deptIconBox} style={accentStyle}>
                       <FileStack size={24} />
@@ -503,30 +511,28 @@ export default function FormsPage() {
                         className={styles.cardMore}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setActiveDropdown(activeDropdown === tp.id ? null : tp.id);
+                          setActiveDropdown(activeDropdown === form.id ? null : form.id);
                         }}
                       >
                         <MoreVertical size={18} />
                       </button>
-                      {activeDropdown === tp.id && (
+                      {activeDropdown === form.id && (
                         <div className={styles.cardDropdown}>
                           <button
                             className={styles.dropdownItem}
                             onClick={(e) => {
                               e.stopPropagation();
                               setIsEditMode(true);
-                              setEditingFormId(tp.id);
-
-                              const locId = tp.locationId || tp.location?.id;
-                              const deptId = tp.departmentId || tp.department?.id;
+                              setEditingFormId(form.id);
 
                               setNewForm({
-                                name: tp.title,
-                                locationIds: locId ? [String(locId)] : [],
-                                departmentIds: deptId ? [String(deptId)] : [],
-                                allowAnonymous: true,
-                                successMessage: 'Thank you for your feedback!',
-                                fields: Array.isArray(tp.formConfig) ? tp.formConfig : [],
+                                title: form.title,
+                                description: form.description || '',
+                                successMessage: form.successMessage || '',
+                                locationIds: [form.locationId],
+                                departmentIds: [form.departmentId],
+                                isActive: form.isActive,
+                                fields: form.fields,
                               });
 
                               setIsCreateModalOpen(true);
@@ -538,10 +544,10 @@ export default function FormsPage() {
                             className={`${styles.dropdownItem} ${styles.danger}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              confirmDeleteForm(tp);
+                              confirmDeleteForm(form);
                             }}
                           >
-                            <Trash2 size={14} /> Delete Form
+                            <Trash2 size={14} /> Delete Template
                           </button>
                         </div>
                       )}
@@ -549,32 +555,28 @@ export default function FormsPage() {
                   </div>
 
                   <div className={styles.deptCardInfo}>
-                    <h3 className={styles.deptCardTitle}>{tp.title}</h3>
+                    <h3 className={styles.deptCardTitle}>{form.title}</h3>
                     <p className={styles.deptCardDesc}>
-                      Passenger Form
+                      {form.description || "No description provided"}
                     </p>
                     <div className={styles.deptLocationRow}>
                       <MapPin size={12} />
-                      <span>{tp.location?.name || roleLocationName || '—'}</span>
+                      <span>{loc?.name || '—'} {dept ? `(${dept.code})` : ''}</span>
                     </div>
                   </div>
 
                   <div className={styles.deptCardMetrics}>
                     <div className={styles.deptMetric}>
                       <FileCheck size={14} />
-                      <span>{tp.formConfig?.length || 0} Fields</span>
-                    </div>
-                    <div className={styles.deptMetric}>
-                      <MousePointer2 size={14} />
-                      <span>{tp.totalInteractions || 0} Submissions</span>
+                      <span>{form.fields?.length || 0} Fields</span>
                     </div>
                   </div>
 
                   <button 
                     className={styles.deptManageBtn}
-                    onClick={() => setSelectedForm(tp)}
+                    onClick={() => setSelectedForm(form)}
                   >
-                    View Form Details
+                    View Template Details
                     <ChevronRight size={16} />
                   </button>
                 </div>
@@ -593,10 +595,8 @@ export default function FormsPage() {
             } as React.CSSProperties;
 
             const primaryInstance = groupedForm.instances[0];
-            const primaryLocationName =
-              typeof primaryInstance.location === "string"
-                ? primaryInstance.location
-                : primaryInstance.location?.name || roleLocationName || "—";
+            const loc = locations.find(l => l.id === primaryInstance.locationId);
+            const primaryLocationName = loc?.name || roleLocationName || "—";
             
             const locationLabel = groupedForm.instances.length > 1
               ? `${primaryLocationName} +${groupedForm.instances.length - 1}`
@@ -631,17 +631,17 @@ export default function FormsPage() {
                             setIsEditMode(true);
                             setEditingFormId(groupedForm.id);
                             
-                            // Collect all unique location and department IDs from all instances in the group
-                            const uniqueLocs = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.locationId || i.location?.id)))).filter(id => id !== 'undefined' && id !== 'null');
-                            const uniqueDepts = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.departmentId || i.department?.id)))).filter(id => id !== 'undefined' && id !== 'null');
+                            const uniqueLocs = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.locationId)))).filter(id => id !== 'undefined' && id !== 'null');
+                            const uniqueDepts = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.departmentId)))).filter(id => id !== 'undefined' && id !== 'null');
 
                             setNewForm({
-                              name: groupedForm.title,
+                              title: groupedForm.title,
+                              description: groupedForm.description || '',
+                              successMessage: primaryInstance.successMessage || '',
                               locationIds: uniqueLocs as string[],
                               departmentIds: uniqueDepts as string[],
-                              allowAnonymous: true,
-                              successMessage: 'Thank you for your feedback!',
-                              fields: normalizeFields(groupedForm.formConfig),
+                              isActive: groupedForm.isActive,
+                              fields: groupedForm.fields || [],
                             });
                             
                             setIsCreateModalOpen(true);
@@ -675,14 +675,10 @@ export default function FormsPage() {
                   </div>
                 </div>
 
-                <div className={styles.deptCardMetrics}>
+                 <div className={styles.deptCardMetrics}>
                   <div className={styles.deptMetric}>
                     <FileCheck size={14} />
-                    <span>{normalizeFields(groupedForm.formConfig).length} Fields</span>
-                  </div>
-                  <div className={styles.deptMetric}>
-                    <MousePointer2 size={14} />
-                    <span>{groupedForm.totalInteractions} Submissions</span>
+                    <span>{primaryInstance.fields?.length || 0} Fields</span>
                   </div>
                 </div>
 
@@ -694,11 +690,11 @@ export default function FormsPage() {
                     Manage {groupedForm.instances.length} Instances
                   </button>
                 ) : (
-                  <button 
+                   <button 
                     className={styles.deptManageBtn}
                     onClick={() => setSelectedForm(primaryInstance)}
                   >
-                    View Form Details
+                    View Template Details
                     <ChevronRight size={16} />
                   </button>
                 )}
@@ -758,7 +754,7 @@ export default function FormsPage() {
                     
                     <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
                       <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Form Name *</label>
+                        <label className={styles.formLabel}>Form Title *</label>
                         <span className={styles.fieldDesc}>A clear title passengers will see</span>
                       </div>
                       <div className={styles.modalInputWrapper}>
@@ -766,8 +762,24 @@ export default function FormsPage() {
                         <input 
                           type="text" 
                           placeholder="e.g. Passenger Feedback Survey"
-                          value={newForm.name}
-                          onChange={(e) => setNewForm({...newForm, name: e.target.value})}
+                          value={newForm.title}
+                          onChange={(e) => setNewForm({...newForm, title: e.target.value})}
+                        />
+                      </div>
+                    </div>
+
+                    <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Description</label>
+                        <span className={styles.fieldDesc}>Brief internal description</span>
+                      </div>
+                      <div className={styles.modalInputWrapper}>
+                        <FileText size={18} />
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Monthly satisfaction survey"
+                          value={newForm.description}
+                          onChange={(e) => setNewForm({...newForm, description: e.target.value})}
                         />
                       </div>
                     </div>
@@ -792,12 +804,12 @@ export default function FormsPage() {
                       <label style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: '#334155', cursor: 'pointer', fontWeight: 500 }}>
                         <input 
                           type="checkbox"
-                          checked={newForm.allowAnonymous}
-                          onChange={(e) => setNewForm({...newForm, allowAnonymous: e.target.checked})}
+                          checked={newForm.isActive}
+                          onChange={(e) => setNewForm({...newForm, isActive: e.target.checked})}
                           style={{ width: '20px', height: '20px', accentColor: 'var(--brand-green)' }}
                         />
-                        Allow anonymous submissions
-                        <span style={{ fontSize: '11px', color: '#64748b', marginLeft: 'auto' }}>Recommended</span>
+                        Form is Active
+                        <span style={{ fontSize: '11px', color: '#64748b', marginLeft: 'auto' }}>Template Status</span>
                       </label>
                     </div>
                   </div>
@@ -914,9 +926,9 @@ export default function FormsPage() {
                         <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Click a field type above to start building</p>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
                         {Array.isArray(newForm.fields) && newForm.fields.map((field, index) => (
-                          <div key={field.id} style={{ 
+                          <div key={index} style={{ 
                             background: 'white', 
                             border: '1px solid #e2e8f0', 
                             borderRadius: '16px', 
@@ -940,7 +952,7 @@ export default function FormsPage() {
                               </span>
                               <select 
                                 value={field.type}
-                                onChange={(e) => handleUpdateField(field.id, { type: e.target.value as FormField['type'] })}
+                                onChange={(e) => handleUpdateField(index, { type: e.target.value })}
                                 style={{ fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontWeight: 600, background: '#f8fafc' }}
                               >
                                 {FIELD_TYPES.map(ft => (
@@ -948,7 +960,7 @@ export default function FormsPage() {
                                 ))}
                               </select>
                               <button 
-                                onClick={() => handleRemoveField(field.id)}
+                                onClick={() => handleRemoveField(index)}
                                 style={{ 
                                   marginLeft: 'auto', 
                                   padding: '8px', 
@@ -966,7 +978,7 @@ export default function FormsPage() {
                               type="text"
                               placeholder="Field label (e.g. How would you rate our service?)"
                               value={field.label}
-                              onChange={(e) => handleUpdateField(field.id, { label: e.target.value })}
+                              onChange={(e) => handleUpdateField(index, { label: e.target.value, name: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
                               style={{ 
                                 width: '100%', 
                                 fontSize: '14px', 
@@ -982,7 +994,7 @@ export default function FormsPage() {
                                 <input 
                                   type="checkbox"
                                   checked={field.required}
-                                  onChange={(e) => handleUpdateField(field.id, { required: e.target.checked })}
+                                  onChange={(e) => handleUpdateField(index, { required: e.target.checked })}
                                   style={{ accentColor: 'var(--brand-green)' }}
                                 />
                                 Required field
@@ -992,7 +1004,7 @@ export default function FormsPage() {
                                   type="text"
                                   placeholder="Options: Option 1, Option 2, Option 3"
                                   value={field.options?.join(', ') || ''}
-                                  onChange={(e) => handleUpdateField(field.id, { 
+                                  onChange={(e) => handleUpdateField(index, { 
                                     options: e.target.value.split(',').map(o => o.trim()).filter(o => o) 
                                   })}
                                   style={{ flex: 1, fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
@@ -1079,7 +1091,7 @@ export default function FormsPage() {
                       background: 'linear-gradient(to bottom, #fafafa, #ffffff)',
                     }}>
                       <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
-                        {newForm.name || 'Untitled Form'}
+                        {newForm.title || 'Untitled Form'}
                       </div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
                         {locations.find((l: Location) => l.id === newForm.locationIds[0])?.name || 'FAAN'} • {departments.find((d) => d.id === newForm.departmentIds[0])?.name || 'Operations'}
@@ -1101,8 +1113,8 @@ export default function FormsPage() {
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {Array.isArray(newForm.fields) && newForm.fields.slice(0, 5).map(field => (
-                            <div key={field.id}>
+                          {Array.isArray(newForm.fields) && newForm.fields.slice(0, 5).map((field, i) => (
+                            <div key={i}>
                               <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
                                 {field.label || 'Field'} {field.required && <span style={{ color: '#ef4444', marginLeft: '2px' }}>*</span>}
                               </div>
@@ -1250,12 +1262,12 @@ export default function FormsPage() {
                   className={styles.createButton}
                   onClick={() => setWizardStep(wizardStep + 1)}
                   disabled={
-                    (wizardStep === 1 && !newForm.name) || 
+                    (wizardStep === 1 && !newForm.title) || 
                     (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))
                   }
                   style={{ 
                     opacity: (
-                      (wizardStep === 1 && !newForm.name) || 
+                      (wizardStep === 1 && !newForm.title) || 
                       (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))
                     ) ? 0.5 : 1 
                   }}
@@ -1273,7 +1285,7 @@ export default function FormsPage() {
                     'Saving...'
                   ) : (
                     <>
-                      <CheckCircle2 size={18} /> {isEditMode ? 'Update Form' : 'Save Form'}
+                      <CheckCircle2 size={18} /> {isEditMode ? 'Update Template' : 'Save Template'}
                     </>
                   )}
                 </button>
@@ -1302,10 +1314,10 @@ export default function FormsPage() {
               <div className={styles.detailGrid}>
                 <div className={styles.detailMain}>
                   <section className={styles.messageSection}>
-                    <h4 className={styles.detailLabel}>Form Fields ({normalizeFields(selectedForm.formConfig).length})</h4>
+                    <h4 className={styles.detailLabel}>Form Fields ({selectedForm.fields?.length || 0})</h4>
                     <div className={styles.messageCard}>
-                      {normalizeFields(selectedForm.formConfig).map((field: FormField, i: number) => (
-                        <div key={field.id} style={{ padding: '16px 0', borderBottom: i < (normalizeFields(selectedForm.formConfig).length) - 1 ? '1px solid #e2e8f0' : 'none' }}>
+                      {selectedForm.fields?.map((field: FeedbackFormField, i: number) => (
+                        <div key={field.id} style={{ padding: '16px 0', borderBottom: i < (selectedForm.fields?.length || 0) - 1 ? '1px solid #e2e8f0' : 'none' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                             <span style={{ 
                               fontWeight: 700, 
@@ -1335,11 +1347,11 @@ export default function FormsPage() {
                     <div className={styles.infoCards} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <div className={styles.infoCard}>
                         <MousePointer2 size={18} />
-                        <div><span>Total Submissions</span><strong>{selectedForm.interactions || 0}</strong></div>
+                        <div><span>Total Submissions</span><strong>0</strong></div>
                       </div>
                       <div className={styles.infoCard}>
                         <FileCheck size={18} />
-                        <div><span>Form Fields</span><strong>{normalizeFields(selectedForm.formConfig).length}</strong></div>
+                        <div><span>Form Fields</span><strong>{selectedForm.fields?.length || 0}</strong></div>
                       </div>
                       <div className={styles.infoCard}>
                         <Calendar size={18} />
@@ -1351,7 +1363,7 @@ export default function FormsPage() {
                     <button className={styles.archiveBtn} onClick={() => {
                       confirmDeleteForm(selectedForm);
                     }}>
-                      <Trash2 size={16} /> Delete Form
+                      <Trash2 size={16} /> Delete Template
                     </button>
                   </div>
                 </div>
