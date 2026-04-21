@@ -61,7 +61,10 @@ function Column({ title, status, color, icon, getStatusIssues, onDragOver, onDro
     <div 
       className={styles.kanbanColumn}
       onDragOver={onDragOver}
-      onDrop={() => onDrop(status)}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDrop(status);
+      }}
       style={{ 
         background: `linear-gradient(180deg, ${color}08 0%, ${color}02 100%)`,
         borderTop: `3px solid ${color}`
@@ -626,7 +629,7 @@ export default function IssueManagementPage() {
 
       {isCreateModalOpen && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modalContent}>
+          <div className={styles.modalContent} style={{ maxWidth: '850px', width: '96%' }}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
                 <span className={styles.wizardBadge}>New Entry</span>
@@ -662,7 +665,7 @@ export default function IssueManagementPage() {
                   )}
                 </div>
                 <div className={styles.modalForm}>
-                  <div className={styles.formGroup}>
+                  <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
                     <div className={styles.labelGroup}>
                       <label className={styles.formLabel}>Issue Title *</label>
                       <span className={styles.fieldDesc}>Briefly describe the issue</span>
@@ -679,24 +682,23 @@ export default function IssueManagementPage() {
                     </div>
                   </div>
 
-                  <div className={styles.formGroup}>
-                    <div className={styles.labelGroup}>
-                      <label className={styles.formLabel}>Exact Location *</label>
-                      <span className={styles.fieldDesc}>Terminal, gate, or floor</span>
-                    </div>
-                    <div className={styles.modalInputWrapper}>
-                      <MapPin size={18} />
-                      <input 
-                        type="text" 
-                        placeholder="e.g. Terminal 2, Near Gate 44" 
-                        required 
-                        value={newTask.location}
-                        onChange={(e) => setNewTask({...newTask, location: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
                   <div className={styles.formGrid}>
+                    <div className={styles.formGroup}>
+                        <div className={styles.labelGroup}>
+                          <label className={styles.formLabel}>Exact Location *</label>
+                          <span className={styles.fieldDesc}>Terminal, gate, or floor</span>
+                        </div>
+                        <div className={styles.modalInputWrapper}>
+                          <MapPin size={18} />
+                          <input 
+                            type="text" 
+                            placeholder="e.g. Terminal 2, Near Gate 44" 
+                            required 
+                            value={newTask.location}
+                            onChange={(e) => setNewTask({...newTask, location: e.target.value})}
+                          />
+                        </div>
+                    </div>
                     <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>Priority Level</label>
@@ -715,7 +717,9 @@ export default function IssueManagementPage() {
                         </select>
                       </div>
                     </div>
-                    <div className={styles.formGroup}>
+                  </div>
+
+                  <div className={styles.formGroup}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>
                           {currentRole === 'DEPARTMENT_ADMIN' ? 'Department' : 'Handling Dept'}
@@ -748,7 +752,6 @@ export default function IssueManagementPage() {
                         )}
                       </div>
                     </div>
-                  </div>
 
                   <div className={styles.formGroup}>
                     <div className={styles.labelGroup}>
@@ -759,7 +762,7 @@ export default function IssueManagementPage() {
                       placeholder="Describe the situation in detail..." 
                       required 
                       className={styles.modalTextarea}
-                      style={{ height: "100px", marginTop: "8px", width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', resize: 'none' }}
+                      style={{ height: "120px", marginTop: "8px", width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', resize: 'none' }}
                       value={newTask.description}
                       onChange={(e) => setNewTask({...newTask, description: e.target.value})}
                     />
@@ -768,8 +771,9 @@ export default function IssueManagementPage() {
               </div>
               <div className={styles.modalActions}>
                 <button type="button" className={styles.cancelBtn} onClick={() => setIsCreateModalOpen(false)}>Cancel</button>
-                <button type="submit" className={styles.createButton}>
-                  <AlertCircle size={16} /> Create Task
+                <button type="submit" className={styles.createButton} disabled={createIssueMutation.isPending}>
+                  {createIssueMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <AlertCircle size={16} />}
+                  {createIssueMutation.isPending ? 'Creating...' : 'Create Task'}
                 </button>
               </div>
             </form>
@@ -1014,14 +1018,25 @@ export default function IssueManagementPage() {
             <div className={styles.modalActions}>
               <button className={styles.cancelBtn} onClick={() => setSelectedIssue(null)}>Close</button>
               <button className={styles.createButton} onClick={() => {
+                if (!selectedIssue) return;
                 const assigneeId = typeof selectedIssue.assignee === 'object' ? selectedIssue.assignee?.id : selectedIssue.assignee;
-                updateStatusMutation.mutate({ 
+                const payload = { 
                   id: selectedIssue.id, 
                   status: selectedIssue.status,
                   priority: selectedIssue.priority,
-                  assignee: assigneeId === 'unassigned' ? null : assigneeId
+                  assignedTo: assigneeId === 'unassigned' ? null : assigneeId
+                };
+                console.log("Updating issue with payload:", payload);
+                updateStatusMutation.mutate(payload, {
+                  onSuccess: () => {
+                    toast.success("Changes saved successfully");
+                    setSelectedIssue(null);
+                  },
+                  onError: (error) => {
+                    console.error("Mutation error:", error);
+                    toast.error("Failed to save changes. Check console for details.");
+                  }
                 });
-                setSelectedIssue(null);
               }}>
                 <CheckCircle2 size={18} />
                 Save Changes
@@ -1033,7 +1048,7 @@ export default function IssueManagementPage() {
 
       {showLocationPicker && (
         <div className={styles.modalOverlay} onClick={() => setShowLocationPicker(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px', width: '96%', minHeight: '400px', display: 'flex', flexDirection: 'column' }}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
                 <span className={styles.wizardBadge}>Location</span>
@@ -1044,24 +1059,24 @@ export default function IssueManagementPage() {
                 <X size={20} />
               </button>
             </div>
-            <div className={styles.modalBody}>
-              <p style={{ marginBottom: "16px", color: "#64748b", fontSize: "14px" }}>
-                Select the airport location where the issue occurred.
+            <div className={styles.modalBody} style={{ flex: 1 }}>
+              <p style={{ marginBottom: "24px", color: "#64748b", fontSize: "14px", lineHeight: '1.6' }}>
+                Select the airport location(s) where you want to report this issue. You can select multiple locations if needed.
               </p>
               <div style={{ marginBottom: "20px" }}>
-                <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, color: "#334155", fontSize: '13px' }}>
-                  Airport Location
+                <label style={{ display: "block", marginBottom: "10px", fontWeight: 600, color: "#334155", fontSize: '13px' }}>
+                  Available Airport Locations
                 </label>
                 <MultiSelect
                   options={locations}
                   selectedIds={tempLocIds}
                   onChange={(ids) => setTempLocIds(ids)}
-                  placeholder="Select airports"
+                  placeholder="Search and select airports..."
                   icon={<Building2 size={18} />}
                 />
               </div>
             </div>
-            <div className={styles.modalActions}>
+            <div className={styles.modalActions} style={{ paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
               <button className={styles.cancelBtn} onClick={() => setShowLocationPicker(false)}>Cancel</button>
               <button
                 onClick={() => {
@@ -1071,9 +1086,9 @@ export default function IssueManagementPage() {
                 }}
                 disabled={tempLocIds.length === 0}
                 className={styles.createButton}
-                style={{ opacity: tempLocIds.length > 0 ? 1 : 0.5 }}
+                style={{ opacity: tempLocIds.length > 0 ? 1 : 0.5, padding: '10px 24px' }}
               >
-                Confirm
+                Confirm Selection
               </button>
             </div>
           </div>

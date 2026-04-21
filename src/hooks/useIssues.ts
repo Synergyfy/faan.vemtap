@@ -43,32 +43,8 @@ export const useCreateIssue = () => {
       const { data } = await api.post<ApiResponse<InternalReport[]>>('/reports/issues', issueData);
       return data.data;
     },
-    onSuccess: (newIssues) => {
-      // Update Kanban Cache
-      queryClient.setQueriesData({ queryKey: ['kanban'] }, (oldData: any) => {
-        if (!oldData) return oldData;
-        return {
-          ...oldData,
-          pending: [...newIssues, ...(oldData.pending || [])]
-        };
-      });
-
-      // Update Issues List Cache
-      queryClient.setQueriesData({ queryKey: ['issues'] }, (oldData: any) => {
-        if (!oldData) return oldData;
-        if (Array.isArray(oldData)) {
-          return [...newIssues, ...oldData];
-        }
-        if (oldData.data && Array.isArray(oldData.data)) {
-          return {
-            ...oldData,
-            data: [...newIssues, ...oldData.data]
-          };
-        }
-        return oldData;
-      });
-
-      // Background refetch for eventual consistency
+    onSuccess: () => {
+      // Invalidate all related queries to force a refetch
       queryClient.invalidateQueries({ queryKey: ['kanban'] });
       queryClient.invalidateQueries({ queryKey: ['issues'] });
     },
@@ -79,20 +55,31 @@ export const useUpdateIssueStatus = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, ...updates }: { id: string } & Partial<InternalReport>) => {
-      // Remove id from updates to avoid backend rejection (property id should not exist)
-      const { id: _, ...payload } = updates as any;
+    mutationFn: async ({ id, ...updates }: { id: string } & {
+      title?: string;
+      content?: string;
+      status?: string;
+      priority?: string;
+      category?: string;
+      assignedTo?: string | null;
+      departmentId?: string;
+    }) => {
+      // Map updates to the fields expected by the backend
+      const payload: any = {};
+      if (updates.title !== undefined) payload.title = updates.title;
+      if (updates.content !== undefined) payload.content = updates.content;
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.priority !== undefined) payload.priority = updates.priority;
+      if (updates.category !== undefined) payload.category = updates.category;
+      if (updates.assignedTo !== undefined) payload.assignedTo = updates.assignedTo;
+      if (updates.departmentId !== undefined) payload.departmentId = updates.departmentId;
+      
       const { data } = await api.patch(`/reports/issues/${id}`, payload);
       return data.data;
     },
-    onMutate: async ({ id }) => {
-      // Optimistic update for Kanban
-      await queryClient.cancelQueries({ queryKey: ['kanban'] });
-      const previousKanban = queryClient.getQueryData(['kanban']);
-      return { previousKanban };
-    },
-    onSettled: (_, __, { id }) => {
+    onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['kanban'] });
+      queryClient.invalidateQueries({ queryKey: ['issues'] });
       queryClient.invalidateQueries({ queryKey: ['issue', id] });
     },
   });
