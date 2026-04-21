@@ -20,7 +20,7 @@ interface MultiSelectProps {
 
 export const MultiSelect: React.FC<MultiSelectProps> = ({
   options,
-  selectedIds,
+  selectedIds = [],
   onChange,
   placeholder = "Select options...",
   label,

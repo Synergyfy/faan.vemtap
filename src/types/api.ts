@@ -259,6 +259,32 @@ export interface Department {
 
 // --- Module: Touchpoints ---
 
+// --- Module: Feedback Forms ---
+
+export interface FeedbackFormField {
+  id: string;
+  type: string;
+  label: string;
+  name: string;
+  required: boolean;
+  options: string[];
+  order: number;
+}
+
+export interface FeedbackForm {
+  id: string;
+  title: string;
+  description: string | null;
+  successMessage?: string;
+  fields: FeedbackFormField[];
+  isActive: boolean;
+  locationId: string;
+  departmentId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @deprecated Use FeedbackFormField */
 export interface FormField {
   id: string;
   type: 'text' | 'dropdown' | 'file' | 'date' | 'rating' | 'textarea' | 'email' | 'number' | 'select' | 'checkbox';
@@ -279,7 +305,10 @@ export interface Touchpoint {
   description: string | null;
   type: TouchpointType;
   slug: string;
+  /** @deprecated Use feedbackForms */
   formConfig: FormField[];
+  feedbackForms?: FeedbackForm[];
+  feedbackFormIds?: string[];
   templateIds: string[];
   templates?: ReportTemplate[];
   isActive: boolean;
@@ -308,7 +337,10 @@ export interface Submission {
   status: SubmissionStatus;
   priority: Priority;
   type: TouchpointType; // Derived from touchpoint
+  /** @deprecated Use formResponses */
   formData: Record<string, any>;
+  formResponses?: any[]; // Keep as any[] for now to accommodate the backend's custom mapping
+  fieldResponses?: any[]; // To satisfy current frontend usage
   submittedAt: string;
   createdAt: string;
   location?: string | { id: string; name: string; airportCode: string; city: string; };
@@ -319,6 +351,28 @@ export interface Submission {
     time: string;
     isSystem: boolean;
   }>;
+}
+
+export interface FeedbackFieldResponse {
+  id: string;
+  fieldId: string;
+  value: string;
+  field?: FeedbackFormField;
+}
+
+export interface FeedbackResponse {
+  id?: string;
+  formId: string;
+  title: string;
+  answers: Array<{
+    fieldId: string;
+    label: string;
+    value: string;
+    field?: FeedbackFormField;
+  }>;
+  // Deprecated fields from old model
+  form?: FeedbackForm;
+  responses?: FeedbackFieldResponse[];
 }
 
 export interface SubmissionListItem {

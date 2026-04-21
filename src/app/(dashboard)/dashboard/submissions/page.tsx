@@ -113,7 +113,8 @@ export default function SubmissionsPage() {
       ? roleLocationName || "Your Location"
       : "All Locations";
 
-  const getTypeIcon = (type: string) => {
+  const getTypeIcon = (type?: string) => {
+    if (!type) return Inbox;
     switch (type.toLowerCase()) {
       case 'feedback': return MessageSquare;
       case 'complaint': return AlertTriangle;
@@ -339,7 +340,7 @@ export default function SubmissionsPage() {
                     }}
                   >
                     <StatusIcon size={14} />
-                    <span>{sub.status.replace('_', ' ')}</span>
+                    <span>{(sub.status || 'OPEN').replace('_', ' ')}</span>
                   </div>
                   <div className={styles.deptMetric}>
                     <Clock size={14} />
@@ -393,29 +394,100 @@ export default function SubmissionsPage() {
                   <section className={styles.messageSection}>
                     <h4 className={styles.detailLabel}>Submission Data</h4>
                     <div className={styles.messageCard}>
-                      {detail.formData && Object.entries(detail.formData).map(([key, value]: [string, any]) => (
-                        <div key={key} style={{ padding: '12px 0', borderBottom: '1px solid #e2e8f0' }}>
-                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>
-                            {key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                          </div>
-                          <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 500 }}>
-                            {key.toLowerCase().includes('rating') ? (
-                              <div style={{ display: 'flex', gap: '4px' }}>
-                                {[...Array(5)].map((_, i) => (
-                                  <Star 
-                                    key={i} 
-                                    size={16} 
-                                    fill={i < (value as number) ? "#fbbf24" : "none"} 
-                                    color={i < (value as number) ? "#fbbf24" : "#e2e8f0"} 
-                                  />
-                                ))}
-                              </div>
-                            ) : (
-                              <span>{value?.toString() || '—'}</span>
+                      {/* New Relational Form Responses */}
+                      {detail.formResponses && detail.formResponses.length > 0 ? (
+                        detail.formResponses.map((form: any, formIdx: number) => (
+                          <div key={form.formId || formIdx} style={{ marginBottom: formIdx < (detail.formResponses?.length || 0) - 1 ? '24px' : '0' }}>
+                            {detail.formResponses!.length > 1 && (
+                              <h5 style={{ 
+                                fontSize: '13px', 
+                                fontWeight: 700, 
+                                color: 'var(--brand-green)', 
+                                marginBottom: '12px',
+                                paddingLeft: '4px',
+                                borderLeft: '3px solid var(--brand-green)'
+                              }}>
+                                {form.title}
+                              </h5>
                             )}
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              {form.answers && form.answers.map((fr: any, i: number) => (
+                                <div key={fr.fieldId || i} style={{ padding: '12px 0', borderBottom: i < form.answers.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                  <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>
+                                    {fr.label || 'Unknown Field'}
+                                  </div>
+                                  <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 500 }}>
+                                    {fr.type === 'rating' ? (
+                                      <div style={{ display: 'flex', gap: '4px' }}>
+                                        {[...Array(5)].map((_, starIdx) => (
+                                          <Star 
+                                            key={starIdx} 
+                                            size={16} 
+                                            fill={starIdx < (parseInt(fr.value) || 0) ? "#fbbf24" : "none"} 
+                                            color={starIdx < (parseInt(fr.value) || 0) ? "#fbbf24" : "#e2e8f0"} 
+                                          />
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span>{fr.value?.toString() || '—'}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))
+                      ) : detail.fieldResponses ? (
+                        detail.fieldResponses.map((fr: any, i: number) => (
+                          <div key={fr.id || i} style={{ padding: '12px 0', borderBottom: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>
+                              {fr.field?.label || 'Unknown Field'}
+                            </div>
+                            <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 500 }}>
+                              {fr.field?.type === 'rating' ? (
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                  {[...Array(5)].map((_, starIdx) => (
+                                    <Star 
+                                      key={starIdx} 
+                                      size={16} 
+                                      fill={starIdx < (parseInt(fr.value) || 0) ? "#fbbf24" : "none"} 
+                                      color={starIdx < (parseInt(fr.value) || 0) ? "#fbbf24" : "#e2e8f0"} 
+                                    />
+                                  ))}
+                                </div>
+                              ) : (
+                                <span>{fr.value?.toString() || '—'}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : detail.formData && Object.keys(detail.formData).length > 0 ? (
+                        Object.entries(detail.formData).map(([key, value]: [string, any], i: number) => (
+                          <div key={key} style={{ padding: '12px 0', borderBottom: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>
+                              {key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                            </div>
+                            <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 500 }}>
+                              {key.toLowerCase().includes('rating') ? (
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                  {[...Array(5)].map((_, starIdx) => (
+                                    <Star 
+                                      key={starIdx} 
+                                      size={16} 
+                                      fill={starIdx < (value as number) ? "#fbbf24" : "none"} 
+                                      color={starIdx < (value as number) ? "#fbbf24" : "#e2e8f0"} 
+                                    />
+                                  ))}
+                                </div>
+                              ) : (
+                                <span>{value?.toString() || '—'}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p style={{ fontSize: '14px', color: '#64748b', textAlign: 'center', padding: '20px 0' }}>No response data available</p>
+                      )}
                     </div>
                   </section>
 

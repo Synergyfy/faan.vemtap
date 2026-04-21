@@ -31,14 +31,15 @@ import Image from "next/image";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
 import { 
-  useTouchpoints, 
-  useCreateTouchpoint, 
-  useUpdateTouchpoint,
-  useDeleteTouchpoint
-} from "@/hooks/useTouchpoints";
+  useFeedbackForms, 
+  useCreateFeedbackForm, 
+  useUpdateFeedbackForm,
+  useDeleteFeedbackForm
+} from "@/hooks/useFeedbackForms";
+import { useTouchpoints } from "@/hooks/useTouchpoints";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
-import { Touchpoint, Location, Department, FormField, TouchpointType } from "@/types/api";
+import { FeedbackForm, FeedbackFormField, Touchpoint, Location, Department, FormField, TouchpointType } from "@/types/api";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { MultiSelect } from "@/components/displays/MultiSelect";
@@ -49,6 +50,7 @@ const FIELD_TYPES = [
   { value: 'text', label: 'Text Input', icon: Type, color: '#3b82f6' },
   { value: 'textarea', label: 'Long Text', icon: FileText, color: '#8b5cf6' },
   { value: 'dropdown', label: 'Dropdown', icon: List, color: '#ec4899' },
+  { value: 'checkbox', label: 'Multi-Select', icon: ClipboardList, color: '#14b8a6' },
   { value: 'file', label: 'File Upload', icon: Upload, color: '#10b981' },
   { value: 'date', label: 'Date', icon: Calendar, color: '#f97316' },
 ];
@@ -86,7 +88,10 @@ const normalizeFields = (config: any): FormField[] => {
 
 export default function FormsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
-  const { data: touchpointsData, isLoading: formsLoading } = useTouchpoints({ 
+  const { data: formsData, isLoading: formsLoading } = useFeedbackForms({ 
+    locationId: currentLocation || undefined
+  });
+  const { data: touchpointsData } = useTouchpoints({ 
     type: 'FEEDBACK',
     locationId: currentLocation || undefined
   });
@@ -98,7 +103,7 @@ export default function FormsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingFormId, setEditingFormId] = useState<string | null>(null);
-  const [selectedForm, setSelectedForm] = useState<Touchpoint | null>(null);
+  const [selectedForm, setSelectedForm] = useState<FeedbackForm | null>(null);
   const [wizardStep, setWizardStep] = useState(1);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<any>(null);
@@ -119,38 +124,40 @@ export default function FormsPage() {
     affectedItems: [],
     onConfirm: () => {},
   });
+  
+  const createMutation = useCreateFeedbackForm();
+  const updateMutation = useUpdateFeedbackForm();
+  const deleteMutation = useDeleteFeedbackForm();
 
-  const createMutation = useCreateTouchpoint();
-  const updateMutation = useUpdateTouchpoint();
-  const deleteMutation = useDeleteTouchpoint();
-
-  const touchpoints = touchpointsData?.data || [];
+  const forms = formsData?.data || [];
   const locations = locationsData?.data || [];
   const departments = departmentsData?.data || [];
+  const touchpoints = touchpointsData?.data || [];
 
-  // Grouping Logic for Forms
-  const groupedForms = touchpoints.reduce((acc: Record<string, any>, tp) => {
-    const key = tp.title; // Using title as grouping key
+  // Grouping Logic for Forms (based on title)
+  const groupedForms = forms.reduce((acc: Record<string, any>, form) => {
+    const key = form.title; 
     if (!acc[key]) {
       acc[key] = {
-        ...tp,
-        instances: [tp],
-        totalInteractions: tp.interactions || 0
+        ...form,
+        title: form.title,
+        instances: [form],
+        totalInteractions: 0 // Will need to sum from linked touchpoints later if available
       };
     } else {
-      acc[key].instances.push(tp);
-      acc[key].totalInteractions += tp.interactions || 0;
+      acc[key].instances.push(form);
     }
     return acc;
   }, {});
 
   const [newForm, setNewForm] = useState({
-    name: '',
+    title: '',
+    description: '',
+    successMessage: '',
     locationIds: (currentLocation ? [currentLocation] : []) as string[],
     departmentIds: [] as string[],
-    allowAnonymous: true,
-    successMessage: 'Thank you for your feedback!',
-    fields: [] as FormField[],
+    isActive: true,
+    fields: [] as Partial<FeedbackFormField>[],
   });
 
   const filteredGroupedForms = Object.values(groupedForms).sort((a: any, b: any) => 
@@ -159,7 +166,7 @@ export default function FormsPage() {
     !searchTerm || f.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const totalFields = touchpoints.reduce((sum, tp) => sum + (normalizeFields(tp.formConfig).length), 0);
+  const totalFields = forms.reduce((sum, form) => sum + (form.fields?.length || 0), 0);
   const totalSubmissions = touchpoints.reduce((sum, tp) => sum + (tp.interactions || 0), 0);
 
   const scopeLabel =
@@ -176,70 +183,67 @@ export default function FormsPage() {
   };
 
   const handleAddField = (type: string = 'text') => {
-    const newField: FormField = {
-      id: String(Date.now()),
-      type: type as FormField['type'],
+    const newField: Partial<FeedbackFormField> = {
+      type: type,
       label: 'New Field',
+      name: `field_${Date.now()}`,
       required: false,
       options: type === 'dropdown' ? ['Option 1', 'Option 2'] : [],
+      order: newForm.fields.length,
     };
     setNewForm({...newForm, fields: [...newForm.fields, newField]});
   };
 
-  const handleUpdateField = (fieldId: string, updates: Partial<FormField>) => {
+  const handleUpdateField = (index: number, updates: Partial<FeedbackFormField>) => {
     setNewForm({
       ...newForm,
-      fields: newForm.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
+      fields: newForm.fields.map((f, i) => i === index ? { ...f, ...updates } : f)
     });
   };
 
-  const handleRemoveField = (fieldId: string) => {
+  const handleRemoveField = (index: number) => {
     setNewForm({
       ...newForm,
-      fields: newForm.fields.filter(f => f.id !== fieldId)
+      fields: newForm.fields.filter((_, i) => i !== index)
     });
   };
 
   const handleSaveForm = () => {
-    // Validation
-    // Validation
-    if (!newForm.name.trim()) return toast.error("Form name is required");
+    if (!newForm.title.trim()) return toast.error("Form title is required");
     if (newForm.locationIds.length === 0) return toast.error("Please select at least one location");
     if (newForm.departmentIds.length === 0) return toast.error("Please select at least one department");
     if (newForm.fields.length === 0) return toast.error("Please add at least one field to the form");
 
-    // We'll create a combination of all selected locations and departments
     const creations: any[] = [];
     newForm.locationIds.forEach(locId => {
       newForm.departmentIds.forEach(deptId => {
-        // Only add if the department belongs to this location
         const dept = departments.find(d => d.id === deptId);
         if (dept && (dept.locationId === locId || dept.location?.id === locId)) {
           creations.push({
-            title: newForm.name,
+            title: newForm.title,
+            description: newForm.description,
             locationId: locId,
             departmentId: deptId,
-            type: 'FEEDBACK' as TouchpointType,
-            formConfig: newForm.fields,
+            isActive: newForm.isActive,
+            fields: newForm.fields.map((f, i) => ({ ...f, order: i })),
           });
         }
       });
     });
 
     if (creations.length === 0) {
-      return toast.error("No valid Location-Department combinations found. Please ensure selected departments belong to the selected locations.");
+      return toast.error("No valid Location-Department combinations found.");
     }
 
     if (isEditMode && editingFormId) {
-      updateMutation.mutate({ uuid: editingFormId, data: creations[0] }, {
+      updateMutation.mutate({ id: editingFormId, data: creations[0] }, {
         onSuccess: () => {
           toast.success("Form updated successfully");
           setIsCreateModalOpen(false);
           resetWizard();
         },
-        onError: (error) => {
-          const axiosError = error as AxiosError<{ message: string | string[] }>;
-          const message = axiosError.response?.data?.message || "Failed to update form";
+        onError: (error: any) => {
+          const message = error.response?.data?.message || "Failed to update form";
           toast.error(Array.isArray(message) ? message[0] : message);
         }
       });
@@ -250,9 +254,8 @@ export default function FormsPage() {
           setIsCreateModalOpen(false);
           resetWizard();
         })
-        .catch((error) => {
-          const axiosError = error as AxiosError<{ message: string | string[] }>;
-          const message = axiosError.response?.data?.message || "Failed to create forms";
+        .catch((error: any) => {
+          const message = error.response?.data?.message || "Failed to create forms";
           toast.error(Array.isArray(message) ? message[0] : message);
         });
     }
@@ -267,20 +270,20 @@ export default function FormsPage() {
     });
   };
 
-  const confirmDeleteForm = (tp: any) => {
+  const confirmDeleteForm = (form: FeedbackForm) => {
     setDeleteModal({
       isOpen: true,
-      itemName: tp.title,
+      itemName: form.title,
       itemType: 'form',
       isGroup: false,
       instanceCount: 1,
       affectedItems: [],
       onConfirm: () => {
-        deleteMutation.mutate(tp.id, {
+        deleteMutation.mutate(form.id, {
           onSuccess: () => {
             setDeleteModal(prev => ({ ...prev, isOpen: false }));
             toast.success("Form deleted successfully");
-            if (activeDropdown === tp.id) setActiveDropdown(null);
+            if (activeDropdown === form.id) setActiveDropdown(null);
           }
         });
       }
@@ -289,9 +292,9 @@ export default function FormsPage() {
 
   const confirmDeleteGroup = (groupedForm: any) => {
     const locationsList = groupedForm.instances.map((inst: any) => {
-      const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
-      const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
-      return `${locName}${deptName ? ` - ${deptName}` : ''}`;
+      const loc = locations.find(l => l.id === inst.locationId);
+      const dept = departments.find(d => d.id === inst.departmentId);
+      return `${loc?.name || 'Unknown'}${dept ? ` - ${dept.name}` : ''}`;
     });
 
     setDeleteModal({
@@ -319,13 +322,16 @@ export default function FormsPage() {
   const resetWizard = () => {
     setWizardStep(1);
     setNewForm({
-      name: '',
+      title: '',
+      description: '',
+      successMessage: '',
       locationIds: currentLocation ? [currentLocation] : [],
       departmentIds: [],
-      allowAnonymous: true,
-      successMessage: 'Thank you for your feedback!',
+      isActive: true,
       fields: [],
     });
+    setEditingFormId(null);
+    setIsEditMode(false);
   };
 
   return (
@@ -484,16 +490,19 @@ export default function FormsPage() {
           </div>
 
           <div className={styles.deptGrid}>
-            {drilldownGroup.instances.map((tp: any) => {
-              const accent = FORM_ACCENTS[hashToIndex(tp.title, FORM_ACCENTS.length)];
+            {drilldownGroup.instances.map((form: FeedbackForm) => {
+              const accent = FORM_ACCENTS[hashToIndex(form.title, FORM_ACCENTS.length)];
               const accentStyle = {
                 "--accent-bg": accent.bg,
                 "--accent-fg": accent.fg,
                 "--accent-ring": accent.ring,
               } as React.CSSProperties;
 
+              const loc = locations.find(l => l.id === form.locationId);
+              const dept = departments.find(d => d.id === form.departmentId);
+
               return (
-                <div key={tp.id} className={styles.deptCard}>
+                <div key={form.id} className={styles.deptCard}>
                   <div className={styles.deptCardHeader}>
                     <div className={styles.deptIconBox} style={accentStyle}>
                       <FileStack size={24} />
@@ -503,30 +512,28 @@ export default function FormsPage() {
                         className={styles.cardMore}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setActiveDropdown(activeDropdown === tp.id ? null : tp.id);
+                          setActiveDropdown(activeDropdown === form.id ? null : form.id);
                         }}
                       >
                         <MoreVertical size={18} />
                       </button>
-                      {activeDropdown === tp.id && (
+                      {activeDropdown === form.id && (
                         <div className={styles.cardDropdown}>
                           <button
                             className={styles.dropdownItem}
                             onClick={(e) => {
                               e.stopPropagation();
                               setIsEditMode(true);
-                              setEditingFormId(tp.id);
-
-                              const locId = tp.locationId || tp.location?.id;
-                              const deptId = tp.departmentId || tp.department?.id;
+                              setEditingFormId(form.id);
 
                               setNewForm({
-                                name: tp.title,
-                                locationIds: locId ? [String(locId)] : [],
-                                departmentIds: deptId ? [String(deptId)] : [],
-                                allowAnonymous: true,
-                                successMessage: 'Thank you for your feedback!',
-                                fields: Array.isArray(tp.formConfig) ? tp.formConfig : [],
+                                title: form.title,
+                                description: form.description || '',
+                                successMessage: form.successMessage || '',
+                                locationIds: [form.locationId],
+                                departmentIds: [form.departmentId],
+                                isActive: form.isActive,
+                                fields: form.fields,
                               });
 
                               setIsCreateModalOpen(true);
@@ -538,10 +545,10 @@ export default function FormsPage() {
                             className={`${styles.dropdownItem} ${styles.danger}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              confirmDeleteForm(tp);
+                              confirmDeleteForm(form);
                             }}
                           >
-                            <Trash2 size={14} /> Delete Form
+                            <Trash2 size={14} /> Delete Template
                           </button>
                         </div>
                       )}
@@ -549,32 +556,28 @@ export default function FormsPage() {
                   </div>
 
                   <div className={styles.deptCardInfo}>
-                    <h3 className={styles.deptCardTitle}>{tp.title}</h3>
+                    <h3 className={styles.deptCardTitle}>{form.title}</h3>
                     <p className={styles.deptCardDesc}>
-                      Passenger Form
+                      {form.description || "No description provided"}
                     </p>
                     <div className={styles.deptLocationRow}>
                       <MapPin size={12} />
-                      <span>{tp.location?.name || roleLocationName || '—'}</span>
+                      <span>{loc?.name || '—'} {dept ? `(${dept.code})` : ''}</span>
                     </div>
                   </div>
 
                   <div className={styles.deptCardMetrics}>
                     <div className={styles.deptMetric}>
                       <FileCheck size={14} />
-                      <span>{tp.formConfig?.length || 0} Fields</span>
-                    </div>
-                    <div className={styles.deptMetric}>
-                      <MousePointer2 size={14} />
-                      <span>{tp.totalInteractions || 0} Submissions</span>
+                      <span>{form.fields?.length || 0} Fields</span>
                     </div>
                   </div>
 
                   <button 
                     className={styles.deptManageBtn}
-                    onClick={() => setSelectedForm(tp)}
+                    onClick={() => setSelectedForm(form)}
                   >
-                    View Form Details
+                    View Template Details
                     <ChevronRight size={16} />
                   </button>
                 </div>
@@ -593,10 +596,8 @@ export default function FormsPage() {
             } as React.CSSProperties;
 
             const primaryInstance = groupedForm.instances[0];
-            const primaryLocationName =
-              typeof primaryInstance.location === "string"
-                ? primaryInstance.location
-                : primaryInstance.location?.name || roleLocationName || "—";
+            const loc = locations.find(l => l.id === primaryInstance.locationId);
+            const primaryLocationName = loc?.name || roleLocationName || "—";
             
             const locationLabel = groupedForm.instances.length > 1
               ? `${primaryLocationName} +${groupedForm.instances.length - 1}`
@@ -631,17 +632,17 @@ export default function FormsPage() {
                             setIsEditMode(true);
                             setEditingFormId(groupedForm.id);
                             
-                            // Collect all unique location and department IDs from all instances in the group
-                            const uniqueLocs = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.locationId || i.location?.id)))).filter(id => id !== 'undefined' && id !== 'null');
-                            const uniqueDepts = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.departmentId || i.department?.id)))).filter(id => id !== 'undefined' && id !== 'null');
+                            const uniqueLocs = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.locationId)))).filter(id => id !== 'undefined' && id !== 'null');
+                            const uniqueDepts = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.departmentId)))).filter(id => id !== 'undefined' && id !== 'null');
 
                             setNewForm({
-                              name: groupedForm.title,
+                              title: groupedForm.title,
+                              description: groupedForm.description || '',
+                              successMessage: primaryInstance.successMessage || '',
                               locationIds: uniqueLocs as string[],
                               departmentIds: uniqueDepts as string[],
-                              allowAnonymous: true,
-                              successMessage: 'Thank you for your feedback!',
-                              fields: normalizeFields(groupedForm.formConfig),
+                              isActive: groupedForm.isActive,
+                              fields: groupedForm.fields || [],
                             });
                             
                             setIsCreateModalOpen(true);
@@ -675,14 +676,10 @@ export default function FormsPage() {
                   </div>
                 </div>
 
-                <div className={styles.deptCardMetrics}>
+                 <div className={styles.deptCardMetrics}>
                   <div className={styles.deptMetric}>
                     <FileCheck size={14} />
-                    <span>{normalizeFields(groupedForm.formConfig).length} Fields</span>
-                  </div>
-                  <div className={styles.deptMetric}>
-                    <MousePointer2 size={14} />
-                    <span>{groupedForm.totalInteractions} Submissions</span>
+                    <span>{primaryInstance.fields?.length || 0} Fields</span>
                   </div>
                 </div>
 
@@ -694,11 +691,11 @@ export default function FormsPage() {
                     Manage {groupedForm.instances.length} Instances
                   </button>
                 ) : (
-                  <button 
+                   <button 
                     className={styles.deptManageBtn}
                     onClick={() => setSelectedForm(primaryInstance)}
                   >
-                    View Form Details
+                    View Template Details
                     <ChevronRight size={16} />
                   </button>
                 )}
@@ -710,55 +707,49 @@ export default function FormsPage() {
 
       {isCreateModalOpen && (
         <div className={styles.modalOverlay}>
-          <div className={`${styles.modalContent}`} style={{ 
-            maxWidth: '1200px', 
+          <div className={styles.modalContent} style={{ 
+            maxWidth: '1240px', 
             width: '96%', 
+            height: '92vh',
             maxHeight: '92vh',
             display: 'flex',
-            flexDirection: 'column'
+            flexDirection: 'row',
+            overflow: 'hidden',
+            background: '#fff'
           }}>
-            <div className={styles.modalHeader}>
-              <div className={styles.modalTitleGroup}>
-                <span className={styles.wizardBadge}>Step {wizardStep} of 3</span>
-                <h3 className={styles.modalTitle}>{isEditMode ? 'Edit Form' : 'Create New Form'}</h3>
-                <p className={styles.modalSubtitle}>Build a professional passenger feedback form</p>
-              </div>
-              <button className={styles.closeBtn} onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}>
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className={styles.wizardProgress}>
-              <div className={`${styles.progressStep} ${wizardStep >= 1 ? styles.active : ''}`} />
-              <div className={`${styles.progressStep} ${wizardStep >= 2 ? styles.active : ''}`} />
-              <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ''}`} />
-            </div>
-
-            <div className={styles.modalBody} style={{ 
-              display: 'grid', 
-              gridTemplateColumns: '1fr 380px', 
-              gap: '0', 
-              flex: 1,
-              minHeight: 0,
-              padding: '0',
-              overflow: 'hidden'
+            {/* Left Panel: Form Builder */}
+            <div style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              borderRight: '1px solid #f1f5f9',
+              background: '#fff',
+              minWidth: 0
             }}>
-              
-              <div style={{ padding: '32px', borderRight: '1px solid #e2e8f0', overflow: 'auto' }}>
+              <div className={styles.modalHeader} style={{ borderBottom: '1px solid #f1f5f9', padding: '24px 32px' }}>
+                <div className={styles.modalTitleGroup}>
+                  <h3 className={styles.modalTitle}>{isEditMode ? 'Edit Form' : 'Create Passenger Form'}</h3>
+                  <p className={styles.modalSubtitle}>Design a structured passenger form</p>
+                </div>
+              </div>
+
+              <div className={styles.wizardProgress} style={{ padding: '24px 32px', borderBottom: 'none', background: '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                   <span className={styles.wizardBadge} style={{ margin: 0 }}>Step {wizardStep} of 3</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div className={`${styles.progressStep} ${wizardStep >= 1 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                  <div className={`${styles.progressStep} ${wizardStep >= 2 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                  <div className={`${styles.progressStep} ${wizardStep >= 3 ? styles.active : ''}`} style={{ flex: 1, height: '6px', borderRadius: '3px' }} />
+                </div>
+              </div>
+
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0 32px 32px 32px' }}>
                 {wizardStep === 1 && (
                   <div>
-                    <div style={{ marginBottom: '32px' }}>
-                      <h4 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-                        Form Details
-                      </h4>
-                      <p style={{ fontSize: '14px', color: '#64748b' }}>
-                        Give your form a name and configure basic settings
-                      </p>
-                    </div>
-                    
                     <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
                       <div className={styles.labelGroup}>
-                        <label className={styles.formLabel}>Form Name *</label>
+                        <label className={styles.formLabel}>Form Title *</label>
                         <span className={styles.fieldDesc}>A clear title passengers will see</span>
                       </div>
                       <div className={styles.modalInputWrapper}>
@@ -766,8 +757,24 @@ export default function FormsPage() {
                         <input 
                           type="text" 
                           placeholder="e.g. Passenger Feedback Survey"
-                          value={newForm.name}
-                          onChange={(e) => setNewForm({...newForm, name: e.target.value})}
+                          value={newForm.title}
+                          onChange={(e) => setNewForm({...newForm, title: e.target.value})}
+                        />
+                      </div>
+                    </div>
+
+                    <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
+                      <div className={styles.labelGroup}>
+                        <label className={styles.formLabel}>Description</label>
+                        <span className={styles.fieldDesc}>Brief internal description</span>
+                      </div>
+                      <div className={styles.modalInputWrapper}>
+                        <FileText size={18} />
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Monthly satisfaction survey"
+                          value={newForm.description}
+                          onChange={(e) => setNewForm({...newForm, description: e.target.value})}
                         />
                       </div>
                     </div>
@@ -792,12 +799,12 @@ export default function FormsPage() {
                       <label style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: '#334155', cursor: 'pointer', fontWeight: 500 }}>
                         <input 
                           type="checkbox"
-                          checked={newForm.allowAnonymous}
-                          onChange={(e) => setNewForm({...newForm, allowAnonymous: e.target.checked})}
+                          checked={newForm.isActive}
+                          onChange={(e) => setNewForm({...newForm, isActive: e.target.checked})}
                           style={{ width: '20px', height: '20px', accentColor: 'var(--brand-green)' }}
                         />
-                        Allow anonymous submissions
-                        <span style={{ fontSize: '11px', color: '#64748b', marginLeft: 'auto' }}>Recommended</span>
+                        Form is Active
+                        <span style={{ fontSize: '11px', color: '#64748b', marginLeft: 'auto' }}>Template Status</span>
                       </label>
                     </div>
                   </div>
@@ -805,15 +812,6 @@ export default function FormsPage() {
 
                 {wizardStep === 2 && (
                   <div>
-                    <div style={{ marginBottom: '32px' }}>
-                      <h4 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-                        Assignment
-                      </h4>
-                      <p style={{ fontSize: '14px', color: '#64748b' }}>
-                        Select where this form will be deployed
-                      </p>
-                    </div>
-                    
                     <div className={styles.formGroup} style={{ marginBottom: '24px' }}>
                       <div className={styles.labelGroup}>
                         <label className={styles.formLabel}>Location *</label>
@@ -866,57 +864,36 @@ export default function FormsPage() {
 
                 {wizardStep === 3 && (
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-                      <div>
-                        <h4 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
-                          Build Fields
-                        </h4>
-                        <p style={{ fontSize: '14px', color: '#64748b' }}>
-                          Add and configure form fields ({newForm.fields.length} added)
-                        </p>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
-                      {FIELD_TYPES.map(ft => {
-                        const Icon = ft.icon;
-                        return (
-                          <button
-                            key={ft.value}
-                            onClick={() => handleAddField(ft.value as FormField['type'])}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '12px 16px',
-                              borderRadius: '12px',
-                              border: '1px solid #e2e8f0',
-                              background: 'white',
-                              fontSize: '13px',
-                              fontWeight: 600,
-                              color: '#475569',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s',
-                            }}
-                          >
-                            <Icon size={14} style={{ color: ft.color }} /> {ft.label}
-                          </button>
-                        );
-                      })}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                      <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Form Fields ({newForm.fields.length})</h4>
+                      <button 
+                        onClick={() => handleAddField('text')}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          padding: '8px 16px', 
+                          borderRadius: '8px', 
+                          border: '1px solid var(--brand-green)', 
+                          background: 'rgba(21, 115, 71, 0.05)', 
+                          color: 'var(--brand-green)', 
+                          fontWeight: 600, 
+                          fontSize: '13px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Plus size={16} /> Add Field
+                      </button>
                     </div>
 
                     {newForm.fields.length === 0 ? (
-                      <div className={styles.emptyStage} style={{ height: '220px', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', border: '2px dashed #e2e8f0', borderRadius: '20px' }}>
-                        <div style={{ padding: '16px', background: 'rgba(21, 115, 71, 0.08)', borderRadius: '16px', marginBottom: '12px' }}>
-                          <FileStack size={32} style={{ color: 'var(--brand-green)' }} />
-                        </div>
-                        <p style={{ fontWeight: 700, color: '#0f172a', fontSize: '15px' }}>No fields added yet</p>
-                        <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Click a field type above to start building</p>
+                      <div className={styles.emptyStage} style={{ height: '220px', background: '#f8fafc', border: '2px dashed #e2e8f0', borderRadius: '16px' }}>
+                        <p style={{ fontSize: '13px', color: '#64748b' }}>No fields added yet</p>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
                         {Array.isArray(newForm.fields) && newForm.fields.map((field, index) => (
-                          <div key={field.id} style={{ 
+                          <div key={index} style={{ 
                             background: 'white', 
                             border: '1px solid #e2e8f0', 
                             borderRadius: '16px', 
@@ -940,7 +917,7 @@ export default function FormsPage() {
                               </span>
                               <select 
                                 value={field.type}
-                                onChange={(e) => handleUpdateField(field.id, { type: e.target.value as FormField['type'] })}
+                                onChange={(e) => handleUpdateField(index, { type: e.target.value })}
                                 style={{ fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontWeight: 600, background: '#f8fafc' }}
                               >
                                 {FIELD_TYPES.map(ft => (
@@ -948,7 +925,7 @@ export default function FormsPage() {
                                 ))}
                               </select>
                               <button 
-                                onClick={() => handleRemoveField(field.id)}
+                                onClick={() => handleRemoveField(index)}
                                 style={{ 
                                   marginLeft: 'auto', 
                                   padding: '8px', 
@@ -966,7 +943,7 @@ export default function FormsPage() {
                               type="text"
                               placeholder="Field label (e.g. How would you rate our service?)"
                               value={field.label}
-                              onChange={(e) => handleUpdateField(field.id, { label: e.target.value })}
+                              onChange={(e) => handleUpdateField(index, { label: e.target.value, name: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
                               style={{ 
                                 width: '100%', 
                                 fontSize: '14px', 
@@ -982,23 +959,23 @@ export default function FormsPage() {
                                 <input 
                                   type="checkbox"
                                   checked={field.required}
-                                  onChange={(e) => handleUpdateField(field.id, { required: e.target.checked })}
+                                  onChange={(e) => handleUpdateField(index, { required: e.target.checked })}
                                   style={{ accentColor: 'var(--brand-green)' }}
                                 />
                                 Required field
                               </label>
-                              {field.type === 'dropdown' && (
-                                <input 
-                                  type="text"
-                                  placeholder="Options: Option 1, Option 2, Option 3"
-                                  value={field.options?.join(', ') || ''}
-                                  onChange={(e) => handleUpdateField(field.id, { 
-                                    options: e.target.value.split(',').map(o => o.trim()).filter(o => o) 
-                                  })}
-                                  style={{ flex: 1, fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                                />
-                              )}
-                            </div>
+                                {(field.type === 'dropdown' || field.type === 'checkbox') && (
+                                  <input 
+                                    type="text"
+                                    placeholder="Options: Option 1, Option 2, Option 3"
+                                    value={field.options?.join(', ') || ''}
+                                    onChange={(e) => handleUpdateField(index, { 
+                                      options: e.target.value.split(',').map(o => o.trim()).filter(o => o) 
+                                    })}
+                                    style={{ flex: 1, fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                  />
+                                )}
+                              </div>
                           </div>
                         ))}
                       </div>
@@ -1007,281 +984,261 @@ export default function FormsPage() {
                 )}
               </div>
 
+              {/* Wizard Footer */}
               <div style={{ 
-                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
-                padding: '32px 0 64px 0',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                overflowY: 'auto'
+                padding: '24px 32px', 
+                borderTop: '1px solid #f1f5f9', 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                gap: '12px',
+                background: '#fff',
+                marginTop: 'auto'
               }}>
-                <div style={{ 
-                  fontSize: '11px', 
-                  fontWeight: 700, 
-                  color: '#94a3b8', 
-                  textTransform: 'uppercase', 
-                  letterSpacing: '1.5px', 
-                  marginBottom: '20px',
-                }}>
-                  LIVE PREVIEW
-                </div>
-                
-                <div style={{
-                  width: '280px',
-                  height: '560px',
-                  background: '#000',
-                  borderRadius: '44px',
-                  padding: '10px',
-                  position: 'relative',
-                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-                }}>
-                  <div style={{
-                    width: '90px',
-                    height: '28px',
-                    background: '#000',
-                    borderRadius: '16px',
-                    position: 'absolute',
-                    top: '12px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    zIndex: 10,
-                  }} />
-                  
-                  <div style={{
-                    height: '100%',
-                    background: '#fff',
-                    borderRadius: '34px',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }}>
-                    <div style={{ 
-                      height: '46px', 
-                      padding: '0 20px', 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                    }}>
-                      <span>9:41</span>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <div style={{ width: '16px', height: '10px', background: '#1e293b', borderRadius: '2px' }} />
-                        <div style={{ width: '14px', height: '10px', background: '#1e293b', borderRadius: '2px' }} />
-                      </div>
-                    </div>
+                <button 
+                  className={styles.cancelBtn} 
+                  onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}
+                  style={{ color: '#64748b', border: '1px solid #e2e8f0', padding: '10px 24px', fontSize: '14px', fontWeight: 600 }}
+                >
+                  Cancel
+                </button>
+                {wizardStep > 1 && (
+                  <button 
+                    className={styles.cancelBtn} 
+                    onClick={() => setWizardStep(wizardStep - 1)}
+                    style={{ color: '#0f172a', border: '1px solid #e2e8f0', padding: '10px 24px', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    <ChevronLeft size={16} /> Back
+                  </button>
+                )}
+                {wizardStep < 3 ? (
+                  <button 
+                    className={styles.createButton} 
+                    onClick={() => setWizardStep(wizardStep + 1)} 
+                    disabled={(wizardStep === 1 && !newForm.title) || (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))}
+                    style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600, opacity: ((wizardStep === 1 && !newForm.title) || (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))) ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    Next <ChevronRight size={16} />
+                  </button>
+                ) : (
+                  <button 
+                    className={styles.createButton} 
+                    onClick={handleSaveForm} 
+                    disabled={newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending}
+                    style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600, opacity: (newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending) ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    { (createMutation.isPending || updateMutation.isPending) ? 'Saving...' : <><CheckCircle2 size={18} /> {isEditMode ? 'Update Form' : 'Save Form'}</> }
+                  </button>
+                )}
+              </div>
+            </div>
 
-                    <div style={{ 
-                      padding: '16px 20px', 
-                      borderBottom: '1px solid #f1f5f9',
-                      background: 'linear-gradient(to bottom, #fafafa, #ffffff)',
-                    }}>
-                      <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
-                        {newForm.name || 'Untitled Form'}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                        {locations.find((l: Location) => l.id === newForm.locationIds[0])?.name || 'FAAN'} • {departments.find((d) => d.id === newForm.departmentIds[0])?.name || 'Operations'}
-                      </div>
-                    </div>
-                    
-                    <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
-                      {(!newForm.fields || !Array.isArray(newForm.fields) || newForm.fields.length === 0) ? (
-                        <div style={{ 
-                          display: 'flex', 
-                          flexDirection: 'column', 
-                          alignItems: 'center', 
-                          justifyContent: 'center', 
-                          height: '200px',
-                          color: '#94a3b8',
-                        }}>
-                          <FileStack size={32} />
-                          <p style={{ fontSize: '12px', marginTop: '8px' }}>No fields yet</p>
+              {/* Right Panel: Live Preview */}
+              <div style={{ 
+                width: '420px', 
+                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
+                display: 'flex', 
+                flexDirection: 'column',
+                position: 'relative'
+              }}>
+                {/* Header Bar on Preview Side */}
+                <div style={{ 
+                  height: '80px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'flex-end', 
+                  padding: '0 24px', 
+                  gap: '12px',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
+                }}>
+                  <button 
+                    className={styles.closeBtn} 
+                    onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}
+                    style={{ color: '#fff', marginLeft: '8px', background: 'rgba(255, 255, 255, 0.1)' }}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Preview Content */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px 0 40px 0' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(148, 163, 184, 0.6)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '24px' }}>
+                    LIVE PREVIEW
+                  </div>
+                  
+                  {/* Phone Component */}
+                  <div style={{ 
+                    width: '300px', 
+                    height: '620px', 
+                    flexShrink: 0, 
+                    background: '#000', 
+                    borderRadius: '44px', 
+                    padding: '12px', 
+                    position: 'relative', 
+                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+                    border: '4px solid #334155'
+                  }}>
+                    <div style={{ width: '100px', height: '30px', background: '#000', borderRadius: '16px', position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }} />
+                    <div style={{ height: '100%', background: '#fff', borderRadius: '34px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                      {/* Status Bar */}
+                      <div style={{ height: '46px', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>
+                        <span>9:41</span>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                           <div style={{ width: '18px', height: '10px', border: '1px solid #1e293b', borderRadius: '2px', position: 'relative' }}><div style={{ width: '14px', height: '6px', background: '#1e293b', position: 'absolute', top: 1, left: 1 }} /></div>
                         </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {Array.isArray(newForm.fields) && newForm.fields.slice(0, 5).map(field => (
-                            <div key={field.id}>
-                              <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                                {field.label || 'Field'} {field.required && <span style={{ color: '#ef4444', marginLeft: '2px' }}>*</span>}
-                              </div>
-                              {field.type === 'rating' && (
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                  {[1,2,3,4,5].map(s => (
-                                    <Star key={s} size={20} fill="#fbbf24" color="#fbbf24" />
-                                  ))}
-                                </div>
-                              )}
-                              {field.type === 'text' && (
-                                <input 
-                                  disabled
-                                  placeholder="Enter text..."
-                                  style={{ 
-                                    height: '36px', 
-                                    width: '100%',
-                                    boxSizing: 'border-box',
-                                    background: '#f9fafb', 
-                                    border: '1px solid #e5e7eb', 
-                                    borderRadius: '8px',
-                                    padding: '0 12px',
-                                    fontSize: '13px',
-                                  }}
-                                />
-                              )}
-                              {field.type === 'textarea' && (
-                                <textarea 
-                                  disabled
-                                  placeholder="Enter details..."
-                                  style={{ 
-                                    height: '60px',
-                                    width: '100%',
-                                    boxSizing: 'border-box', 
-                                    background: '#f9fafb', 
-                                    border: '1px solid #e5e7eb', 
-                                    borderRadius: '8px',
-                                    padding: '10px 12px',
-                                    fontSize: '13px',
-                                    resize: 'none',
-                                  }}
-                                />
-                              )}
-                              {field.type === 'dropdown' && (
-                                <div style={{ 
-                                  height: '36px', 
-                                  background: '#f9fafb', 
-                                  border: '1px solid #e5e7eb', 
-                                  borderRadius: '8px', 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  justifyContent: 'space-between', 
-                                  padding: '0 12px',
-                                  fontSize: '12px', 
-                                  color: '#9ca3af',
-                                }}>
-                                  Select option
-                                  <ChevronRight size={14} />
-                                </div>
-                              )}
-                              {field.type === 'date' && (
-                                <div style={{ 
-                                  height: '36px', 
-                                  background: '#f9fafb', 
-                                  border: '1px solid #e5e7eb', 
-                                  borderRadius: '8px', 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  padding: '0 12px',
-                                  fontSize: '12px', 
-                                  color: '#9ca3af',
-                                }}>
-                                  <Calendar size={14} style={{ marginRight: '8px' }} />
-                                  Pick a date
-                                </div>
-                              )}
-                              {field.type === 'file' && (
-                                <div style={{ 
-                                  height: '60px', 
-                                  border: '1.5px dashed #d1d5db', 
-                                  borderRadius: '8px', 
-                                  display: 'flex', 
-                                  flexDirection: 'column', 
-                                  alignItems: 'center', 
-                                  justifyContent: 'center', 
-                                  color: '#9ca3af', 
-                                  fontSize: '11px',
-                                }}>
-                                  <Upload size={18} />
-                                  Tap to upload
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                          {Array.isArray(newForm.fields) && newForm.fields.length > 5 && (
-                            <div style={{ fontSize: '11px', color: '#94a3b8', textAlign: 'center', marginTop: '8px' }}>
-                              +{newForm.fields.length - 5} more fields
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div style={{
-                      padding: '16px 20px',
-                      borderTop: '1px solid #f1f5f9',
-                    }}>
-                      <div style={{
-                        background: 'var(--brand-green)',
-                        color: 'white',
-                        padding: '14px',
-                        borderRadius: '12px',
-                        textAlign: 'center',
-                        fontSize: '14px',
-                        fontWeight: 600,
+                      </div>
+
+                      {/* App Header */}
+                      <div style={{ 
+                        padding: '16px 20px', 
+                        borderBottom: '1px solid #f1f5f9',
+                        background: 'linear-gradient(to bottom, #fafafa, #ffffff)',
                       }}>
-                        Submit
+                        <div style={{ fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>
+                          {newForm.title || 'Untitled Form'}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                          {locations.find((l: Location) => l.id === newForm.locationIds[0])?.name || 'FAAN'} • {departments.find((d) => d.id === newForm.departmentIds[0])?.name || 'Operations'}
+                        </div>
+                      </div>
+                      
+                      {/* Form Content */}
+                      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                        {(!newForm.fields || !Array.isArray(newForm.fields) || newForm.fields.length === 0) ? (
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            height: '100%',
+                            color: '#94a3b8',
+                            opacity: 0.5
+                          }}>
+                            <FileStack size={48} />
+                            <p style={{ fontSize: '13px', marginTop: '12px', fontWeight: 500 }}>No fields added yet</p>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {newForm.fields.map((field, i) => (
+                              <div key={field.id || i}>
+                                <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
+                                  {field.label || 'New Question'} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
+                                </div>
+                                {field.type === 'rating' && (
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    {[1,2,3,4,5].map(s => (
+                                      <Star key={s} size={24} fill="#fbbf24" color="#fbbf24" style={{ cursor: 'pointer' }} />
+                                    ))}
+                                  </div>
+                                )}
+                                {field.type === 'text' && (
+                                  <input 
+                                    type="text" 
+                                    placeholder="Enter text..."
+                                    disabled
+                                    style={{ 
+                                      height: '40px', 
+                                      background: '#f9fafb', 
+                                      border: '1px solid #e5e7eb', 
+                                      borderRadius: '10px', 
+                                      width: '100%',
+                                      padding: '0 12px',
+                                      fontSize: '13px',
+                                      color: '#1e293b'
+                                    }}
+                                  />
+                                )}
+                                {field.type === 'textarea' && (
+                                  <textarea 
+                                    placeholder="Enter long text..."
+                                    disabled
+                                    style={{ 
+                                      height: '80px', 
+                                      background: '#f9fafb', 
+                                      border: '1px solid #e5e7eb', 
+                                      borderRadius: '10px', 
+                                      width: '100%',
+                                      padding: '12px',
+                                      fontSize: '13px',
+                                      color: '#1e293b',
+                                      resize: 'none',
+                                      fontFamily: 'inherit'
+                                    }}
+                                  />
+                                )}
+                                {field.type === 'dropdown' && (
+                                  <select
+                                    defaultValue=""
+                                    disabled
+                                    style={{ 
+                                      height: '40px', 
+                                      background: '#f9fafb', 
+                                      border: '1px solid #e5e7eb', 
+                                      borderRadius: '10px', 
+                                      width: '100%', 
+                                      padding: '0 12px', 
+                                      fontSize: '13px', 
+                                      color: '#1e293b', 
+                                      cursor: 'pointer',
+                                      fontFamily: 'inherit'
+                                    }}
+                                  >
+                                    <option value="" disabled>Select option</option>
+                                    {field.options?.filter(o => o.trim()).map((opt, i) => <option key={`${opt}-${i}`}>{opt}</option>)}
+                                  </select>
+                                )}
+                                {field.type === 'checkbox' && (
+                                  <div style={{ width: '100%' }}>
+                                    <MultiSelect
+                                      options={(field.options || []).filter(o => o.trim()).map(opt => ({ id: opt, name: opt }))}
+                                      selectedIds={[]}
+                                      onChange={() => {}}
+                                      placeholder="Select options..."
+                                    />
+                                  </div>
+                                )}
+                                {field.type === 'date' && (
+                                  <input 
+                                    type="date"
+                                    disabled
+                                    style={{ height: '40px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', padding: '0 12px', fontSize: '13px', color: '#1e293b', fontFamily: 'inherit', cursor: 'pointer' }}
+                                  />
+                                )}
+                                {field.type === 'file' && (
+                                  <div style={{ height: '80px', border: '2px dashed #e5e7eb', borderRadius: '10px', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#9ca3af', cursor: 'pointer', background: '#f9fafb' }}>
+                                    <Upload size={20} />
+                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>Tap to upload</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9', background: '#fff' }}>
+                        <div style={{ 
+                          width: '100%',
+                          background: 'var(--brand-green)', 
+                          color: 'white', 
+                          padding: '14px', 
+                          borderRadius: '14px', 
+                          textAlign: 'center', 
+                          fontSize: '15px', 
+                          fontWeight: 700, 
+                          opacity: 0.9
+                        }}>
+                          Submit Feedback
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
+
             </div>
 
-            <div className={styles.modalActions}>
-              {wizardStep > 1 ? (
-                <button 
-                  className={styles.cancelBtn} 
-                  onClick={() => setWizardStep(wizardStep - 1)}
-                  style={{ marginRight: 'auto' }}
-                >
-                  <ChevronLeft size={16} /> Back
-                </button>
-              ) : (
-                <div />
-              )}
-              <button 
-                className={styles.cancelBtn} 
-                onClick={() => { setIsCreateModalOpen(false); resetWizard(); }}
-              >
-                Cancel
-              </button>
-              {wizardStep < 3 ? (
-                <button 
-                  className={styles.createButton}
-                  onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={
-                    (wizardStep === 1 && !newForm.name) || 
-                    (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))
-                  }
-                  style={{ 
-                    opacity: (
-                      (wizardStep === 1 && !newForm.name) || 
-                      (wizardStep === 2 && (newForm.locationIds.length === 0 || newForm.departmentIds.length === 0))
-                    ) ? 0.5 : 1 
-                  }}
-                >
-                  Next <ChevronRight size={16} />
-                </button>
-              ) : (
-                <button 
-                  className={styles.createButton}
-                  onClick={handleSaveForm}
-                  disabled={(!Array.isArray(newForm.fields) || newForm.fields.length === 0) || createMutation.isPending || updateMutation.isPending}
-                  style={{ opacity: (!Array.isArray(newForm.fields) || newForm.fields.length === 0 || createMutation.isPending || updateMutation.isPending) ? 0.5 : 1 }}
-                >
-                  {(createMutation.isPending || updateMutation.isPending) ? (
-                    'Saving...'
-                  ) : (
-                    <>
-                      <CheckCircle2 size={18} /> {isEditMode ? 'Update Form' : 'Save Form'}
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {selectedForm && (
         <div className={styles.modalOverlay}>
@@ -1302,10 +1259,10 @@ export default function FormsPage() {
               <div className={styles.detailGrid}>
                 <div className={styles.detailMain}>
                   <section className={styles.messageSection}>
-                    <h4 className={styles.detailLabel}>Form Fields ({normalizeFields(selectedForm.formConfig).length})</h4>
+                    <h4 className={styles.detailLabel}>Form Fields ({selectedForm.fields?.length || 0})</h4>
                     <div className={styles.messageCard}>
-                      {normalizeFields(selectedForm.formConfig).map((field: FormField, i: number) => (
-                        <div key={field.id} style={{ padding: '16px 0', borderBottom: i < (normalizeFields(selectedForm.formConfig).length) - 1 ? '1px solid #e2e8f0' : 'none' }}>
+                      {selectedForm.fields?.map((field: FeedbackFormField, i: number) => (
+                        <div key={field.id} style={{ padding: '16px 0', borderBottom: i < (selectedForm.fields?.length || 0) - 1 ? '1px solid #e2e8f0' : 'none' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                             <span style={{ 
                               fontWeight: 700, 
@@ -1335,11 +1292,11 @@ export default function FormsPage() {
                     <div className={styles.infoCards} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <div className={styles.infoCard}>
                         <MousePointer2 size={18} />
-                        <div><span>Total Submissions</span><strong>{selectedForm.interactions || 0}</strong></div>
+                        <div><span>Total Submissions</span><strong>0</strong></div>
                       </div>
                       <div className={styles.infoCard}>
                         <FileCheck size={18} />
-                        <div><span>Form Fields</span><strong>{normalizeFields(selectedForm.formConfig).length}</strong></div>
+                        <div><span>Form Fields</span><strong>{selectedForm.fields?.length || 0}</strong></div>
                       </div>
                       <div className={styles.infoCard}>
                         <Calendar size={18} />
@@ -1351,7 +1308,7 @@ export default function FormsPage() {
                     <button className={styles.archiveBtn} onClick={() => {
                       confirmDeleteForm(selectedForm);
                     }}>
-                      <Trash2 size={16} /> Delete Form
+                      <Trash2 size={16} /> Delete Template
                     </button>
                   </div>
                 </div>
