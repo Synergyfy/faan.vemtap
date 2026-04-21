@@ -9,6 +9,7 @@ import {
   Download, 
   Edit, 
   Power,
+  Trash2,
   X,
   ExternalLink,
   MapPin,
@@ -37,6 +38,7 @@ import {
   useCreateTouchpoint, 
   useUpdateTouchpoint, 
   useArchiveTouchpoint,
+  useDeleteTouchpoint,
   useDownloadQr
 } from "@/hooks/useTouchpoints";
 import { useLocations } from "@/hooks/useLocations";
@@ -103,14 +105,12 @@ export default function TouchpointsPage() {
 
   const { data: formsData } = useTouchpoints();
   const { data: locationsData } = useLocations();
-  const { data: deptsData } = useDepartments({ 
-    locationId: currentLocation || undefined 
-  });
+  const { data: deptsData } = useDepartments();
 
 
   const createMutation = useCreateTouchpoint();
   const updateMutation = useUpdateTouchpoint();
-  const archiveMutation = useArchiveTouchpoint();
+  const deleteMutation = useDeleteTouchpoint();
   const qrRef = useRef<HTMLDivElement>(null);
 
   const handleDownload = (format: 'png' | 'svg' | 'jpg') => {
@@ -139,6 +139,9 @@ export default function TouchpointsPage() {
       document.body.removeChild(link);
     }
   };
+
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingTouchpointId, setEditingTouchpointId] = useState<string | null>(null);
 
   const [newTouchpoint, setNewTouchpoint] = useState({
     title: "",
@@ -172,7 +175,8 @@ export default function TouchpointsPage() {
             type: newTouchpoint.type,
             departmentId: deptId,
             locationId: locId,
-            formConfig: []
+            formConfig: [],
+            templateIds: newTouchpoint.templateIds
           });
         }
       });
@@ -182,18 +186,41 @@ export default function TouchpointsPage() {
       return toast.error("No valid Location-Department combinations found.");
     }
 
-    Promise.all(creations.map(payload => createMutation.mutateAsync(payload)))
-      .then(() => {
-        toast.success(`${creations.length} touchpoint(s) created successfully`);
-        setIsModalOpen(false);
-        setWizardStep(1);
-        setNewTouchpoint({ title: "", description: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
-      })
-      .catch((error) => {
-        const axiosError = error as AxiosError<{ message: string | string[] }>;
-        const message = axiosError.response?.data?.message || "Failed to create touchpoints";
-        toast.error(Array.isArray(message) ? message[0] : message);
+    if (isEditMode && editingTouchpointId) {
+      updateMutation.mutate({ uuid: editingTouchpointId, data: creations[0] }, {
+        onSuccess: () => {
+          toast.success("Touchpoint updated successfully");
+          setIsModalOpen(false);
+          resetWizard();
+        },
+        onError: (error) => {
+          const axiosError = error as AxiosError<{ message: string | string[] }>;
+          const message = axiosError.response?.data?.message || "Failed to update touchpoint";
+          toast.error(Array.isArray(message) ? message[0] : message);
+        }
       });
+    } else {
+      Promise.all(creations.map(payload => createMutation.mutateAsync(payload)))
+        .then(() => {
+          toast.success(`${creations.length} touchpoint(s) created successfully`);
+          setIsModalOpen(false);
+          resetWizard();
+        })
+        .catch((error) => {
+          const axiosError = error as AxiosError<{ message: string | string[] }>;
+          const message = axiosError.response?.data?.message || "Failed to create touchpoints";
+          toast.error(Array.isArray(message) ? message[0] : message);
+        });
+    }
+  };
+
+  const resetWizard = () => {
+    setWizardStep(1);
+    setIsEditMode(false);
+    setEditingTouchpointId(null);
+    setNewTouchpoint({ title: "", description: "", departmentIds: [], type: TouchpointType.FEEDBACK, templateIds: [] });
+    setSelectedLocIds([]);
+    setTempLocIds([]);
   };
 
   const toggleStatus = (id: string, currentStatus: boolean) => {
@@ -203,7 +230,7 @@ export default function TouchpointsPage() {
     });
   };
 
-  const confirmArchiveTouchpoint = (tp: any) => {
+  const confirmDeleteTouchpoint = (tp: any) => {
     setDeleteModal({
       isOpen: true,
       itemName: tp.title,
@@ -212,10 +239,10 @@ export default function TouchpointsPage() {
       instanceCount: 1,
       affectedItems: [],
       onConfirm: () => {
-        archiveMutation.mutate(tp.id, {
+        deleteMutation.mutate(tp.id, {
           onSuccess: () => {
             setDeleteModal(prev => ({ ...prev, isOpen: false }));
-            toast.success("Touchpoint archived successfully");
+            toast.success("Touchpoint deleted permanently");
             if (activeDropdown === tp.id) setActiveDropdown(null);
           }
         });
@@ -223,7 +250,7 @@ export default function TouchpointsPage() {
     });
   };
 
-  const confirmArchiveGroup = (gtp: any) => {
+  const confirmDeleteGroup = (gtp: any) => {
     const locationsList = gtp.instances.map((inst: any) => {
       const locName = typeof inst.location === 'object' ? inst.location?.name : (inst.location || roleLocationName || 'Unnamed Airport');
       const deptName = typeof inst.department === 'object' ? inst.department?.name : inst.department;
@@ -238,15 +265,15 @@ export default function TouchpointsPage() {
       instanceCount: gtp.instances.length,
       affectedItems: locationsList,
       onConfirm: () => {
-        const promises = gtp.instances.map((inst: any) => archiveMutation.mutateAsync(inst.id));
+        const promises = gtp.instances.map((inst: any) => deleteMutation.mutateAsync(inst.id));
         toast.promise(Promise.all(promises), {
-          loading: 'Archiving touchpoints...',
+          loading: 'Deleting touchpoints...',
           success: () => {
             setDeleteModal(prev => ({ ...prev, isOpen: false }));
             setActiveDropdown(null);
-            return 'All instances archived successfully';
+            return 'All instances deleted permanently';
           },
-          error: 'Failed to archive some touchpoints'
+          error: 'Failed to delete some touchpoints'
         });
       }
     });
@@ -500,37 +527,38 @@ export default function TouchpointsPage() {
                             <button
                               className={styles.dropdownItem}
                               onClick={(e) => {
-                                e.stopPropagation();
-                                setNewTouchpoint({
-                                  title: tp.title,
-                                  description: tp.description || "",
-                                  departmentIds: tp.departmentIds || [],
-                                  type: tp.type,
-                                  templateIds: tp.templateIds || []
-                                });
-                                setIsModalOpen(true);
-                                setActiveDropdown(null);
-                              }}
+                              e.stopPropagation();
+                              setIsEditMode(true);
+                              setEditingTouchpointId(tp.id);
+                              
+                              const locId = tp.locationId || tp.location?.id;
+                              const deptId = tp.departmentId || tp.department?.id;
+                              const templateIds = (tp.templateIds || tp.templates?.map((t: any) => t.id) || tp.formTemplates?.map((t: any) => t.id) || []).map(String);
+
+                              setNewTouchpoint({
+                                title: tp.title,
+                                description: tp.description || "",
+                                departmentIds: deptId ? [String(deptId)] : [],
+                                type: tp.type,
+                                templateIds: templateIds
+                              });
+                              
+                              setSelectedLocIds(locId ? [String(locId)] : []);
+                              setIsModalOpen(true);
+                              setActiveDropdown(null);
+                            }}
                             >
                               <Edit size={14} /> Edit
                             </button>
                             <button
-                              className={`${styles.dropdownItem} ${!tp.isActive ? styles.success : styles.danger}`}
+                              className={`${styles.dropdownItem} ${styles.danger}`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (tp.isActive) {
-                                  confirmArchiveTouchpoint(tp);
-                                } else {
-                                  toggleStatus(tp.id, tp.isActive);
-                                }
+                                confirmDeleteTouchpoint(tp);
                                 setActiveDropdown(null);
                               }}
                             >
-                              {tp.isActive ? (
-                                <><Power size={14} /> Archive</>
-                              ) : (
-                                <><CheckCircle size={14} /> Activate</>
-                              )}
+                              <Trash2 size={14} /> Delete
                             </button>
                           </div>
                         )}
@@ -616,17 +644,26 @@ export default function TouchpointsPage() {
                           <button
                             className={styles.dropdownItem}
                             onClick={(e) => {
-                              e.stopPropagation();
-                              setNewTouchpoint({
-                                title: gtp.title,
-                                description: gtp.description || "",
-                                departmentIds: gtp.instances.map((i: any) => i.departmentId),
-                                type: gtp.type,
-                                templateIds: gtp.templateIds || []
-                              });
-                              setIsModalOpen(true);
-                              setActiveDropdown(null);
-                            }}
+                            e.stopPropagation();
+                            setIsEditMode(true);
+                            setEditingTouchpointId(gtp.id);
+                            
+                            const uniqueLocs = Array.from(new Set(gtp.instances.map((i: any) => String(i.locationId || i.location?.id)))).filter(id => id !== 'undefined' && id !== 'null');
+                            const uniqueDepts = Array.from(new Set(gtp.instances.map((i: any) => String(i.departmentId || i.department?.id)))).filter(id => id !== 'undefined' && id !== 'null');
+                            const templateIds = (gtp.templateIds || gtp.instances[0].templates?.map((t: any) => t.id) || gtp.instances[0].formTemplates?.map((t: any) => t.id) || []).map(String);
+
+                            setNewTouchpoint({
+                              title: gtp.title,
+                              description: gtp.description || "",
+                              departmentIds: uniqueDepts as string[],
+                              type: gtp.type,
+                              templateIds: templateIds
+                            });
+                            
+                            setSelectedLocIds(uniqueLocs as string[]);
+                            setIsModalOpen(true);
+                            setActiveDropdown(null);
+                          }}
                           >
                             <Edit size={14} /> {gtp.instances.length > 1 ? "Edit Group" : "Edit"}
                           </button>
@@ -634,32 +671,16 @@ export default function TouchpointsPage() {
                             className={`${styles.dropdownItem} ${styles.danger}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              confirmArchiveGroup(gtp);
+                              if (gtp.instances.length > 1) {
+                                confirmDeleteGroup(gtp);
+                              } else {
+                                confirmDeleteTouchpoint(gtp.instances[0]);
+                              }
+                              setActiveDropdown(null);
                             }}
                           >
-                            <Power size={14} /> {gtp.instances.length > 1 ? "Archive Group" : "Archive"}
+                            <Trash2 size={14} /> {gtp.instances.length > 1 ? "Delete Group" : "Delete"}
                           </button>
-                          {gtp.instances.length === 1 && (
-                            <button
-                              className={`${styles.dropdownItem} ${!gtp.instances[0].isActive ? styles.success : styles.danger}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const tp = gtp.instances[0];
-                                if (tp.isActive) {
-                                  confirmArchiveTouchpoint(tp);
-                                } else {
-                                  toggleStatus(tp.id, tp.isActive);
-                                }
-                                setActiveDropdown(null);
-                              }}
-                            >
-                              {gtp.instances[0].isActive ? (
-                                <><Power size={14} /> Archive</>
-                              ) : (
-                                <><CheckCircle size={14} /> Activate</>
-                              )}
-                            </button>
-                          )}
                         </div>
                       )}
                     </div>
@@ -956,35 +977,35 @@ export default function TouchpointsPage() {
 
       {showLocationPicker && (
         <div className={styles.modalOverlay} onClick={() => setShowLocationPicker(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px', width: '96%', minHeight: '400px', display: 'flex', flexDirection: 'column' }}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
-                <span className={styles.wizardBadge}>Location</span>
-                <h3 className={styles.modalTitle}>Select Airport</h3>
-                <p className={styles.modalSubtitle}>Choose location for this touchpoint</p>
+                <span className={styles.wizardBadge}>Location Selection</span>
+                <h3 className={styles.modalTitle}>Select Target Airport</h3>
+                <p className={styles.modalSubtitle}>Choose where this touchpoint will be deployed</p>
               </div>
               <button className={styles.closeBtn} onClick={() => setShowLocationPicker(false)}>
                 <X size={20} />
               </button>
             </div>
-            <div className={styles.modalBody}>
-              <p style={{ marginBottom: "16px", color: "#64748b", fontSize: "14px" }}>
-                Select the airport location where you want to create a touchpoint.
+            <div className={styles.modalBody} style={{ flex: 1 }}>
+              <p style={{ marginBottom: "24px", color: "#64748b", fontSize: "14px", lineHeight: '1.6' }}>
+                Select the airport location(s) where you want to create these engagement points. You can select multiple airports to deploy the same configuration across sites.
               </p>
               <div style={{ marginBottom: "20px" }}>
-                <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, color: "#334155", fontSize: '13px' }}>
-                  Airport Locations
+                <label style={{ display: "block", marginBottom: "10px", fontWeight: 600, color: "#334155", fontSize: '13px' }}>
+                  Available Airport Locations
                 </label>
                 <MultiSelect
                   options={locations}
                   selectedIds={tempLocIds}
                   onChange={(ids) => setTempLocIds(ids)}
-                  placeholder="Select airports"
+                  placeholder="Search and select airports..."
                   icon={<Building2 size={18} />}
                 />
               </div>
             </div>
-            <div className={styles.modalActions}>
+            <div className={styles.modalActions} style={{ paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
               <button className={styles.cancelBtn} onClick={() => setShowLocationPicker(false)}>Cancel</button>
               <button
                 onClick={() => {
@@ -995,9 +1016,9 @@ export default function TouchpointsPage() {
                 }}
                 disabled={tempLocIds.length === 0}
                 className={styles.createButton}
-                style={{ opacity: tempLocIds.length > 0 ? 1 : 0.5 }}
+                style={{ opacity: tempLocIds.length > 0 ? 1 : 0.5, padding: '10px 24px' }}
               >
-                Confirm
+                Confirm Selection
               </button>
             </div>
           </div>
@@ -1110,7 +1131,7 @@ export default function TouchpointsPage() {
         isGroup={deleteModal.isGroup}
         instanceCount={deleteModal.instanceCount}
         affectedItems={deleteModal.affectedItems}
-        isPending={archiveMutation.isPending}
+        isPending={deleteMutation.isPending}
       />
     </div>
   );

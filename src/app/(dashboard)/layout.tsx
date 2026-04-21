@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -31,6 +31,9 @@ import { useRole } from "@/context/RoleContext";
 import { useAuthContext } from "@/context/AuthContext";
 import { UserRole } from "@/types/rbac";
 import { toast } from "sonner";
+import NotificationDropdown from "@/components/displays/NotificationDropdown";
+
+
 
 function DashboardLayoutContent({
   children,
@@ -44,13 +47,24 @@ function DashboardLayoutContent({
   const { logout: authLogout } = useAuthContext();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
     };
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setIsNotificationsOpen(false);
+      }
+    };
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -74,7 +88,7 @@ function DashboardLayoutContent({
         { name: "Internal Reports", icon: FileText, href: "/dashboard/reports", roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN, UserRole.DEPARTMENT_ADMIN] },
         { 
           name: "Reports", 
-          icon: FileBarChart, 
+          icon: LayoutTemplate, 
           href: "/dashboard/summary-reports", 
           roles: [UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN],
           subItems: [
@@ -133,10 +147,10 @@ function DashboardLayoutContent({
                         <button 
                           onClick={() => toggleMenu(item.name)}
                           className={`${styles.navItem} ${isActive ? styles.navItemActive : ""}`}
-                          style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer' }}
+                          style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}
                         >
                           <Icon size={20} />
-                          <span>{item.name}</span>
+                          <span style={{ fontSize: '14px', fontWeight: 600 }}>{item.name}</span>
                           <ChevronDown 
                             size={16} 
                             className={`${styles.subMenuChevron} ${isExpanded ? styles.chevronRotated : ""}`} 
@@ -177,7 +191,7 @@ function DashboardLayoutContent({
                         className={`${styles.navItem} ${isActive ? styles.navItemActive : ""}`}
                       >
                         <Icon size={20} />
-                        <span>{item.name}</span>
+                        <span style={{ fontSize: '14px', fontWeight: 600 }}>{item.name}</span>
                         {isActive && (
                           <motion.div 
                             layoutId="navActive"
@@ -216,10 +230,19 @@ function DashboardLayoutContent({
           </div>
 
           <div className={styles.headerRight}>
-            <button className={styles.iconButton} aria-label="Notifications">
-              <Bell size={20} />
-              <span className={styles.badge} />
-            </button>
+            <div className={styles.notificationWrapper} ref={notificationRef}>
+              <button 
+                className={styles.iconButton} 
+                aria-label="Notifications"
+                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              >
+                <Bell size={20} />
+                <span className={styles.badge} />
+              </button>
+              {isNotificationsOpen && (
+                <NotificationDropdown onClose={() => setIsNotificationsOpen(false)} />
+              )}
+            </div>
 
             <div className={styles.userProfile}>
               <div className={styles.userInfo}>

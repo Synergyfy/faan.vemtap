@@ -1,0 +1,21 @@
+UpdateIssueDto{
+title	string
+example: Updated title
+content	string
+example: Updated content...
+status	string
+Enum:
+[ DRAFT, SUBMITTED, REVIEWED, PENDING, IN_PROGRESS, RESOLVED, CLOSED ]
+priority	string
+Enum:
+[ LOW, MEDIUM, HIGH, CRITICAL ]
+category	string
+Enum:
+[ FACILITIES, CLEANING, SECURITY, IT_INTERNET, POWER, HVAC, STAFF_CONDUCT, PASENGER_FLOW, LIGHTING, WATER_RESTROOMS, SIGNAGE, GENERAL ]
+assignedTo	string
+User ID to assign the issue to
+
+departmentId	string
+Department ID to assign the issue to
+
+}
