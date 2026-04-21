@@ -132,11 +132,14 @@ export default function DepartmentsPage() {
   const [newStaffDetails, setNewStaffDetails] = useState({ name: "", role: "Duty Officer" });
 
   const [isLinking, setIsLinking] = useState(false);
+  const [tpLinkingStep, setTpLinkingStep] = useState(1);
+  const [tpLinkLocationId, setTpLinkLocationId] = useState("");
+  const [tpLinkDeptId, setTpLinkDeptId] = useState("");
+  const [selectedTouchpointId, setSelectedTouchpointId] = useState("");
   const [tempQR, setTempQR] = useState<QRLink[]>([]);
   const [newQRDetails, setNewQRDetails] = useState({ name: "", airport: "Abuja International" });
-
+  
   const [selectedFormId, setSelectedFormId] = useState("");
-  const [selectedTouchpointId, setSelectedTouchpointId] = useState("");
 
   const [formLinkingStep, setFormLinkingStep] = useState(1);
   const [formLinkingType, setFormLinkingType] = useState<'internal' | 'feedback' | ''>('');
@@ -1402,46 +1405,121 @@ export default function DepartmentsPage() {
                   </div>
 
                   {isLinking && (
-                    <div className={styles.resourceConfigBox}>
-                      <select 
-                        value={selectedTouchpointId} 
-                        onChange={e => setSelectedTouchpointId(e.target.value)} 
-                        className={styles.miniSelect}
-                        style={{ flex: 1 }}
-                      >
-                        <option value="">Select a touchpoint to move here...</option>
-                        {allTouchpoints
-                          .filter(tp => tp.departmentId !== selectedDept.id)
-                          .map(tp => (
-                            <option key={tp.id} value={tp.id}>{tp.title} ({tp.slug})</option>
-                          ))
-                        }
-                      </select>
-                      <button 
-                        className={styles.createButton} 
-                        onClick={() => {
-                          // Reuse the linking logic but with current selection for general touchpoints
-                          if (!selectedTouchpointId || !selectedDept) return;
-                          updateTouchpointMutation.mutate({
-                            uuid: selectedTouchpointId, // We use the ID here
-                            data: { departmentId: selectedDept.id }
-                          }, {
-                            onSuccess: () => {
-                              toast.success("Touchpoint moved successfully");
-                              setIsLinking(false);
-                              setSelectedTouchpointId("");
-                            }
-                          });
-                        }} 
-                        disabled={!selectedTouchpointId || updateTouchpointMutation.isPending}
-                        style={{ padding: "8px 12px", height: "auto" }}
-                      >
-                        {updateTouchpointMutation.isPending ? 'Linking...' : 'Link'}
-                      </button>
+                    <div className={styles.resourceConfigBox} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '16px', padding: '24px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h5 style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>Add Operational Touchpoint</h5>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <div style={{ width: '20px', height: '4px', borderRadius: '2px', background: 'var(--brand-green)' }} />
+                          <div style={{ width: '20px', height: '4px', borderRadius: '2px', background: tpLinkingStep >= 2 ? 'var(--brand-green)' : '#e2e8f0' }} />
+                          <div style={{ width: '20px', height: '4px', borderRadius: '2px', background: tpLinkingStep >= 3 ? 'var(--brand-green)' : '#e2e8f0' }} />
+                        </div>
+                      </div>
+
+                      {tpLinkingStep === 1 && (
+                        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                          <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Step 1: Select location:</p>
+                          <select 
+                            className={styles.miniSelect} 
+                            value={tpLinkLocationId} 
+                            onChange={(e) => { 
+                              setTpLinkLocationId(e.target.value); 
+                              setTpLinkingStep(2); 
+                            }}
+                            style={{ height: '44px', fontSize: '14px' }}
+                          >
+                            <option value="">Choose Airport / Location...</option>
+                            {(locationsData?.data || []).map(loc => (
+                              <option key={loc.id} value={loc.id}>{loc.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {tpLinkingStep === 2 && (
+                        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                            <button onClick={() => setTpLinkingStep(1)} style={{ color: 'var(--brand-green)', fontSize: '12px', fontWeight: 600 }}>← Back</button>
+                            <p style={{ fontSize: '13px', color: '#64748b' }}>Step 2: Select source department:</p>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                            {(linkDeptsData?.data || []).map(dept => (
+                              <button
+                                key={dept.id}
+                                onClick={() => {
+                                  setTpLinkDeptId(dept.id);
+                                  setTpLinkingStep(3);
+                                }}
+                                style={{ padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', background: 'white', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '10px' }}
+                              >
+                                <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Shield size={14} />
+                                </div>
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>{dept.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {tpLinkingStep === 3 && (
+                        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                            <button onClick={() => setTpLinkingStep(2)} style={{ color: 'var(--brand-green)', fontSize: '12px', fontWeight: 600 }}>← Back</button>
+                            <p style={{ fontSize: '13px', color: '#64748b' }}>Step 3: Select touchpoint:</p>
+                          </div>
+                          
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {allTouchpoints
+                              .filter(tp => (tp.location as any)?.id === tpLinkLocationId && (tp.department as any)?.id === tpLinkDeptId)
+                              .map(tp => {
+                                const isAlreadyLinked = (tp.department as any)?.id === selectedDept.id;
+                                return (
+                                  <button
+                                    key={tp.id}
+                                    onClick={() => !isAlreadyLinked && setSelectedTouchpointId(tp.id)}
+                                    disabled={isAlreadyLinked}
+                                    style={{ padding: '12px 16px', borderRadius: '12px', border: selectedTouchpointId === tp.id ? '2px solid var(--brand-green)' : '1px solid #e2e8f0', background: selectedTouchpointId === tp.id ? 'rgba(21, 115, 71, 0.05)' : 'white', textAlign: 'left', cursor: isAlreadyLinked ? 'not-allowed' : 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: isAlreadyLinked ? 0.5 : 1 }}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      <div style={{ color: 'var(--brand-green)' }}><Box size={16} /></div>
+                                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>{tp.title}</span>
+                                    </div>
+                                    {!isAlreadyLinked && <ChevronRight size={16} style={{ color: '#94a3b8' }} />}
+                                  </button>
+                                );
+                              })}
+                            
+                            {selectedTouchpointId && (
+                               <button 
+                                className={styles.createButton} 
+                                style={{ marginTop: '12px', width: '100%', padding: '10px 0' }}
+                                onClick={() => {
+                                  updateTouchpointMutation.mutate({
+                                    uuid: selectedTouchpointId,
+                                    data: { departmentId: selectedDept.id }
+                                  }, {
+                                    onSuccess: () => {
+                                      toast.success("Touchpoint linked successfully");
+                                      setIsLinking(false);
+                                      setTpLinkingStep(1);
+                                      setSelectedTouchpointId("");
+                                    }
+                                  });
+                                }}
+                                disabled={updateTouchpointMutation.isPending}
+                              >
+                                {updateTouchpointMutation.isPending ? 'Adding...' : `Add to ${selectedDept.name}`}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className={styles.resourceItems}>
-                    {(selectedDept.touchpoints || []).map(tp => (
+                    {allTouchpoints
+                      .filter(tp => (tp.department as any)?.id === selectedDept.id)
+                      .map(tp => (
                       <div key={tp.id} className={styles.resourceItem}>
                         <div className={styles.resourceIcon}><Box size={16} /></div>
                         <div className={styles.resourceInfo}>
@@ -1450,7 +1528,7 @@ export default function DepartmentsPage() {
                         </div>
                       </div>
                     ))}
-                    {(selectedDept.touchpoints || []).length === 0 && (
+                    {allTouchpoints.filter(tp => (tp.department as any)?.id === selectedDept.id).length === 0 && (
                       <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                         <MousePointer2 size={32} />
                         <p style={{ marginTop: '8px' }}>No touchpoints in this department</p>

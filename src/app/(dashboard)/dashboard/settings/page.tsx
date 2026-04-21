@@ -118,24 +118,6 @@ export default function SettingsPage() {
              <BellRing size={18} />
              <span>Notification Rules</span>
            </button>
-           {currentRole !== 'LOCATION_ADMIN' && currentRole !== 'DEPARTMENT_ADMIN' && (
-             <>
-               <button 
-                 className={`${styles.settingsTab} ${activeTab === "data" ? styles.settingsTabActive : ""}`}
-                 onClick={() => setActiveTab("data")}
-               >
-                 <Database size={18} />
-                 <span>Data Retention & Privacy</span>
-               </button>
-               <button 
-                 className={`${styles.settingsTab} ${activeTab === "api" ? styles.settingsTabActive : ""}`}
-                 onClick={() => setActiveTab("api")}
-               >
-                 <Code2 size={18} />
-                 <span>API Integrations</span>
-               </button>
-             </>
-           )}
            {currentRole === 'LOCATION_ADMIN' && (
              <button 
                className={`${styles.settingsTab} ${activeTab === "location" ? styles.settingsTabActive : ""}`}

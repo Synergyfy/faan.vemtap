@@ -91,9 +91,7 @@ export default function FormsPage() {
     locationId: currentLocation || undefined
   });
   const { data: locationsData } = useLocations();
-  const { data: departmentsData } = useDepartments({ 
-    locationId: currentLocation || undefined 
-  });
+  const { data: departmentsData } = useDepartments();
 
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -516,20 +514,24 @@ export default function FormsPage() {
                             className={styles.dropdownItem}
                             onClick={(e) => {
                               e.stopPropagation();
+                              setIsEditMode(true);
+                              setEditingFormId(tp.id);
+
+                              const locId = tp.locationId || tp.location?.id;
+                              const deptId = tp.departmentId || tp.department?.id;
+
                               setNewForm({
                                 name: tp.title,
-                                locationIds: [tp.locationId],
-                                departmentIds: tp.departmentIds || [],
+                                locationIds: locId ? [String(locId)] : [],
+                                departmentIds: deptId ? [String(deptId)] : [],
                                 allowAnonymous: true,
                                 successMessage: 'Thank you for your feedback!',
                                 fields: Array.isArray(tp.formConfig) ? tp.formConfig : [],
                               });
-                              setIsEditMode(true);
-                              setEditingFormId(tp.id);
+
                               setIsCreateModalOpen(true);
                               setActiveDropdown(null);
-                            }}
-                          >
+                            }}                          >
                             <Edit size={14} /> Edit
                           </button>
                           <button
@@ -626,16 +628,22 @@ export default function FormsPage() {
                           className={styles.dropdownItem}
                           onClick={(e) => {
                             e.stopPropagation();
+                            setIsEditMode(true);
+                            setEditingFormId(groupedForm.id);
+                            
+                            // Collect all unique location and department IDs from all instances in the group
+                            const uniqueLocs = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.locationId || i.location?.id)))).filter(id => id !== 'undefined' && id !== 'null');
+                            const uniqueDepts = Array.from(new Set(groupedForm.instances.map((i: any) => String(i.departmentId || i.department?.id)))).filter(id => id !== 'undefined' && id !== 'null');
+
                             setNewForm({
                               name: groupedForm.title,
-                              locationIds: groupedForm.instances.map((i: any) => i.locationId),
-                              departmentIds: groupedForm.instances.map((i: any) => i.departmentId),
+                              locationIds: uniqueLocs as string[],
+                              departmentIds: uniqueDepts as string[],
                               allowAnonymous: true,
                               successMessage: 'Thank you for your feedback!',
                               fields: normalizeFields(groupedForm.formConfig),
                             });
-                            setIsEditMode(true);
-                            setEditingFormId(groupedForm.id);
+                            
                             setIsCreateModalOpen(true);
                             setActiveDropdown(null);
                           }}
