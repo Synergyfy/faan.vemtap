@@ -225,7 +225,10 @@ export default function FormsPage() {
             locationId: locId,
             departmentId: deptId,
             isActive: newForm.isActive,
-            fields: newForm.fields.map((f, i) => ({ ...f, order: i })),
+            fields: newForm.fields.map((f, i) => {
+              const { feedbackFormId, ...rest } = f as any;
+              return { ...rest, order: i };
+            }),
           });
         }
       });

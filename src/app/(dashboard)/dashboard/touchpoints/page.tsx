@@ -559,7 +559,8 @@ export default function TouchpointsPage() {
                               const deptId = tp.departmentId || tp.department?.id;
                               const templateIds = (tp.templateIds || tp.templates?.map((t: any) => t.id) || tp.formTemplates?.map((t: any) => t.id) || []).map(String);
 
-                              const feedbackFormIds = (tp.feedbackForms || tp.feedbackFormIds || []).map((f: any) => typeof f === 'string' ? f : f.id);
+                              const feedbackFormsArray = tp.feedbackForms || tp.feedbackFormIds || (tp.feedbackForm ? [tp.feedbackForm] : null) || (tp.feedbackFormId ? [tp.feedbackFormId] : null) || (tp.form ? [tp.form] : null) || (tp.formId ? [tp.formId] : null) || [];
+                              const feedbackFormIds = feedbackFormsArray.map((f: any) => typeof f === 'string' ? f : f.id).filter(Boolean);
 
                               setNewTouchpoint({
                                 title: tp.title,
@@ -679,7 +680,8 @@ export default function TouchpointsPage() {
                             const uniqueDepts = Array.from(new Set(gtp.instances.map((i: any) => String(i.departmentId || i.department?.id)))).filter(id => id !== 'undefined' && id !== 'null');
                             const templateIds = (gtp.templateIds || gtp.instances[0].templates?.map((t: any) => t.id) || gtp.instances[0].formTemplates?.map((t: any) => t.id) || []).map(String);
 
-                            const feedbackFormIds = (gtp.feedbackForms || gtp.feedbackFormIds || gtp.instances[0].feedbackForms?.map((f: any) => f.id) || []).map(String);
+                            const feedbackFormsArray = gtp.feedbackForms || gtp.feedbackFormIds || gtp.instances[0].feedbackForms || gtp.instances[0].feedbackFormIds || (gtp.instances[0].feedbackForm ? [gtp.instances[0].feedbackForm] : null) || (gtp.instances[0].feedbackFormId ? [gtp.instances[0].feedbackFormId] : null) || (gtp.instances[0].form ? [gtp.instances[0].form] : null) || (gtp.instances[0].formId ? [gtp.instances[0].formId] : null) || [];
+                            const feedbackFormIds = feedbackFormsArray.map((f: any) => typeof f === 'string' ? f : f.id).filter(Boolean).map(String);
 
                             setNewTouchpoint({
                               title: gtp.title,

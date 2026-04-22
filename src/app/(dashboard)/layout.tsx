@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -59,8 +59,16 @@ function DashboardLayoutContent({
   const [isScrolled, setIsScrolled] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isLocationOpen, setIsLocationOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
   const locationRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchHighlight, setSearchHighlight] = useState(0);
+
 
   useEffect(() => {
     const handleScroll = () => {
@@ -73,12 +81,26 @@ function DashboardLayoutContent({
       if (locationRef.current && !locationRef.current.contains(event.target as Node)) {
         setIsLocationOpen(false);
       }
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+        setIsProfileOpen(false);
+      }
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
     };
     window.addEventListener("scroll", handleScroll);
     document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("scroll", handleScroll);
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
 
@@ -116,6 +138,32 @@ function DashboardLayoutContent({
       ]
     }
   ];
+
+  // Build flat searchable list from nav items
+  const allSearchablePages = useMemo(() => {
+    const pages: { name: string; href: string; icon: any }[] = [];
+    navItems.forEach(group => {
+      group.items.forEach(item => {
+        if (item.roles.includes(currentRole)) {
+          pages.push({ name: item.name, href: item.href, icon: item.icon });
+          if (item.subItems) {
+            item.subItems.forEach(sub => {
+              pages.push({ name: `${item.name} → ${sub.name}`, href: sub.href, icon: item.icon });
+            });
+          }
+        }
+      });
+    });
+    return pages;
+  }, [currentRole]);
+
+  const searchResults = useMemo(() => {
+    if (!globalSearch.trim()) return [];
+    const term = globalSearch.toLowerCase().trim();
+    return allSearchablePages.filter((p: { name: string; href: string }) => 
+      p.name.toLowerCase().includes(term) || p.href.toLowerCase().includes(term)
+    );
+  }, [globalSearch, allSearchablePages]);
 
   const toggleMenu = (name: string) => {
     setExpandedMenus(prev => 
@@ -234,13 +282,136 @@ function DashboardLayoutContent({
       <main className={styles.mainWrapper}>
         <header className={`${styles.header} ${isScrolled ? styles.headerScrolled : ""}`}>
           <div className={styles.headerLeft}>
-            <div className={styles.searchBar}>
-              <Search size={18} className={styles.searchIcon} />
-              <input 
-                type="text" 
-                placeholder="Search everything..." 
-                className={styles.searchInput}
-              />
+            <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }} ref={searchRef}>
+              <div className={styles.searchBar}>
+                <Search size={18} className={styles.searchIcon} />
+                <input 
+                  type="text" 
+                  placeholder="Search pages... (Ctrl+K)" 
+                  className={styles.searchInput}
+                  value={globalSearch}
+                  onChange={(e) => {
+                    setGlobalSearch(e.target.value);
+                    setIsSearchOpen(true);
+                    setSearchHighlight(0);
+                  }}
+                  onFocus={() => { if (globalSearch.trim()) setIsSearchOpen(true); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setIsSearchOpen(false);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setSearchHighlight(prev => Math.min(prev + 1, searchResults.length - 1));
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setSearchHighlight(prev => Math.max(prev - 1, 0));
+                    }
+                    if (e.key === 'Enter' && searchResults.length > 0) {
+                      e.preventDefault();
+                      const result = searchResults[searchHighlight];
+                      if (result) {
+                        router.push(result.href);
+                        setGlobalSearch('');
+                        setIsSearchOpen(false);
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }
+                  }}
+                  ref={searchInputRef}
+                />
+                {globalSearch && (
+                  <button 
+                    onClick={() => { setGlobalSearch(''); setIsSearchOpen(false); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px', display: 'flex' }}
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              <AnimatePresence>
+                {isSearchOpen && globalSearch.trim() && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                    transition={{ duration: 0.15 }}
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 8px)',
+                      left: 0,
+                      right: 0,
+                      background: '#ffffff',
+                      borderRadius: '14px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 12px 32px -4px rgba(0,0,0,0.12), 0 4px 12px -2px rgba(0,0,0,0.06)',
+                      overflow: 'hidden',
+                      zIndex: 100
+                    }}
+                  >
+                    {searchResults.length > 0 ? (
+                      <div style={{ padding: '6px', maxHeight: '340px', overflowY: 'auto' }}>
+                        <div style={{ padding: '8px 12px 6px', fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Pages — {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
+                        </div>
+                        {searchResults.map((result, idx) => {
+                          const Icon = result.icon;
+                          return (
+                            <div
+                              key={result.href}
+                              onClick={() => {
+                                router.push(result.href);
+                                setGlobalSearch('');
+                                setIsSearchOpen(false);
+                              }}
+                              onMouseEnter={() => setSearchHighlight(idx)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                padding: '10px 12px',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                background: searchHighlight === idx ? '#f1f5f9' : 'transparent',
+                                transition: 'background 0.15s',
+                                color: searchHighlight === idx ? 'var(--brand-green)' : '#475569'
+                              }}
+                            >
+                              <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '8px',
+                                background: searchHighlight === idx ? 'rgba(21,115,71,0.08)' : '#f8fafc',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>
+                                <Icon size={16} />
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontSize: '14px', fontWeight: 600 }}>{result.name}</span>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 500 }}>{result.href}</span>
+                              </div>
+                              {searchHighlight === idx && (
+                                <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#94a3b8', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>↵</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ padding: '28px 16px', textAlign: 'center' }}>
+                        <Search size={20} style={{ color: '#cbd5e1', marginBottom: '8px' }} />
+                        <p style={{ color: '#94a3b8', fontSize: '13px', fontWeight: 500 }}>No pages match "{globalSearch}"</p>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {currentRole === UserRole.SUPER_ADMIN && (
@@ -317,14 +488,57 @@ function DashboardLayoutContent({
               )}
             </div>
 
-            <div className={styles.userProfile}>
-              <div className={styles.userInfo}>
-                <span className={styles.userName}>{currentUser?.name || "Loading..."}</span>
-                <span className={styles.userRole}>{roleLabel}</span>
+            <div className={styles.userProfile} ref={profileRef}>
+              <div 
+                className={styles.userProfileButton} 
+                onClick={() => setIsProfileOpen(!isProfileOpen)}
+              >
+                <div className={styles.userInfo}>
+                  <span className={styles.userName}>{currentUser?.name || "Loading..."}</span>
+                  <span className={styles.userRole}>{roleLabel}</span>
+                </div>
+                <div className={styles.userAvatar}>
+                  <User size={20} />
+                </div>
               </div>
-              <div className={styles.userAvatar}>
-                <User size={20} />
-              </div>
+
+              <AnimatePresence>
+                {isProfileOpen && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className={styles.userDropdown}
+                  >
+                    <div className={styles.userDropdownHeader}>
+                      <span className={styles.userName}>{currentUser?.name || "User"}</span>
+                      <span className={styles.userRole}>{currentUser?.email || "user@example.com"}</span>
+                    </div>
+                    <div className={styles.userDropdownOptions}>
+                      <Link 
+                        href="/dashboard/settings" 
+                        className={styles.userDropdownItem}
+                        onClick={() => setIsProfileOpen(false)}
+                      >
+                        <Settings size={16} />
+                        Settings
+                      </Link>
+                      <div className={styles.userDropdownDivider} />
+                      <button 
+                        className={`${styles.userDropdownItem} ${styles.userDropdownItemDanger}`}
+                        onClick={() => {
+                          setIsProfileOpen(false);
+                          handleLogout();
+                        }}
+                      >
+                        <LogOut size={16} />
+                        Logout
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </header>
