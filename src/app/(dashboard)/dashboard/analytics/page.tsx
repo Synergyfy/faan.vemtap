@@ -26,6 +26,10 @@ import {
 } from "recharts";
 import styles from "../../Dashboard.module.css";
 import { useRole } from "@/context/RoleContext";
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
+import { toast } from "react-hot-toast";
+import { format } from "date-fns";
 import { 
   useAnalyticsSummary, 
   useSatisfactionTrend, 
@@ -73,6 +77,83 @@ export default function AnalyticsPage() {
   const { data: locationData } = useHotspots({ locationId: currentLocation });
   const { data: deptPerformanceData } = useDeptPerformanceChart({ locationId: currentLocation });
 
+  const handleExportData = () => {
+    try {
+      toast.loading("Preparing CSV export...", { id: 'csvExport' });
+      
+      const headers = ["Metric", "Value"];
+      const rows = [
+        ["Total Submissions", summary?.totalSubmissions || 0],
+        ["Average Rating", summary?.averageRating?.toFixed(2) || 0],
+        ["Open Issues", summary?.openSubmissions || 0],
+        ["Resolved Issues", summary?.resolvedSubmissions || 0],
+        ["Total Issues", summary?.totalIssues || 0],
+        ["Resolution Rate", `${summary?.resolutionRate || 0}%`],
+        ["Avg Response Time", `${summary?.avgResponseTime || 0}m`],
+        ["Generated At", format(new Date(), 'yyyy-MM-dd HH:mm:ss')]
+      ];
+
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.join(","))
+      ].join("\n");
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `faan_analytics_export_${format(new Date(), 'yyyyMMdd')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success("CSV exported successfully!", { id: 'csvExport' });
+    } catch (error) {
+      toast.error("Failed to export CSV.", { id: 'csvExport' });
+    }
+  };
+
+  const handlePdfReport = () => {
+    try {
+      toast.loading("Generating PDF Report...", { id: 'pdfExport' });
+      const doc = new jsPDF();
+      
+      doc.setFontSize(20);
+      doc.setTextColor(30, 41, 59);
+      doc.text("FAAN Analytics Performance Report", 14, 22);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Generated on: ${format(new Date(), 'PPPP p')}`, 14, 30);
+      if (departmentName) doc.text(`Department: ${departmentName}`, 14, 35);
+
+      const tableData = [
+        ["Metric", "Value"],
+        ["Total Submissions", (summary?.totalSubmissions || 0).toString()],
+        ["Average Passenger Rating", (summary?.averageRating?.toFixed(2) || "0.00").toString()],
+        ["Total Issues Flagged", (summary?.totalIssues || 0).toString()],
+        ["Resolution Rate", `${summary?.resolutionRate || 0}%`],
+        ["Avg. Response Time", `${summary?.avgResponseTime || 0} minutes`],
+        ["Open (Pending) Issues", (summary?.openSubmissions || 0).toString()],
+        ["Resolved Issues", (summary?.resolvedSubmissions || 0).toString()]
+      ];
+
+      (doc as any).autoTable({
+        startY: 45,
+        head: [tableData[0]],
+        body: tableData.slice(1),
+        theme: 'grid',
+        headStyles: { fillStyle: [59, 130, 246], textColor: [255, 255, 255] },
+        alternateRowStyles: { fillStyle: [248, 250, 252] }
+      });
+
+      doc.save(`faan_analytics_report_${format(new Date(), 'yyyyMMdd')}.pdf`);
+      toast.success("PDF generated successfully!", { id: 'pdfExport' });
+    } catch (error) {
+      toast.error("Failed to generate PDF.", { id: 'pdfExport' });
+    }
+  };
+
   return (
     <div className={styles.analyticsLayout}>
       {/* Header & Export Tools */}
@@ -99,11 +180,11 @@ export default function AnalyticsPage() {
               </select>
            </div>
            
-           <button className={styles.exportBtn}>
+           <button className={styles.exportBtn} onClick={handlePdfReport}>
              <FileText size={16} />
              PDF Report
            </button>
-           <button className={styles.exportBtnPrimary}>
+           <button className={styles.exportBtnPrimary} onClick={handleExportData}>
              <Download size={16} />
              Export Data
            </button>

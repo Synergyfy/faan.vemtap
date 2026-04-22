@@ -34,7 +34,8 @@ import {
   useIssues,
   useUpdateIssueStatus, 
   useCreateIssue, 
-  useAddIssueNote 
+  useAddIssueNote,
+  useDeleteIssue 
 } from "@/hooks/useIssues";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
@@ -108,7 +109,11 @@ function Column({ title, status, color, icon, getStatusIssues, onDragOver, onDro
               key={issue.id} 
               className={styles.issueCard}
               draggable
-              onDragStart={() => onDragStart(issue.id)}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', issue.id);
+                onDragStart(issue.id);
+              }}
               onClick={() => onSelectIssue(issue)}
               style={{ cursor: 'pointer' }}
             >
@@ -204,6 +209,7 @@ export default function IssueManagementPage() {
   const updateStatusMutation = useUpdateIssueStatus();
   const createIssueMutation = useCreateIssue();
   const addNoteMutation = useAddIssueNote();
+  const deleteIssueMutation = useDeleteIssue();
 
   const pendingIssues = kanbanData?.pending || [];
   const inProgressIssues = kanbanData?.inProgress || kanbanData?.['in-progress'] || [];
@@ -222,9 +228,15 @@ export default function IssueManagementPage() {
 
   const onDrop = (status: string) => {
     if (!draggedIssueId) return;
+    
+    let finalStatus = status.toUpperCase();
+    if (finalStatus === 'INPROGRESS') {
+      finalStatus = 'IN_PROGRESS';
+    }
+
     updateStatusMutation.mutate({ 
       id: draggedIssueId, 
-      status: status.toUpperCase() as InternalReportStatus 
+      status: finalStatus as InternalReportStatus 
     });
     setDraggedIssueId(null);
   };
@@ -232,18 +244,35 @@ export default function IssueManagementPage() {
   const handleCreateIssue = (e: React.FormEvent) => {
     e.preventDefault();
     
+    let payloadLocationIds: string[] = [];
+    let payloadDepartmentIds: string[] = [];
+
+    if (currentRole === 'DEPARTMENT_ADMIN') {
+      payloadDepartmentIds = [currentDepartment || ""];
+      // Omit locationIds to prevent the backend from creating a duplicate issue
+    } else {
+      payloadDepartmentIds = newTask.departmentIds;
+      // Only send location IDs for locations that do not have a department selected
+      const deptLocIds = newTask.departmentIds.map(dId => {
+        const d = depts.find(dept => dept.id === dId);
+        return d?.locationId || d?.location?.id;
+      }).filter(Boolean);
+      payloadLocationIds = selectedLocIds.filter(locId => !deptLocIds.includes(locId));
+    }
+
     const payload: CreateIssueDto = {
       title: newTask.title,
       content: newTask.description,
       priority: newTask.priority as Priority,
-      locationIds: currentRole === 'DEPARTMENT_ADMIN' ? [currentLocation || ""] : selectedLocIds,
-      departmentIds: currentRole === 'DEPARTMENT_ADMIN' ? [currentDepartment || ""] : newTask.departmentIds,
+      locationIds: payloadLocationIds,
+      departmentIds: payloadDepartmentIds,
       reportType: ReportType.INCIDENT
     };
 
     createIssueMutation.mutate(payload, {
       onSuccess: () => {
-        toast.success(`Successfully created ${payload.locationIds?.length || payload.departmentIds?.length || 1} issues`);
+        const createdCount = (payload.locationIds?.length || 0) + (payload.departmentIds?.length || 0) || 1;
+        toast.success(`Successfully created ${createdCount} issue(s)`);
         setIsCreateModalOpen(false);
         setNewTask({ title: "", description: "", priority: "MEDIUM", departmentIds: [], location: "" });
       },
@@ -264,21 +293,37 @@ export default function IssueManagementPage() {
   const getStatusIssues = (status: string): InternalReport[] => {
     if (!kanbanData) return [];
     
+    let issues: InternalReport[] = [];
+
     // Exact match
     if (kanbanData[status as keyof typeof kanbanData]) {
-      return kanbanData[status as keyof typeof kanbanData] as InternalReport[];
+      issues = kanbanData[status as keyof typeof kanbanData] as InternalReport[];
+    } else {
+      // Case-insensitive fallback
+      const normalizedStatus = status.toLowerCase().replace('-', '');
+      const foundKey = Object.keys(kanbanData).find(key => 
+        key.toLowerCase().replace('-', '') === normalizedStatus
+      );
+      issues = foundKey ? (kanbanData[foundKey as keyof typeof kanbanData] as InternalReport[]) : [];
     }
-    
-    // Case-insensitive fallback
-    const normalizedStatus = status.toLowerCase().replace('-', '');
-    const foundKey = Object.keys(kanbanData).find(key => 
-      key.toLowerCase().replace('-', '') === normalizedStatus
-    );
-    
-    return foundKey ? (kanbanData[foundKey as keyof typeof kanbanData] as InternalReport[]) : [];
+
+    // Apply client-side search filtering for the board view
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase().trim();
+      issues = issues.filter((issue) => {
+        const title = (issue.title || '').toLowerCase();
+        const content = (issue.content || issue.description || '').toLowerCase();
+        const code = (issue.code || '').toLowerCase();
+        const locName = (typeof issue.location === 'object' ? (issue.location as { name?: string })?.name : issue.location) || '';
+        const deptName = (typeof issue.department === 'object' ? (issue.department as { name?: string })?.name : issue.department) || '';
+        return title.includes(term) || content.includes(term) || code.includes(term) || locName.toLowerCase().includes(term) || deptName.toLowerCase().includes(term);
+      });
+    }
+
+    return issues;
   };
 
-  const confirmArchiveIssue = (issue: InternalReport) => {
+  const confirmDeleteIssue = (issue: InternalReport) => {
     setDeleteModal({
       isOpen: true,
       itemName: issue.title,
@@ -290,11 +335,16 @@ export default function IssueManagementPage() {
         `Department: ${formatEntityName(issue.department)}`
       ],
       onConfirm: () => {
-        // Implement archive mutation here
-        // Since there's no archive mutation in useIssues right now, we'll just mock success
-        toast.success("Issue archived successfully");
-        setDeleteModal(prev => ({ ...prev, isOpen: false }));
-        setSelectedIssue(null);
+        deleteIssueMutation.mutate(issue.id, {
+          onSuccess: () => {
+            toast.success("Issue deleted successfully");
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            setSelectedIssue(null);
+          },
+          onError: () => {
+            toast.error("Failed to delete issue");
+          }
+        });
       }
     });
   };
@@ -412,7 +462,7 @@ export default function IssueManagementPage() {
             <Search size={18} className={styles.searchIcon} />
             <input
               type="text"
-              placeholder="Search issues by title..."
+              placeholder="Search by title, code, location, or department..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className={styles.searchInput}
@@ -499,6 +549,23 @@ export default function IssueManagementPage() {
           </div>
         </div>
       ) : viewType === 'board' ? (
+        <>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '10px 16px',
+          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(99, 102, 241, 0.02))',
+          border: '1px solid rgba(99, 102, 241, 0.12)',
+          borderRadius: '10px',
+          marginBottom: '16px',
+          color: '#6366f1',
+          fontSize: '13px',
+          fontWeight: 500
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 9l4-4 4 4"/><path d="M9 5v12"/><path d="M19 15l-4 4-4-4"/><path d="M15 19V7"/></svg>
+          <span>Drag and drop issues between columns to update their status</span>
+        </div>
         <div className={styles.kanbanBoard}>
           <Column 
             title="Pending" 
@@ -545,6 +612,7 @@ export default function IssueManagementPage() {
             onSelectIssue={setSelectedIssue}
           />
         </div>
+        </>
       ) : (
         <div className={styles.listViewContainer}>
           <table className={styles.issueTable}>
@@ -1006,9 +1074,10 @@ export default function IssueManagementPage() {
                   <div className={styles.dangerZone}>
                     <button 
                       className={styles.archiveBtn}
-                      onClick={() => selectedIssue && confirmArchiveIssue(selectedIssue)}
+                      onClick={() => selectedIssue && confirmDeleteIssue(selectedIssue)}
+                      disabled={deleteIssueMutation.isPending}
                     >
-                      <Trash2 size={16} /> Archive Issue
+                      <Trash2 size={16} /> {deleteIssueMutation.isPending ? 'Deleting...' : 'Delete Issue'}
                     </button>
                   </div>
                 </div>

@@ -63,6 +63,7 @@ import {
 import { useLocations } from "@/hooks/useLocations";
 import { useReportTemplates, useUpdateReportTemplate, useShareReportTemplate } from "@/hooks/useReports";
 import { useTouchpoints, useUpdateTouchpoint } from "@/hooks/useTouchpoints";
+import { useFeedbackForms, useUpdateFeedbackForm } from "@/hooks/useFeedbackForms";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { MultiSelect } from "@/components/displays/MultiSelect";
@@ -170,6 +171,10 @@ export default function DepartmentsPage() {
     locationId: currentLocation || undefined
   });
 
+  const { data: allFeedbackFormsData } = useFeedbackForms({
+    locationId: currentLocation || undefined
+  });
+
   const { data: linkDeptsData } = useDepartments({
     locationId: linkLocationId || undefined
   }, { enabled: isAssigning && !!linkLocationId });
@@ -179,15 +184,15 @@ export default function DepartmentsPage() {
     departmentId: linkDeptId || undefined
   }, { enabled: isAssigning && formLinkingStep === 3 && formSubTab === 'internal' && !!linkDeptId });
 
-  const { data: wizardTouchpointsData } = useTouchpoints({
+  const { data: wizardFeedbackFormsData } = useFeedbackForms({
     locationId: linkLocationId || undefined,
     departmentId: linkDeptId || undefined,
-    type: 'FEEDBACK'
   }, { enabled: isAssigning && formLinkingStep === 3 && formSubTab === 'feedback' && !!linkDeptId });
 
   const updateTemplateMutation = useUpdateReportTemplate();
   const shareTemplateMutation = useShareReportTemplate();
   const updateTouchpointMutation = useUpdateTouchpoint();
+  const updateFeedbackFormMutation = useUpdateFeedbackForm();
 
   // Create lookup maps for names
   const deptMap = (deptsData?.data || []).reduce((acc: any, d: any) => {
@@ -202,8 +207,9 @@ export default function DepartmentsPage() {
 
   const allTemplates = allTemplatesData?.data || [];
   const allTouchpoints = allTouchpointsData?.data || [];
+  const allFeedbackForms = allFeedbackFormsData?.data || [];
   const wizardTemplates = wizardTemplatesData?.data || [];
-  const wizardTouchpoints = wizardTouchpointsData?.data || [];
+  const wizardFeedbackForms = wizardFeedbackFormsData?.data || [];
   const linkDepts = linkDeptsData?.data || [];
 
   const handleLinkTemplate = () => {
@@ -234,28 +240,28 @@ export default function DepartmentsPage() {
     });
   };
 
-  const handleLinkTouchpoint = () => {
+  const handleLinkFeedbackForm = () => {
     if (!selectedFormId || !selectedDept) return;
 
-    const touchpoint = wizardTouchpoints.find(tp => tp.id === selectedFormId || tp.uuid === selectedFormId);
-    if (!touchpoint) {
-      toast.error("Touchpoint not found in the selected criteria");
+    const form = wizardFeedbackForms.find(f => f.id === selectedFormId || (f as any).uuid === selectedFormId);
+    if (!form) {
+      toast.error("Form not found in the selected criteria");
       return;
     }
 
-    if (touchpoint.departmentId === selectedDept.id) {
-      toast.error("This touchpoint is already in this department");
+    if (form.departmentId === selectedDept.id) {
+      toast.error("This form is already in this department");
       return;
     }
 
-    updateTouchpointMutation.mutate({
-      uuid: touchpoint.uuid || touchpoint.id,
+    updateFeedbackFormMutation.mutate({
+      id: form.id as string,
       data: {
         departmentId: selectedDept.id
       }
     }, {
       onSuccess: () => {
-        toast.success("Touchpoint linked successfully");
+        toast.success("Feedback form linked successfully");
         setIsAssigning(false);
         setFormLinkingStep(1);
         setLinkDeptId("");
@@ -1276,7 +1282,7 @@ export default function DepartmentsPage() {
                           </div>
                           
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {(formSubTab === 'internal' ? wizardTemplates : wizardTouchpoints)
+                            {(formSubTab === 'internal' ? wizardTemplates : wizardFeedbackForms)
                               .map(item => {
                                 const isAlreadyLinked = formSubTab === 'internal' 
                                   ? (item as any).departmentId === selectedDept.id
@@ -1317,7 +1323,7 @@ export default function DepartmentsPage() {
                                 );
                               })}
                             
-                            {(formSubTab === 'internal' ? wizardTemplates : wizardTouchpoints).length === 0 && (
+                            {(formSubTab === 'internal' ? wizardTemplates : wizardFeedbackForms).length === 0 && (
                               <p style={{ fontSize: '12px', color: '#ef4444', textAlign: 'center', padding: '12px' }}>No available forms found in this department.</p>
                             )}
 
@@ -1325,10 +1331,10 @@ export default function DepartmentsPage() {
                                <button 
                                 className={styles.createButton} 
                                 style={{ marginTop: '12px', width: '100%', padding: '10px 0' }}
-                                onClick={formSubTab === 'internal' ? handleLinkTemplate : handleLinkTouchpoint}
-                                disabled={shareTemplateMutation.isPending || updateTouchpointMutation.isPending}
+                                onClick={formSubTab === 'internal' ? handleLinkTemplate : handleLinkFeedbackForm}
+                                disabled={shareTemplateMutation.isPending || updateFeedbackFormMutation.isPending}
                               >
-                                {(shareTemplateMutation.isPending || updateTouchpointMutation.isPending) ? 'Adding...' : `Add to ${selectedDept.name}`}
+                                {(shareTemplateMutation.isPending || updateFeedbackFormMutation.isPending) ? 'Adding...' : `Add to ${selectedDept.name}`}
                               </button>
                             )}
                           </div>
@@ -1361,8 +1367,8 @@ export default function DepartmentsPage() {
                           </div>
                         ))
                     ) : (
-                      allTouchpoints
-                        .filter(tp => tp.departmentId === selectedDept.id && tp.type === 'FEEDBACK')
+                      allFeedbackForms
+                        .filter(f => f.departmentId === selectedDept.id)
                         .map(item => (
                           <div key={item.id} className={styles.resourceItem} style={{ padding: '16px' }}>
                             <div className={styles.resourceIcon}><CheckCircle2 size={16} /></div>
@@ -1373,10 +1379,10 @@ export default function DepartmentsPage() {
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
                                 <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <MapPin size={10} /> {item.location?.name || locMap[item.locationId] || 'Original Location'}
+                                  <MapPin size={10} /> {locMap[item.locationId] || 'Original Location'}
                                 </span>
                                 <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <Shield size={10} /> {item.department?.name || deptMap[item.departmentId] || 'Original Dept'}
+                                  <Shield size={10} /> {deptMap[item.departmentId] || 'Original Dept'}
                                 </span>
                               </div>
                             </div>
@@ -1385,7 +1391,7 @@ export default function DepartmentsPage() {
                     )}
                     
                     {((formSubTab === 'internal' && allTemplates.filter(t => (t as any).departmentId === selectedDept.id).length === 0) ||
-                      (formSubTab === 'feedback' && allTouchpoints.filter(tp => tp.departmentId === selectedDept.id && tp.type === 'FEEDBACK').length === 0)) && (
+                      (formSubTab === 'feedback' && allFeedbackForms.filter(f => f.departmentId === selectedDept.id).length === 0)) && (
                       <div style={{ padding: '60px 40px', textAlign: 'center', color: '#94a3b8' }}>
                         <ClipboardList size={32} />
                         <p style={{ marginTop: '12px', fontWeight: 500 }}>No {formSubTab === 'internal' ? 'internal reports' : 'feedback forms'} assigned</p>

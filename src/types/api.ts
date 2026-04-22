@@ -444,6 +444,16 @@ export interface ReportTemplate {
   locationName?: string;
   departmentId: string;
   departmentName?: string;
+  location?: {
+    id: string;
+    name: string;
+    airportCode?: string;
+  };
+  department?: {
+    id: string;
+    name: string;
+    code?: string;
+  };
   schema: ReportTemplateField[];
   status: TemplateStatus;
   isActive: boolean;

@@ -21,7 +21,8 @@ import {
   Building,
   Eye,
   EyeOff,
-  Shield
+  Shield,
+  QrCode
 } from "lucide-react";
 import Image from "next/image";
 import styles from "../../Dashboard.module.css";
@@ -260,7 +261,8 @@ export default function LocationsPage() {
 
 
   const totalLocations = locations.length;
-  const totalDepartments = locations.reduce((sum, loc) => sum + (loc.departments?.length || 0), 0);
+  const totalDepartments = locations.reduce((sum, loc) => sum + (loc._count?.departments || loc.departments?.length || 0), 0);
+  const totalTouchpoints = locations.reduce((sum, loc) => sum + (loc._count?.touchpoints || 0), 0);
 
   return (
     <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]}>
@@ -327,12 +329,12 @@ export default function LocationsPage() {
               </div>
             </div>
             <div className={styles.deptStatCard}>
-              <div className={styles.deptStatIcon} style={{ background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.22)', color: '#22c55e' }} aria-hidden="true">
-                <CheckCircle size={18} />
+              <div className={styles.deptStatIcon} style={{ background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.22)', color: '#f59e0b' }} aria-hidden="true">
+                <QrCode size={18} />
               </div>
               <div className={styles.deptStatBody}>
-                <div className={styles.deptStatLabel}>Active Zones</div>
-                <div className={styles.deptStatValue}>24</div>
+                <div className={styles.deptStatLabel}>Total Touchpoints</div>
+                <div className={styles.deptStatValue}>{totalTouchpoints}</div>
               </div>
             </div>
           </div>

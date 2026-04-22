@@ -98,3 +98,18 @@ export const useAddIssueNote = () => {
     },
   });
 };
+
+export const useDeleteIssue = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.delete(`/reports/issues/${id}`);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['kanban'] });
+      queryClient.invalidateQueries({ queryKey: ['issues'] });
+    },
+  });
+};
