@@ -43,12 +43,24 @@ function DashboardLayoutContent({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { currentUser, currentRole, roleLabel, locationName, departmentName, isLoading } = useRole();
+  const { 
+    currentUser, 
+    currentRole, 
+    roleLabel, 
+    locationName, 
+    departmentName, 
+    isLoading,
+    availableLocations,
+    currentLocation,
+    switchLocation 
+  } = useRole();
   const { logout: authLogout } = useAuthContext();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isLocationOpen, setIsLocationOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const locationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -57,6 +69,9 @@ function DashboardLayoutContent({
     const handleClickOutside = (event: MouseEvent) => {
       if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
         setIsNotificationsOpen(false);
+      }
+      if (locationRef.current && !locationRef.current.contains(event.target as Node)) {
+        setIsLocationOpen(false);
       }
     };
     window.addEventListener("scroll", handleScroll);
@@ -227,6 +242,64 @@ function DashboardLayoutContent({
                 className={styles.searchInput}
               />
             </div>
+
+            {currentRole === UserRole.SUPER_ADMIN && (
+              <div className={styles.locationSwitcher} ref={locationRef}>
+                <button 
+                  className={`${styles.locationButton} ${isLocationOpen ? styles.locationButtonActive : ""}`}
+                  onClick={() => setIsLocationOpen(!isLocationOpen)}
+                >
+                  <MapPin size={18} className={styles.locationIcon} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{locationName}</span>
+                  <ChevronDown 
+                    size={16} 
+                    className={`${styles.chevronIcon} ${isLocationOpen ? styles.chevronIconRotated : ""}`} 
+                  />
+                </button>
+
+                <AnimatePresence>
+                  {isLocationOpen && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      transition={{ duration: 0.2, ease: "easeOut" }}
+                      className={styles.locationDropdown}
+                    >
+                      <div className={styles.locationDropdownHeader}>
+                        <h4>Select Context</h4>
+                      </div>
+                      <div className={styles.locationOptions}>
+                        <div 
+                          className={`${styles.locationOption} ${currentLocation === null ? styles.locationOptionActive : ""}`}
+                          onClick={() => {
+                            switchLocation(null);
+                            setIsLocationOpen(false);
+                          }}
+                        >
+                          <div className={styles.locationOptionDot} />
+                          All Locations (Global)
+                        </div>
+                        
+                        {(availableLocations || []).map((loc: any) => (
+                          <div 
+                            key={loc.id}
+                            className={`${styles.locationOption} ${currentLocation === loc.id ? styles.locationOptionActive : ""}`}
+                            onClick={() => {
+                              switchLocation(loc.id);
+                              setIsLocationOpen(false);
+                            }}
+                          >
+                            <div className={styles.locationOptionDot} />
+                            {loc.name}
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
           </div>
 
           <div className={styles.headerRight}>

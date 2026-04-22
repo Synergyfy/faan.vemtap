@@ -1,8 +1,8 @@
 import React from 'react';
-import { X, AlertTriangle, Trash2, Info, LayoutTemplate, Shield, MapPin, FileStack, QrCode, AlertCircle } from 'lucide-react';
+import { X, AlertTriangle, Trash2, Info, LayoutTemplate, Shield, MapPin, FileStack, QrCode, AlertCircle, Users } from 'lucide-react';
 import styles from './DeleteConfirmationModal.module.css';
 
-export type DeletableItemType = 'location' | 'department' | 'form' | 'touchpoint' | 'report' | 'template' | 'issue';
+export type DeletableItemType = 'location' | 'department' | 'form' | 'touchpoint' | 'report' | 'template' | 'issue' | 'user';
 
 interface DeleteConfirmationModalProps {
   isOpen: boolean;
@@ -47,6 +47,8 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
         return 'This specific report and all its submitted data will be permanently removed from management records.';
       case 'issue':
         return 'This issue will be archived. While data is preserved for audit, it will no longer appear in active boards or operational lists.';
+      case 'user':
+        return 'This user will lose all access to the system. Any active sessions will be terminated and their profile will be permanently removed.';
       default:
         return 'This item and all its associated data will be permanently removed.';
     }
@@ -60,6 +62,7 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
       case 'touchpoint': return <QrCode size={20} />;
       case 'template': return <LayoutTemplate size={20} />;
       case 'issue': return <AlertCircle size={20} />;
+      case 'user': return <Users size={20} />;
       default: return <AlertTriangle size={20} />;
     }
   };
