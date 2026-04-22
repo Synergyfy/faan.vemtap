@@ -72,7 +72,7 @@ export default function StaffReportPage({ params }: { params: Promise<{ id: stri
           </div>
           <h1 className={styles.successTitle}>Report Submitted</h1>
           <p className={styles.successText}>
-            The internal report has been successfully logged to the dashboard for {template.locationName}.
+            The internal report has been successfully logged to the dashboard for {template.location?.name || template.locationName || 'the unit'}.
           </p>
           <div className={styles.refInfo}>
             <span>REF: {submissionRef.substring(0, 8).toUpperCase()}</span>
@@ -93,7 +93,9 @@ export default function StaffReportPage({ params }: { params: Promise<{ id: stri
           <Image src="/Faan.logo_.png" alt="FAAN Logo" width={80} height={80} />
         </div>
         <h1 className={styles.brandTitle}>Staff Internal Report</h1>
-        <p className={styles.brandSubtitle}>Unit: {template.departmentName} • {template.locationName}</p>
+        <p className={styles.brandSubtitle}>
+          Unit: {template.department?.name || template.departmentName || 'General'} • {template.location?.name || template.locationName || 'Global'}
+        </p>
       </div>
 
       <div className={styles.formCard}>

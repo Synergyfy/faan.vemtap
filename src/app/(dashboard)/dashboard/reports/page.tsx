@@ -125,14 +125,7 @@ export default function ReportsPage() {
   const [submitDepartmentId, setSubmitDepartmentId] = useState<string>("");
   const [showQrPreview, setShowQrPreview] = useState(false);
   const [currentTemplate, setCurrentTemplate] = useState<ReportTemplate | null>(null);
-  const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<ReportTemplate | null>(null);
-  const [editTemplateData, setEditTemplateData] = useState({
-    name: '',
-    description: '',
-    fields: [] as ReportTemplateField[],
-    status: 'ACTIVE' as any
-  });
   const [origin, setOrigin] = useState("");
   const [copySuccess, setCopySuccess] = useState(false);
   const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
@@ -191,21 +184,53 @@ export default function ReportsPage() {
   const deleteTemplateMutation = useDeleteReportTemplate();
   const updateTemplateMutation = useUpdateReportTemplate();
 
-  useEffect(() => {
-    if (editingTemplate) {
-      setEditTemplateData({
-        name: editingTemplate.name,
-        description: editingTemplate.description || '',
-        fields: (editingTemplate.schema || []) as unknown as ReportTemplateField[],
-        status: editingTemplate.status as any
-      });
-      setIsEditOpen(true);
-    }
-  }, [editingTemplate]);
-
   const reports = reportsData?.data || [];
   const templates = (templatesData?.data || []) as ReportTemplate[];
   const locations = (locationsData?.data || []) as ApiLocation[];
+
+  // Stable key to detect when templates data actually changes (avoids infinite loops)
+  const templatesKey = useMemo(() => 
+    templates.map(t => `${t.id}-${t.updatedAt || t.createdAt}`).join(','), 
+    [templates]
+  );
+
+  const { groupedTemplates, filteredGroupedTemplates } = useMemo(() => {
+    const grouped = templates.reduce((acc: any, t: any) => {
+      const key = t.name;
+      if (!acc[key]) {
+        acc[key] = {
+          ...t,
+          instances: []
+        };
+      }
+      const enriched = {
+        ...t,
+        locationName: t.location?.name || t.locationName || null,
+        departmentName: t.department?.name || t.departmentName || null,
+      };
+      acc[key].instances.push(enriched);
+      return acc;
+    }, {});
+
+    const filtered = Object.values(grouped).filter((t: any) => 
+      !searchTerm || t.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    return { groupedTemplates: grouped, filteredGroupedTemplates: filtered };
+  }, [templates, searchTerm]);
+
+  // Auto-sync drilldownGroup when templates data refreshes (e.g. after edit/delete)
+  useEffect(() => {
+    if (!drilldownGroup) return;
+    const refreshed = groupedTemplates[drilldownGroup.name];
+    if (refreshed) {
+      setDrilldownGroup(refreshed);
+    } else {
+      // Group no longer exists (all templates renamed or deleted)
+      setDrilldownGroup(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templatesKey, groupedTemplates]);
 
   const [newTemplate, setNewTemplate] = useState({
     name: '',
@@ -217,6 +242,38 @@ export default function ReportsPage() {
 
   const [previewFormData, setPreviewFormData] = useState<Record<string, any>>({});
   const [openPreviewDropdown, setOpenPreviewDropdown] = useState<string | null>(null);
+
+  // Unified modal state
+  const [templateModalMode, setTemplateModalMode] = useState<'create' | 'edit'>('create');
+  
+  const openEditTemplate = (template: ReportTemplate) => {
+    setTemplateModalMode('edit');
+    setEditingTemplate(template);
+    // Sync newTemplate state as well for the wizard
+    setNewTemplate({
+      name: template.name,
+      description: template.description || '',
+      locationIds: template.locationId ? [template.locationId] : [],
+      departmentIds: template.departmentId ? [template.departmentId] : [],
+      fields: (template.schema || []) as unknown as ReportTemplateField[],
+    });
+    setWizardStep(1);
+    setIsCreateTemplateOpen(true);
+  };
+
+  const openCreateTemplate = () => {
+    setTemplateModalMode('create');
+    setEditingTemplate(null);
+    setWizardStep(1);
+    setNewTemplate({
+      name: '',
+      description: '',
+      locationIds: currentLocation ? [currentLocation] : [],
+      departmentIds: [],
+      fields: [],
+    });
+    setIsCreateTemplateOpen(true);
+  };
 
   const previewLocationName = useMemo(() => {
     if (newTemplate.locationIds.length === 1) {
@@ -316,15 +373,13 @@ export default function ReportsPage() {
     });
   };
 
-  const handleUpdateTemplate = () => {
+  const handleUpdateTemplateFromWizard = () => {
     if (!editingTemplate) return;
-    if (!editTemplateData.name.trim()) return toast.error("Template name is required");
-    if (editTemplateData.fields.length === 0) return toast.error("Please add at least one field");
 
     const payload = {
-      name: editTemplateData.name,
-      description: editTemplateData.description,
-      schema: editTemplateData.fields.map((f, idx) => ({
+      name: newTemplate.name,
+      description: newTemplate.description,
+      schema: newTemplate.fields.map((f, idx) => ({
         id: f.id || `field_${idx + 1}`,
         type: f.type === 'dropdown' ? 'select' : f.type,
         label: f.label,
@@ -333,12 +388,21 @@ export default function ReportsPage() {
         options: f.options
       }))
     };
+    
     const templateId = editingTemplate.uuid || editingTemplate.id;
+    const originalName = editingTemplate.name;
+    const newName = newTemplate.name;
+
     updateTemplateMutation.mutate({ id: templateId, data: payload }, {
       onSuccess: () => {
         toast.success("Template updated successfully");
-        setIsEditOpen(false);
+        setIsCreateTemplateOpen(false);
         setEditingTemplate(null);
+        setWizardStep(1);
+
+        if (drilldownGroup && originalName !== newName) {
+          setDrilldownGroup(null);
+        }
       },
       onError: () => {
         toast.error("Failed to update template");
@@ -346,30 +410,7 @@ export default function ReportsPage() {
     });
   };
 
-  const handleAddEditField = () => {
-    const newField: ReportTemplateField = {
-      id: `field-${Date.now()}`,
-      type: 'text',
-      label: 'New Field',
-      name: 'new_field',
-      required: false,
-    };
-    setEditTemplateData({ ...editTemplateData, fields: [...editTemplateData.fields, newField] });
-  };
 
-  const handleUpdateEditField = (fieldId: string | number, updates: Partial<ReportTemplateField>) => {
-    setEditTemplateData({
-      ...editTemplateData,
-      fields: editTemplateData.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
-    });
-  };
-
-  const handleRemoveEditField = (fieldId: string | number) => {
-    setEditTemplateData({
-      ...editTemplateData,
-      fields: editTemplateData.fields.filter(f => f.id !== fieldId)
-    });
-  };
 
   const handleCreateTemplate = () => {
     // ... validation and payload creation ...
@@ -384,8 +425,12 @@ export default function ReportsPage() {
     const payload: CreateReportTemplateDto = {
       name: newTemplate.name,
       description: newTemplate.description || `Template for ${newTemplate.name}`,
-      locationIds: newTemplate.locationIds,
-      departmentIds: newTemplate.departmentIds,
+      // Only send locationIds if NO departments are selected — departments already imply their parent location
+      // Sending both causes the backend to create duplicate template records
+      ...(newTemplate.departmentIds.length > 0 
+        ? { departmentIds: newTemplate.departmentIds } 
+        : { locationIds: newTemplate.locationIds }
+      ),
       schema: newTemplate.fields.map((f, idx) => ({
         id: `field_${idx + 1}`,
         type: f.type === 'dropdown' ? 'select' : f.type,
@@ -535,21 +580,7 @@ export default function ReportsPage() {
     return true;
   });
 
-  const groupedTemplates = templates.reduce((acc: any, template: any) => {
-    const key = template.name;
-    if (!acc[key]) {
-      acc[key] = {
-        ...template,
-        instances: []
-      };
-    }
-    acc[key].instances.push(template);
-    return acc;
-  }, {});
 
-  const filteredGroupedTemplates = Object.values(groupedTemplates).filter((t: any) => 
-    !searchTerm || t.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const filteredSubmitDepartments = useMemo(() => {
     if (!submitLocationId) return [];
@@ -609,7 +640,7 @@ export default function ReportsPage() {
         <div className={styles.deptHeroActions}>
           <button
             className={styles.createButton}
-            onClick={() => activeView === 'templates' ? setIsCreateTemplateOpen(true) : openSubmitWizard()}
+            onClick={() => activeView === 'templates' ? openCreateTemplate() : openSubmitWizard()}
           >
             <Plus size={18} />
             <span>{activeView === 'templates' ? 'Create Template' : 'Submit Report'}</span>
@@ -882,7 +913,7 @@ export default function ReportsPage() {
               ) : (
                 <button
                   className={styles.createButton}
-                  onClick={() => setIsCreateTemplateOpen(true)}
+                  onClick={() => openCreateTemplate()}
                 >
                   <Plus size={18} />
                   <span>Create Template</span>
@@ -946,8 +977,7 @@ export default function ReportsPage() {
                                 className={styles.dropdownItem}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setEditingTemplate(inst);
-                                  setIsEditOpen(true);
+                                  openEditTemplate(inst);
                                   setActiveDropdown(null);
                                 }}
                               >
@@ -1026,18 +1056,50 @@ export default function ReportsPage() {
                           aria-label={`Actions for ${template.name}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setActiveDropdown(activeDropdown === template.name ? null : template.name);
+                            const menuKey = template.instances.length === 1 ? primaryInstance.id : template.name;
+                            setActiveDropdown(activeDropdown === menuKey ? null : menuKey);
                           }}
                         >
                           <MoreVertical size={18} />
                         </button>
-                        {activeDropdown === template.name && (
+                        {activeDropdown === (template.instances.length === 1 ? primaryInstance.id : template.name) && (
                           <div className={styles.cardDropdown}>
+                            {template.instances.length === 1 && (
+                              <>
+                                <button
+                                  className={styles.dropdownItem}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCurrentTemplate(primaryInstance);
+                                    setShowQrPreview(true);
+                                    setActiveDropdown(null);
+                                  }}
+                                >
+                                  <QrCode size={14} /> View QR Code
+                                </button>
+                                <div className={styles.dropdownSeparator} />
+                                <button
+                                  className={styles.dropdownItem}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEditTemplate(primaryInstance);
+                                    setActiveDropdown(null);
+                                  }}
+                                >
+                                  <Plus size={14} /> Edit Template
+                                </button>
+                                <div className={styles.dropdownSeparator} />
+                              </>
+                            )}
                             <button
                               className={`${styles.dropdownItem} ${styles.danger}`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                confirmDeleteTemplateGroup(template);
+                                if (template.instances.length > 1) {
+                                  confirmDeleteTemplateGroup(template);
+                                } else {
+                                  confirmDeleteTemplate(primaryInstance);
+                                }
                               }}
                             >
                               <Trash2 size={14} /> {template.instances.length > 1 ? "Delete Group" : "Delete"}
@@ -1050,7 +1112,12 @@ export default function ReportsPage() {
                     <div className={styles.deptCardInfo}>
                       <h3 className={styles.deptCardTitle}>{template.name}</h3>
                       <p className={styles.deptCardDesc}>
-                        {template.instances.length} Active Deployments
+                        {template.instances.length > 1 
+                          ? `${template.instances.length} Active Deployments`
+                          : primaryInstance.departmentName 
+                            ? `${primaryInstance.departmentName} Department` 
+                            : 'General Department'
+                        }
                       </p>
                       <div className={styles.deptLocationRow}>
                         <MapPin size={12} />
@@ -1064,57 +1131,6 @@ export default function ReportsPage() {
                         <span>{template.schema?.length || 0} Fields</span>
                       </div>
                     </div>
-
-                    {(template.instances.length === 1) && (
-                      <div className={styles.cardMenuWrapper} style={{ position: 'absolute', top: '16px', right: '16px' }}>
-                        <button
-                          className={styles.cardMore}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveDropdown(activeDropdown === primaryInstance.id ? null : primaryInstance.id);
-                          }}
-                        >
-                          <MoreVertical size={18} />
-                        </button>
-                        {activeDropdown === primaryInstance.id && (
-                          <div className={styles.cardDropdown}>
-                            <button
-                              className={styles.dropdownItem}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCurrentTemplate(primaryInstance);
-                                setShowQrPreview(true);
-                                setActiveDropdown(null);
-                              }}
-                            >
-                              <QrCode size={14} /> View QR Code
-                            </button>
-                            <div className={styles.dropdownSeparator} />
-                            <button
-                              className={styles.dropdownItem}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingTemplate(primaryInstance);
-                                setIsEditOpen(true);
-                                setActiveDropdown(null);
-                              }}
-                            >
-                              <Plus size={14} /> Edit Template
-                            </button>
-                            <div className={styles.dropdownSeparator} />
-                            <button
-                              className={`${styles.dropdownItem} ${styles.danger}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteTemplate(primaryInstance.id);
-                              }}
-                            >
-                              <Trash2 size={14} /> Delete
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
 
                     {template.instances.length > 1 ? (
                       <button 
@@ -1163,8 +1179,12 @@ export default function ReportsPage() {
             }}>
               <div className={styles.modalHeader} style={{ borderBottom: '1px solid #f1f5f9', padding: '24px 32px' }}>
                 <div className={styles.modalTitleGroup}>
-                  <h3 className={styles.modalTitle}>Create Report Template</h3>
-                  <p className={styles.modalSubtitle}>Design a structured report form</p>
+                  <h3 className={styles.modalTitle}>
+                    {templateModalMode === 'edit' ? 'Update Report Template' : 'Create Report Template'}
+                  </h3>
+                  <p className={styles.modalSubtitle}>
+                    {templateModalMode === 'edit' ? 'Refine your existing template design' : 'Design a structured report form'}
+                  </p>
                 </div>
               </div>
 
@@ -1245,6 +1265,7 @@ export default function ReportsPage() {
                             onChange={(ids) => handleLocationChange(ids)}
                             placeholder="Select Locations"
                             icon={<MapPin size={18} />}
+                            disabled={templateModalMode === 'edit'}
                           />
                         )}
                       </div>
@@ -1265,9 +1286,15 @@ export default function ReportsPage() {
                           onChange={(ids) => setNewTemplate({ ...newTemplate, departmentIds: ids })}
                           placeholder="Select Departments"
                           icon={<Shield size={18} />}
+                          disabled={templateModalMode === 'edit'}
                         />
                       </div>
                     </div>
+                    {templateModalMode === 'edit' && (
+                      <p style={{ marginTop: '16px', fontSize: '13px', color: '#ef4444', fontWeight: 500 }}>
+                        Note: Assignments are locked during refinement. To target new departments, create a new template instance.
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -1382,11 +1409,11 @@ export default function ReportsPage() {
                 ) : (
                   <button 
                     className={styles.createButton} 
-                    onClick={handleCreateTemplate} 
+                    onClick={templateModalMode === 'edit' ? handleUpdateTemplateFromWizard : handleCreateTemplate} 
                     disabled={newTemplate.fields.length === 0}
                     style={{ padding: '10px 28px', fontSize: '14px', fontWeight: 600, opacity: newTemplate.fields.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '8px' }}
                   >
-                    <CheckCircle2 size={18} /> Save Template
+                    {templateModalMode === 'edit' ? 'Update Template' : 'Create Template'}
                   </button>
                 )}
               </div>
@@ -1611,261 +1638,6 @@ export default function ReportsPage() {
                       >
                         Submit Report
                       </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isEditOpen && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ 
-            maxWidth: '1240px', 
-            width: '96%', 
-            height: '92vh',
-            maxHeight: '92vh',
-            display: 'flex',
-            flexDirection: 'row',
-            overflow: 'hidden',
-            background: '#fff'
-          }}>
-            {/* Left Panel: Editor */}
-            <div style={{ 
-              flex: 1, 
-              display: 'flex', 
-              flexDirection: 'column', 
-              borderRight: '1px solid #f1f5f9',
-              background: '#fff',
-              minWidth: 0
-            }}>
-              <div className={styles.modalHeader} style={{ padding: '24px 32px' }}>
-                <div className={styles.modalTitleGroup}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'var(--brand-green-light)', color: 'var(--brand-green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Wrench size={20} />
-                    </div>
-                    <h3 className={styles.modalTitle}>Refine Template</h3>
-                  </div>
-                  <p className={styles.modalSubtitle}>Update fields and metadata for {editingTemplate?.name}</p>
-                </div>
-              </div>
-
-              <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }} className={styles.customScrollbar}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '40px' }}>
-                  <div className={styles.inputGroup}>
-                    <label className={styles.inputLabel}>Template Name</label>
-                    <div className={styles.modalInputWrapper}>
-                      <LayoutTemplate size={18} />
-                      <input 
-                        type="text" 
-                        value={editTemplateData.name}
-                        onChange={(e) => setEditTemplateData({ ...editTemplateData, name: e.target.value })}
-                        placeholder="e.g. Daily Shift Report"
-                      />
-                    </div>
-                  </div>
-                  <div className={styles.inputGroup}>
-                    <label className={styles.inputLabel}>Description</label>
-                    <div className={styles.modalInputWrapper}>
-                      <FileStack size={18} />
-                      <input 
-                        type="text" 
-                        value={editTemplateData.description}
-                        onChange={(e) => setEditTemplateData({ ...editTemplateData, description: e.target.value })}
-                        placeholder="Standardizing data for operational checks"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
-                  <h4 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <List size={20} color="var(--brand-green)" />
-                    Form Schema
-                  </h4>
-                  <button className={styles.addFieldBtn} onClick={handleAddEditField} style={{ background: '#f1f5f9', color: '#0f172a', fontWeight: 600, padding: '8px 16px', borderRadius: '10px' }}>
-                    <Plus size={16} /> Add New Field
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {editTemplateData.fields.map((field, index) => (
-                    <div key={field.id} className={styles.animateIn} style={{ 
-                      animationDelay: `${index * 0.05}s`,
-                      background: '#fff', 
-                      borderRadius: '20px', 
-                      padding: '24px', 
-                      border: '1.5px solid #edf2f7',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
-                      transition: 'all 0.2s ease'
-                    }}>
-                      <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#64748b', fontSize: '14px' }}>
-                          {index + 1}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: '16px', marginBottom: '16px' }}>
-                            <div className={styles.inputGroup} style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Field Label</label>
-                              <input 
-                                type="text" 
-                                className={styles.input}
-                                value={field.label}
-                                onChange={(e) => handleUpdateEditField(field.id, { label: e.target.value })}
-                                placeholder="What is the question?"
-                              />
-                            </div>
-                            <div className={styles.inputGroup} style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Type</label>
-                              <select 
-                                className={styles.input}
-                                value={field.type}
-                                onChange={(e) => handleUpdateEditField(field.id, { type: e.target.value as any })}
-                              >
-                                <option value="text">Text Input</option>
-                                <option value="textarea">Long Text</option>
-                                <option value="number">Number</option>
-                                <option value="dropdown">Dropdown</option>
-                                <option value="date">Date</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          {field.type === 'dropdown' && (
-                            <div style={{ marginTop: '16px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
-                              <label style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', marginBottom: '8px', display: 'block' }}>Dropdown Options (Comma separated)</label>
-                              <input 
-                                type="text" 
-                                className={styles.input}
-                                value={field.options?.join(', ') || ''}
-                                onChange={(e) => handleUpdateEditField(field.id, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                                placeholder="Option 1, Option 2, Option 3..."
-                              />
-                            </div>
-                          )}
-
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', fontWeight: 600, color: '#334155' }}>
-                              <input 
-                                type="checkbox" 
-                                checked={field.required}
-                                onChange={(e) => handleUpdateEditField(field.id, { required: e.target.checked })}
-                                style={{ width: '18px', height: '18px', accentColor: 'var(--brand-green)', borderRadius: '6px' }}
-                              />
-                              Required Entry
-                            </label>
-                            <button className={styles.removeFieldBtn} onClick={() => handleRemoveEditField(field.id)} style={{ color: '#ef4444', background: '#fef2f2', border: 'none', padding: '8px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <Trash2 size={14} /> Remove
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ padding: '24px 32px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: '#fff' }}>
-                <button className={styles.cancelBtn} onClick={() => { setIsEditOpen(false); setEditingTemplate(null); }}>
-                  Discard Changes
-                </button>
-                <button 
-                  className={styles.createButton} 
-                  onClick={handleUpdateTemplate}
-                  disabled={updateTemplateMutation.isPending}
-                  style={{ padding: '12px 32px', fontWeight: 700 }}
-                >
-                  {updateTemplateMutation.isPending ? 'Saving...' : 'Update Template'}
-                </button>
-              </div>
-            </div>
-
-            {/* Right Panel: Live Preview */}
-            <div style={{ 
-              width: '420px', 
-              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
-              display: 'flex', 
-              flexDirection: 'column',
-              position: 'relative'
-            }}>
-              <div style={{ 
-                height: '80px', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'flex-end', 
-                padding: '0 24px', 
-                gap: '12px',
-                borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
-              }}>
-                <button 
-                  className={styles.closeBtn} 
-                  onClick={() => { setIsEditOpen(false); setEditingTemplate(null); }}
-                  style={{ color: '#fff', marginLeft: '8px', background: 'rgba(255, 255, 255, 0.1)' }}
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px 0 40px 0' }}>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(148, 163, 184, 0.6)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '24px' }}>
-                  EDITION PREVIEW
-                </div>
-                
-                <div style={{ 
-                  width: '300px', 
-                  height: '620px', 
-                  flexShrink: 0, 
-                  background: '#000', 
-                  borderRadius: '44px', 
-                  padding: '12px', 
-                  position: 'relative', 
-                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-                  border: '4px solid #334155'
-                }}>
-                  <div style={{ width: '100px', height: '30px', background: '#000', borderRadius: '16px', position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }} />
-                  <div style={{ height: '100%', background: '#fff', borderRadius: '34px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ height: '46px', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>
-                      <span>9:41</span>
-                    </div>
-
-                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: 'linear-gradient(to bottom, #fafafa, #ffffff)' }}>
-                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>{editTemplateData.name || 'Untitled Template'}</div>
-                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{editingTemplate?.departmentName} • {editingTemplate?.locationName}</div>
-                    </div>
-
-                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-                      {editTemplateData.fields.length === 0 ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', opacity: 0.5 }}>
-                          <FileStack size={48} />
-                          <p style={{ fontSize: '13px', marginTop: '12px', fontWeight: 500 }}>No fields left</p>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                          {editTemplateData.fields.map(field => (
-                            <div key={field.id}>
-                              <div style={{ fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
-                                {field.label || 'New Question'} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
-                              </div>
-                              <div style={{ height: '40px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', width: '100%', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '12px', color: '#9ca3af' }}>
-                                {field.type === 'text' && 'Text input...'}
-                                {field.type === 'number' && '0.00'}
-                                {field.type === 'textarea' && 'Long text entry...'}
-                                {field.type === 'dropdown' && 'Select option...'}
-                                {field.type === 'date' && 'Select date...'}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9', background: '#fff' }}>
-                      <div style={{ width: '100%', background: 'var(--brand-green)', color: 'white', padding: '14px', borderRadius: '14px', textAlign: 'center', fontSize: '15px', fontWeight: 700, opacity: 0.9 }}>
-                        Submit Report
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -2102,8 +1874,8 @@ export default function ReportsPage() {
                           <Type size={18} />
                           <input 
                             type="text" 
-                            value={newReport.fieldValues[field.name || field.label] || ''} 
-                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                            value={newReport.fieldValues[field.id] || ''} 
+                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.id]: e.target.value } })} 
                             required={field.required} 
                           />
                         </div>
@@ -2113,8 +1885,8 @@ export default function ReportsPage() {
                           <Wrench size={18} />
                           <input 
                             type="number" 
-                            value={newReport.fieldValues[field.name || field.label] || ''} 
-                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                            value={newReport.fieldValues[field.id] || ''} 
+                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.id]: e.target.value } })} 
                             required={field.required} 
                           />
                         </div>
@@ -2124,8 +1896,8 @@ export default function ReportsPage() {
                           <Calendar size={18} />
                           <input 
                             type="date" 
-                            value={newReport.fieldValues[field.name || field.label] || ''} 
-                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                            value={newReport.fieldValues[field.id] || ''} 
+                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.id]: e.target.value } })} 
                             required={field.required} 
                           />
                         </div>
@@ -2134,8 +1906,8 @@ export default function ReportsPage() {
                         <div className={styles.modalInputWrapper}>
                           <List size={18} />
                           <select 
-                            value={newReport.fieldValues[field.name || field.label] || ''} 
-                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                            value={newReport.fieldValues[field.id] || ''} 
+                            onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.id]: e.target.value } })} 
                             required={field.required}
                           >
                             <option value="">Select</option>
@@ -2149,15 +1921,15 @@ export default function ReportsPage() {
                             <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#475569', cursor: 'pointer', padding: '8px 12px', background: '#f8fafc', borderRadius: '10px' }}>
                               <input 
                                 type="checkbox" 
-                                checked={(newReport.fieldValues[field.name || field.label] || []).includes(opt)}
+                                checked={(newReport.fieldValues[field.id] || []).includes(opt)}
                                 onChange={(e) => {
-                                  const current = newReport.fieldValues[field.name || field.label] || [];
+                                  const current = newReport.fieldValues[field.id] || [];
                                   const next = e.target.checked 
                                     ? [...current, opt]
                                     : current.filter((v: any) => v !== opt);
                                   setNewReport({
                                     ...newReport,
-                                    fieldValues: { ...newReport.fieldValues, [field.name || field.label]: next }
+                                    fieldValues: { ...newReport.fieldValues, [field.id]: next }
                                   });
                                 }}
                                 style={{ accentColor: 'var(--brand-green)', width: '18px', height: '18px' }}
@@ -2170,8 +1942,8 @@ export default function ReportsPage() {
                       {field.type === 'textarea' && (
                         <textarea 
                           placeholder={field.label} 
-                          value={newReport.fieldValues[field.name || field.label] || ''} 
-                          onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.name || field.label]: e.target.value } })} 
+                          value={newReport.fieldValues[field.id] || ''} 
+                          onChange={(e) => setNewReport({ ...newReport, fieldValues: { ...newReport.fieldValues, [field.id]: e.target.value } })} 
                           required={field.required} 
                           className={styles.modalTextarea} 
                           style={{ height: '100px', marginTop: '8px', width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', resize: 'none' }} 
@@ -2260,12 +2032,26 @@ export default function ReportsPage() {
                   <section className={styles.messageSection}>
                     <h4 className={styles.detailLabel}>Report Data</h4>
                     <div className={styles.messageCard}>
-                      {Object.entries(selectedReport.fieldValues || {}).map(([key, value]) => (
-                        <div key={key} style={{ padding: '12px 0', borderBottom: '1px solid #e2e8f0' }}>
-                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>{key}</div>
-                          <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 500 }}>{typeof value === 'object' ? JSON.stringify(value) : String(value) || '-'}</div>
-                        </div>
-                      ))}
+                      {(() => {
+                        const template = templates.find(t => t.id === selectedReport.templateId);
+                        return Object.entries(selectedReport.fieldValues || {}).map(([key, value]) => {
+                          const field = template?.schema?.find(f => f.id === key || f.name === key || f.label === key);
+                          const label = field?.label || key;
+                          return (
+                            <div key={key} style={{ padding: '12px 0', borderBottom: '1px solid #e2e8f0' }}>
+                              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>{label}</div>
+                              <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 500 }}>
+                                {Array.isArray(value) 
+                                  ? value.join(', ') 
+                                  : typeof value === 'object' 
+                                    ? JSON.stringify(value) 
+                                    : String(value) || '-'
+                                }
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   </section>
                 </div>

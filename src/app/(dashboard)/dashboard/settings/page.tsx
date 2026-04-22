@@ -26,6 +26,12 @@ import {
 import { useApiKey } from "@/hooks/useSettings";
 import { useProfile } from "@/hooks/useAuth";
 import { useEffect } from "react";
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
+import { toast } from "react-hot-toast";
+import { useAnalyticsSummary } from "@/hooks/useAnalytics";
+import { format } from "date-fns";
+import { Download, FileText } from "lucide-react";
 
 export default function SettingsPage() {
   const { currentRole, currentLocation, locationName, departmentName, currentDepartment } = useRole();
@@ -59,6 +65,90 @@ export default function SettingsPage() {
       setOrgName(organization.name);
     }
   }, [organization]);
+
+  const { data: analytics } = useAnalyticsSummary({ locationId: currentLocation, departmentId: currentDepartment });
+
+  const handleExportData = () => {
+    try {
+      toast.loading("Preparing CSV export...", { id: 'csvExport' });
+      
+      const headers = ["Metric", "Value"];
+      const rows = [
+        ["Total Submissions", analytics?.totalSubmissions || 0],
+        ["Average Rating", analytics?.averageRating?.toFixed(2) || 0],
+        ["Open Issues", analytics?.openSubmissions || 0],
+        ["Resolved Issues", analytics?.resolvedSubmissions || 0],
+        ["Total Issues", analytics?.totalIssues || 0],
+        ["Resolution Rate", `${analytics?.resolutionRate || 0}%`],
+        ["Avg Response Time", `${analytics?.avgResponseTime || 0}m`],
+        ["Generated At", format(new Date(), 'yyyy-MM-dd HH:mm:ss')]
+      ];
+
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.join(","))
+      ].join("\n");
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `faan_data_export_${format(new Date(), 'yyyyMMdd')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success("CSV exported successfully!", { id: 'csvExport' });
+    } catch (error) {
+      toast.error("Failed to export CSV.", { id: 'csvExport' });
+    }
+  };
+
+  const handlePdfReport = () => {
+    try {
+      toast.loading("Generating PDF Report...", { id: 'pdfExport' });
+      const doc = new jsPDF();
+      
+      // Header
+      doc.setFontSize(20);
+      doc.setTextColor(30, 41, 59);
+      doc.text("VEMTAP Performance Report", 14, 22);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Generated on: ${format(new Date(), 'PPPP p')}`, 14, 30);
+      doc.text(`Organization: ${orgName || "FAAN"}`, 14, 35);
+      if (locationName) doc.text(`Location: ${locationName}`, 14, 40);
+      if (departmentName) doc.text(`Department: ${departmentName}`, 14, 45);
+
+      // Summary Table
+      const tableData = [
+        ["Metric", "Value"],
+        ["Total Submissions", (analytics?.totalSubmissions || 0).toString()],
+        ["Average Passenger Rating", (analytics?.averageRating?.toFixed(2) || "0.00").toString()],
+        ["Total Issues Flagged", (analytics?.totalIssues || 0).toString()],
+        ["Resolution Rate", `${analytics?.resolutionRate || 0}%`],
+        ["Avg. Response Time", `${analytics?.avgResponseTime || 0} minutes`],
+        ["Open (Pending) Issues", (analytics?.openSubmissions || 0).toString()],
+        ["Resolved Issues", (analytics?.resolvedSubmissions || 0).toString()]
+      ];
+
+      (doc as any).autoTable({
+        startY: 55,
+        head: [tableData[0]],
+        body: tableData.slice(1),
+        theme: 'grid',
+        headStyles: { fillStyle: [59, 130, 246], textColor: [255, 255, 255] },
+        alternateRowStyles: { fillStyle: [248, 250, 252] }
+      });
+
+      doc.save(`vemtap_report_${format(new Date(), 'yyyyMMdd')}.pdf`);
+      toast.success("PDF generated successfully!", { id: 'pdfExport' });
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to generate PDF.", { id: 'pdfExport' });
+    }
+  };
 
   const handleSaveOrg = () => {
     updateOrgMutation.mutate({ name: orgName });
@@ -118,6 +208,15 @@ export default function SettingsPage() {
              <BellRing size={18} />
              <span>Notification Rules</span>
            </button>
+           {currentRole !== 'DEPARTMENT_ADMIN' && (
+             <button 
+               className={`${styles.settingsTab} ${activeTab === "data" ? styles.settingsTabActive : ""}`}
+               onClick={() => setActiveTab("data")}
+             >
+               <Database size={18} />
+               <span>Data & Exports</span>
+             </button>
+           )}
            {currentRole === 'LOCATION_ADMIN' && (
              <button 
                className={`${styles.settingsTab} ${activeTab === "location" ? styles.settingsTabActive : ""}`}
@@ -218,41 +317,56 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* DATA RETENTION */}
-          {activeTab === "data" && (
+          {/* DATA MANAGEMENT & EXPORTS */}
+          {(activeTab === "data" || (activeTab === "profile" && currentRole === 'DEPARTMENT_ADMIN')) && (
             <div className={styles.settingsSection}>
                <div className={styles.settingsHeader}>
-                  <h3>Retention & Analytics</h3>
-                  <p>Control how long passenger feedback and media are stored on the VEMTAP platform.</p>
+                  <h3>Data Management & Exports</h3>
+                  <p>Export your operational data or generate a comprehensive PDF summary of system performance.</p>
                </div>
                
                <div className={styles.settingsForm}>
-                  <div className={styles.formGroup}>
-                     <label className={styles.formLabel}>Submission Data Retention</label>
-                     <p className={styles.fieldDesc} style={{ marginBottom: "12px" }}>Automatically purge unarchived tickets to comply with data standard laws.</p>
-                     <select 
-                       value={retentionPeriod} 
-                       onChange={e => setRetentionPeriod(e.target.value)}
-                       className={styles.modalInput}
-                     >
-                        <option value="30">30 Days</option>
-                        <option value="90">90 Days</option>
-                        <option value="180">6 Months</option>
-                        <option value="365">1 Year (Default)</option>
-                        <option value="none">Keep Indefinitely</option>
-                     </select>
-                  </div>
-
-                  <div className={styles.dangerZoneBox}>
-                     <div>
-                        <h4>Factory Reset Data</h4>
-                        <p>Permanently delete all feedback and touchpoint analytics. Proceed with extreme caution.</p>
-                     </div>
-                     <button className={`${styles.createButton} ${styles.danger}`} style={{ backgroundColor: '#ef4444' }}>
-                        <Trash2 size={16} />
-                        Purge Records
+                  <div className={styles.exportActionsContainer} style={{ display: 'flex', gap: '12px', marginBottom: '32px' }}>
+                     <button className={styles.exportBtn} onClick={() => handlePdfReport()}>
+                        <FileText size={18} />
+                        <span>Generate PDF Report</span>
+                     </button>
+                     <button className={styles.exportBtnPrimary} onClick={() => handleExportData()}>
+                        <Download size={18} />
+                        <span>Export CSV Data</span>
                      </button>
                   </div>
+
+                  {currentRole !== 'DEPARTMENT_ADMIN' && (
+                    <>
+                      <div className={styles.formGroup}>
+                        <label className={styles.formLabel}>Submission Data Retention</label>
+                        <p className={styles.fieldDesc} style={{ marginBottom: "12px" }}>Automatically purge unarchived tickets to comply with data standard laws.</p>
+                        <select 
+                          value={retentionPeriod} 
+                          onChange={e => setRetentionPeriod(e.target.value)}
+                          className={styles.modalInput}
+                        >
+                            <option value="30">30 Days</option>
+                            <option value="90">90 Days</option>
+                            <option value="180">6 Months</option>
+                            <option value="365">1 Year (Default)</option>
+                            <option value="none">Keep Indefinitely</option>
+                        </select>
+                      </div>
+
+                      <div className={styles.dangerZoneBox}>
+                        <div>
+                            <h4>Factory Reset Data</h4>
+                            <p>Permanently delete all feedback and touchpoint analytics. Proceed with extreme caution.</p>
+                        </div>
+                        <button className={`${styles.createButton} ${styles.danger}`} style={{ backgroundColor: '#ef4444' }}>
+                            <Trash2 size={16} />
+                            Purge Records
+                        </button>
+                      </div>
+                    </>
+                  )}
                </div>
             </div>
           )}

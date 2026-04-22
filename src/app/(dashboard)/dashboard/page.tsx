@@ -9,8 +9,10 @@ import {
   Clock,
   ArrowUpRight,
   ArrowDownRight,
-  MoreVertical
+  MoreVertical,
+  ChevronDown
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
   LineChart, 
   Line, 
@@ -33,7 +35,7 @@ import {
   useAnalyticsDistribution, 
   useSatisfactionTrend 
 } from "@/hooks/useAnalytics";
-import { useMemo } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 
 const CATEGORY_COLORS = ["#ef4444", "#3b82f6", "#f59e0b", "#10b981", "#8b5cf6", "#6366f1"];
 
@@ -57,6 +59,24 @@ export default function DashboardPage() {
     locationId: currentLocation,
     departmentId: currentDepartment
   };
+
+  const [isDateFilterOpen, setIsDateFilterOpen] = useState(false);
+  const [selectedDateFilter, setSelectedDateFilter] = useState("Last 7 Days");
+  const dateFilterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dateFilterRef.current && !dateFilterRef.current.contains(event.target as Node)) {
+        setIsDateFilterOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const dateFilters = ["Last 7 Days", "1 Month", "3 Months", "6 Months"];
 
   const { data: summary, isLoading: isSummaryLoading } = useAnalyticsSummary(params);
   const { data: activityData, isLoading: isActivityLoading } = useActivityFeed(params);
@@ -170,8 +190,39 @@ export default function DashboardPage() {
           <h2 className={styles.pageTitle}>{getPageTitle()}</h2>
           <p className={styles.pageSubtitle}>{getPageSubtitle()}</p>
         </div>
-        <div className={styles.datePicker}>
-          <span>Last 7 Days</span>
+        <div className={styles.datePickerContainer} ref={dateFilterRef}>
+          <button 
+            className={styles.datePicker}
+            onClick={() => setIsDateFilterOpen(!isDateFilterOpen)}
+          >
+            <span>{selectedDateFilter}</span>
+            <ChevronDown size={16} className={`${styles.datePickerChevron} ${isDateFilterOpen ? styles.chevronRotated : ''}`} />
+          </button>
+          
+          <AnimatePresence>
+            {isDateFilterOpen && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className={styles.dateFilterDropdown}
+              >
+                {dateFilters.map(filter => (
+                  <button
+                    key={filter}
+                    className={`${styles.dateFilterOption} ${selectedDateFilter === filter ? styles.dateFilterOptionActive : ''}`}
+                    onClick={() => {
+                      setSelectedDateFilter(filter);
+                      setIsDateFilterOpen(false);
+                    }}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -280,7 +331,6 @@ export default function DashboardPage() {
       <div className={styles.activityCard}>
         <div className={styles.cardHeader}>
           <h3 className={styles.cardTitle}>Recent Activity Feed</h3>
-          <button className={styles.viewAll}>View All</button>
         </div>
         <div className={styles.activityList}>
           {activities.length > 0 ? (

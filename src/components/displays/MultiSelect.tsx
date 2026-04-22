@@ -16,6 +16,7 @@ interface MultiSelectProps {
   placeholder?: string;
   label?: string;
   icon?: React.ReactNode;
+  disabled?: boolean;
 }
 
 export const MultiSelect: React.FC<MultiSelectProps> = ({
@@ -24,7 +25,8 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   onChange,
   placeholder = "Select options...",
   label,
-  icon
+  icon,
+  disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -66,8 +68,8 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
     <div className={styles.container} ref={containerRef}>
       {label && <label className={styles.label}>{label}</label>}
       <div 
-        className={`${styles.selectBox} ${isOpen ? styles.isOpen : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
+        className={`${styles.selectBox} ${isOpen ? styles.isOpen : ''} ${disabled ? styles.disabled : ''}`}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
       >
         <div className={styles.iconWrapper}>
           {icon}
@@ -76,11 +78,13 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
           {selectedOptions.length > 0 ? (
             <div className={styles.tagsContainer}>
               {selectedOptions.map(opt => (
-                <span key={opt.id} className={styles.tag}>
+                <span key={opt.id} className={`${styles.tag} ${disabled ? styles.disabledTag : ''}`}>
                   {opt.name}
-                  <button onClick={(e) => removeOption(String(opt.id), e)} className={styles.removeTag}>
-                    <X size={12} />
-                  </button>
+                  {!disabled && (
+                    <button onClick={(e) => removeOption(String(opt.id), e)} className={styles.removeTag}>
+                      <X size={12} />
+                    </button>
+                  )}
                 </span>
               ))}
             </div>
