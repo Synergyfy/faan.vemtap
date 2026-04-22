@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -12,7 +12,6 @@ import {
   AlertCircle,
   MessageSquare,
   Search,
-  Filter,
   Plus,
   X,
   Trash2,
@@ -33,7 +32,6 @@ import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
 import { useCreateUser } from "@/hooks/useUsers";
-import { useZoneHealth } from "@/hooks/useAnalytics";
 import { Location, Department, Role } from "@/types/api";
 import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
@@ -41,16 +39,26 @@ import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationMod
 export default function LocationsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const { data: locationsData, isLoading } = useLocations();
-  const [expanded, setExpanded] = useState<string[]>([]);
   const [selectedZone, setSelectedZone] = useState<Department | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
-  const { data: heatmapData, isLoading: isHeatmapLoading } = useZoneHealth({
-    locationId: selectedLocation?.id,
-    departmentId: selectedZone?.id
-  });
+  // Sync selectedLocation with global currentLocation from header switcher
+  useEffect(() => {
+    if (locationsData?.data) {
+      if (currentLocation) {
+        const found = locationsData.data.find((loc: Location) => loc.id === currentLocation);
+        if (found) {
+          setSelectedLocation(found);
+          setSelectedZone(null); // Reset zone when location changes
+        }
+      } else {
+        setSelectedLocation(null);
+        setSelectedZone(null);
+      }
+    }
+  }, [currentLocation, locationsData]);
 
-  const [activeTooltip, setActiveTooltip] = useState<number | null>(null);
+
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -58,7 +66,7 @@ export default function LocationsPage() {
     { id: 1, name: "Engr. Jide Ojo", email: "jide.ojo@faan.gov.ng", status: "Accepted", phone: "+234 802 345 6789" },
     { id: 2, name: "Mrs. Amina Bello", email: "amina.bello@faan.gov.ng", status: "Pending", phone: "+234 803 111 2222" },
   ]);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [editingAdmin, setEditingAdmin] = useState<any>(null);
   const [deleteModal, setDeleteModal] = useState<{
     isOpen: boolean;
     title?: string;
@@ -127,19 +135,54 @@ export default function LocationsPage() {
     code: '',
   });
 
-  const toggleExpand = (id: string) => {
-    setExpanded(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
+  const handleDeleteAdmin = (admin: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: "Remove Administrator",
+      itemName: admin.name,
+      itemType: 'user' as any,
+      isGroup: false,
+      instanceCount: 1,
+      affectedItems: [],
+      onConfirm: () => {
+        // Since we're using local state for now
+        setLocationAdmins(prev => prev.filter(a => a.id !== admin.id));
+        toast.success(`${admin.name} removed from ${selectedLocation?.name}`);
+        setDeleteModal(prev => ({ ...prev, isOpen: false }));
+      }
+    });
   };
 
-  const toggleTooltip = (id: number) => {
-    setActiveTooltip(activeTooltip === id ? null : id);
+  const handleEditAdmin = (admin: any) => {
+    setEditingAdmin(admin);
+    setNewAdmin({
+      name: admin.name,
+      email: admin.email,
+      password: '', // Keep blank for security during edit
+      role: UserRole.LOCATION_ADMIN,
+    });
+    setIsAdminModalOpen(true);
   };
+
+
 
   const handleAddAdmin = () => {
-    if (!newAdmin.name || !newAdmin.email || !newAdmin.password || !selectedLocation) {
+    if (!newAdmin.name || !newAdmin.email || !selectedLocation) {
       toast.error("Please fill in all required fields and select a location");
+      return;
+    }
+
+    if (editingAdmin) {
+      // Mock update for local state
+      setLocationAdmins(prev => prev.map(a => 
+        a.id === editingAdmin.id 
+          ? { ...a, name: newAdmin.name, email: newAdmin.email } 
+          : a
+      ));
+      toast.success(`Admin updated successfully`);
+      setIsAdminModalOpen(false);
+      setEditingAdmin(null);
+      setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
       return;
     }
 
@@ -215,74 +258,13 @@ export default function LocationsPage() {
     });
   };
 
-  const filteredLocations = (currentRole === UserRole.SUPER_ADMIN
-    ? locations
-    : locations.filter((loc: Location) => loc.id === currentLocation)) as Location[];
-
-  const terminalFiltered = filteredLocations.filter(loc =>
-    !searchTerm || loc.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const totalLocations = locations.length;
   const totalDepartments = locations.reduce((sum, loc) => sum + (loc.departments?.length || 0), 0);
 
   return (
     <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]}>
-      <div className={styles.locationsLayout} onClick={() => setActiveTooltip(null)}>
-        {/* LEFT PANEL - TREE VIEW */}
-        <aside className={styles.treePanel} onClick={(e) => e.stopPropagation()}>
-          <div className={styles.panelHeader}>
-            <h3 className={styles.panelTitle}>Locations Tree</h3>
-            <div className={styles.panelSearch}>
-              <Search size={16} />
-              <input
-                type="text"
-                placeholder="Search locations..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className={styles.treeView}>
-            {terminalFiltered.map((airport) => (
-              <div key={airport.id} className={styles.treeItem}>
-                <div
-                  className={`${styles.treeHeader} ${selectedLocation?.id === airport.id ? styles.selected : ""}`}
-                  onClick={() => {
-                    toggleExpand(airport.id);
-                    setSelectedLocation(airport);
-                    setSelectedZone(null);
-                  }}
-                >
-                  {expanded.includes(airport.id) ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                  <Plane size={18} className={styles.airportIcon} />
-                  <span>{airport.name}</span>
-                </div>
-
-                {expanded.includes(airport.id) && (
-                  <div className={styles.treeSubItems}>
-                    {airport.departments?.map((dept) => (
-                      <div key={dept.id} className={styles.treeItem}>
-                        <div
-                          className={`${styles.treeHeader} ${styles.zoneItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
-                          onClick={() => {
-                            setSelectedZone(dept as any);
-                            setSelectedLocation(airport);
-                          }}
-                        >
-                          <Building2 size={16} className={styles.terminalIcon} />
-                          <span>{dept.name}</span>
-                          <div className={`${styles.statusDot} ${(dept as any).isActive ? styles.green : styles.gray}`} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </aside>
+      <div className={styles.locationsLayout}>
 
         {/* MAIN VIEW */}
         <main className={styles.locationMain} onClick={(e) => e.stopPropagation()}>
@@ -429,57 +411,78 @@ export default function LocationsPage() {
           )}
 
           {/* HEATMAP / VISUALIZATION */}
+          {/* DEPARTMENTS OVERVIEW */}
           <section className={styles.heatmapSection}>
             <div className={styles.sectionHeader}>
               <div>
-                <h3 className={styles.sectionTitle}>Zone Status Heatmap</h3>
-                <p className={styles.sectionSubtitle}>Real-time operational health across all zones.</p>
-              </div>
-              <div className={styles.legend}>
-                <div className={styles.legendItem}><span className={styles.green} /> Good</div>
-                <div className={styles.legendItem}><span className={styles.yellow} /> Warning</div>
-                <div className={styles.legendItem}><span className={styles.red} /> Critical</div>
+                <h3 className={styles.sectionTitle}>
+                  {selectedLocation ? `${selectedLocation.name} - Departments` : "Network Departments Overview"}
+                </h3>
+                <p className={styles.sectionSubtitle}>
+                  {selectedLocation 
+                    ? `Breakdown of operational capacity across departments in ${selectedLocation.airportCode}.`
+                    : "Summary of departmental distribution across all airport locations."
+                  }
+                </p>
               </div>
             </div>
 
-            <div className={styles.heatmapGrid}>
-              {isHeatmapLoading ? (
-                Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className={`${styles.heatmapBlock} ${styles.loadingBlock}`} style={{ height: '80px', background: '#f8fafc', borderRadius: '12px', animation: 'pulse 2s infinite' }} />
-                ))
-
-              ) : heatmapData && heatmapData.length > 0 ? (
-                heatmapData.map((block) => (
-                  <div
-                    key={block.id}
-                    className={`${styles.heatmapBlock} ${styles[block.status]} ${activeTooltip === block.id ? styles.activeBlock : ""}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleTooltip(block.id);
-                    }}
-                  >
-                    <div className={styles.blockContent}>
-                      <span className={styles.blockLabel}>{block.label}</span>
-                      <span className={styles.blockValue}>{block.value}%</span>
-                    </div>
-                    <div className={`${styles.heatmapTooltip} ${activeTooltip === block.id ? styles.activeTooltip : ""}`}>
-                      <h4 className={styles.tooltipTitle}>{block.label}</h4>
-                      <p className={styles.tooltipDesc}>{block.desc}</p>
-                      <div className={styles.tooltipStatus}>
-                        <div className={`${styles.statusBadge} ${styles[block.status]}`}>
-                          Status: {block.status.toUpperCase()}
+            <div className={styles.resourceItems} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', marginTop: '20px' }}>
+              {selectedLocation ? (
+                selectedLocation.departments?.length ? (
+                  selectedLocation.departments.map((dept) => (
+                    <div 
+                      key={dept.id} 
+                      className={`${styles.resourceItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
+                      style={{ 
+                        flexDirection: 'column', 
+                        alignItems: 'flex-start', 
+                        padding: '20px',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s, box-shadow 0.2s',
+                        background: selectedZone?.id === dept.id ? 'var(--brand-green-light)' : '#ffffff'
+                      }}
+                      onClick={() => setSelectedZone(dept as any)}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '16px' }}>
+                        <div className={styles.resourceIcon} style={{ background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb' }}>
+                          <Building2 size={20} />
+                        </div>
+                        <div className={`${styles.statusBadge} ${styles.neutral}`}>
+                          {dept.code}
+                        </div>
+                      </div>
+                      
+                      <h4 style={{ fontSize: '17px', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>{dept.name}</h4>
+                      <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>{(dept as any).responsibility || "Operational department"}</p>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%' }}>
+                        <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                          <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Staff</div>
+                          <div style={{ fontSize: '16px', fontWeight: 700, color: '#334155' }}>{dept._count?.users || 0}</div>
+                        </div>
+                        <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                          <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Touchpoints</div>
+                          <div style={{ fontSize: '16px', fontWeight: 700, color: '#334155' }}>{dept._count?.touchpoints || 0}</div>
                         </div>
                       </div>
                     </div>
+                  ))
+                ) : (
+                  <div style={{ gridColumn: '1 / -1', padding: '60px 20px', textAlign: 'center', background: '#f8fafc', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
+                    <Building size={48} style={{ color: '#cbd5e1', marginBottom: '16px' }} />
+                    <h4 style={{ color: '#475569', fontWeight: 600 }}>No Departments Found</h4>
+                    <p style={{ color: '#94a3b8', fontSize: '14px', marginTop: '4px' }}>There are no departments registered for this location yet.</p>
                   </div>
-                ))
+                )
               ) : (
-                <div className={styles.emptyHeatmap} style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '20px' }}>
-                  <p style={{ color: '#64748b' }}>No operational health data available for this selection.</p>
+                <div style={{ gridColumn: '1 / -1', padding: '60px 20px', textAlign: 'center', background: '#f8fafc', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
+                  <MapPin size={48} style={{ color: '#cbd5e1', marginBottom: '16px' }} />
+                  <h4 style={{ color: '#475569', fontWeight: 600 }}>Select a Location</h4>
+                  <p style={{ color: '#94a3b8', fontSize: '14px', marginTop: '4px' }}>Pick a location from the tree view to see its departmental breakdown.</p>
                 </div>
               )}
             </div>
-
           </section>
 
           {/* ADMINS SECTION */}
@@ -533,10 +536,18 @@ export default function LocationsPage() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className={styles.resourceRemove} style={{ background: '#f8fafc' }}>
+                      <button 
+                        className={styles.resourceRemove} 
+                        style={{ background: '#f8fafc' }}
+                        onClick={() => handleEditAdmin(admin)}
+                      >
                         <Edit size={14} />
                       </button>
-                      <button className={styles.resourceRemove} style={{ color: '#ef4444', background: '#fef2f2' }}>
+                      <button 
+                        className={styles.resourceRemove} 
+                        style={{ color: '#ef4444', background: '#fef2f2' }}
+                        onClick={() => handleDeleteAdmin(admin)}
+                      >
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -676,11 +687,15 @@ export default function LocationsPage() {
           <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitleGroup}>
-                <span className={styles.wizardBadge}>User Management</span>
-                <h3 className={styles.modalTitle}>Add Admin to {selectedLocation?.name}</h3>
-                <p className={styles.modalSubtitle}>Create a new location administrator</p>
+                <span className={styles.wizardBadge}>{editingAdmin ? "Update Account" : "User Management"}</span>
+                <h3 className={styles.modalTitle}>{editingAdmin ? `Edit ${editingAdmin.name}` : `Add Admin to ${selectedLocation?.name}`}</h3>
+                <p className={styles.modalSubtitle}>{editingAdmin ? "Update administrator credentials and access." : "Create a new location administrator"}</p>
               </div>
-              <button className={styles.closeBtn} onClick={() => setIsAdminModalOpen(false)}>
+              <button className={styles.closeBtn} onClick={() => {
+                setIsAdminModalOpen(false);
+                setEditingAdmin(null);
+                setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
+              }}>
                 <X size={20} />
               </button>
             </div>
@@ -723,8 +738,8 @@ export default function LocationsPage() {
 
                   <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
                     <div className={styles.labelGroup}>
-                      <label className={styles.formLabel}>Password *</label>
-                      <span className={styles.fieldDesc}>Initial login password</span>
+                      <label className={styles.formLabel}>{editingAdmin ? "New Password (Optional)" : "Password *"}</label>
+                      <span className={styles.fieldDesc}>{editingAdmin ? "Leave blank to keep current password" : "Initial login password"}</span>
                     </div>
                     <div className={styles.modalInputWrapper}>
                       <Shield size={18} />
@@ -765,9 +780,14 @@ export default function LocationsPage() {
                 </div>
               </div>
               <div className={styles.modalActions}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setIsAdminModalOpen(false)}>Cancel</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => {
+                  setIsAdminModalOpen(false);
+                  setEditingAdmin(null);
+                  setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
+                }}>Cancel</button>
                 <button type="submit" className={styles.createButton} disabled={createUserMutation.isPending}>
-                  <Users size={18} /> {createUserMutation.isPending ? "Creating..." : "Create Admin"}
+                  {editingAdmin ? <Edit size={18} /> : <Users size={18} />} 
+                  {createUserMutation.isPending ? "Processing..." : editingAdmin ? "Update Admin" : "Create Admin"}
                 </button>
               </div>
             </form>
