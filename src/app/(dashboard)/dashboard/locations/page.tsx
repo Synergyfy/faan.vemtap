@@ -454,7 +454,7 @@ export default function LocationsPage() {
                       </div>
                       
                       <h4 style={{ fontSize: '17px', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>{dept.name}</h4>
-                      <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>{dept.responsibility || "Operational department"}</p>
+                      <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>{(dept as any).responsibility || "Operational department"}</p>
                       
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%' }}>
                         <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
