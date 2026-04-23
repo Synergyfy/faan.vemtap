@@ -171,6 +171,7 @@ export default function IssueManagementPage() {
   const [tempLocIds, setTempLocIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [viewType, setViewType] = useState<'board' | 'list'>('board');
+  const [filterType, setFilterType] = useState<string>("all");
   const [deleteModal, setDeleteModal] = useState({
     isOpen: false,
     itemName: '',
@@ -193,7 +194,8 @@ export default function IssueManagementPage() {
 
   const { data: kanbanData, isLoading: kanbanLoading } = useKanban({
     locationId: currentLocation || undefined,
-    departmentId: currentDepartment || undefined
+    departmentId: currentDepartment || undefined,
+    reportType: filterType !== 'all' ? filterType : undefined
   });
 
   const { data: locationsData } = useLocations();
@@ -203,6 +205,7 @@ export default function IssueManagementPage() {
   const { data: issuesData, isLoading: issuesLoading } = useIssues({
     locationId: currentLocation || undefined,
     departmentId: currentDepartment || undefined,
+    reportType: filterType !== 'all' ? filterType : undefined,
     search: searchTerm || undefined
   });
 
@@ -392,7 +395,7 @@ export default function IssueManagementPage() {
             <div className={styles.deptHeroText}>
               <h2 className={styles.deptHeroTitle}>Issue Tracking</h2>
               <p className={styles.deptHeroSubtitle}>
-                Real-time operational issue management with status tracking, assignment, and resolution workflow.
+                Real-time management of operational issues and incidents. This view strictly excludes formal internal reports.
               </p>
             </div>
           </div>
@@ -470,6 +473,20 @@ export default function IssueManagementPage() {
           </div>
           <div className={styles.deptControlsMeta} aria-live="polite">
             <div style={{ display: 'flex', gap: '8px', marginRight: '16px' }}>
+              <div className={styles.modalInputWrapper} style={{ height: '36px', padding: '0 12px', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <FileWarning size={14} style={{ color: '#64748b' }} />
+                <select 
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                  style={{ border: 'none', fontSize: '13px', fontWeight: 500, color: '#1e293b', background: 'transparent', outline: 'none', cursor: 'pointer' }}
+                >
+                  <option value="all">All Types</option>
+                  <option value="INCIDENT">Incidents</option>
+                  <option value="COMPLAINT">Complaints</option>
+                  <option value="SUGGESTION">Suggestions</option>
+                </select>
+              </div>
+              <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: 'auto 8px' }} />
               <button 
                 className={`${styles.viewToggleBtn} ${viewType === 'board' ? styles.activeView : ''}`}
                 onClick={() => setViewType('board')}

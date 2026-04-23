@@ -38,6 +38,7 @@ import { UserRole } from "@/types/rbac";
 import { MultiSelect } from "@/components/displays/MultiSelect";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+import api from "@/lib/api";
 import { 
   InternalReport, 
   ReportType, 
@@ -82,7 +83,8 @@ import {
   useReportTemplates, 
   useCreateReportTemplate,
   useDeleteReportTemplate,
-  useUpdateReportTemplate
+  useUpdateReportTemplate,
+  useDeleteReport
 } from "@/hooks/useReports";
 import { useLocations } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
@@ -163,12 +165,48 @@ export default function ReportsPage() {
     }
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportCSV = async () => {
+    setIsExporting(true);
+    try {
+      const params: any = {
+        status: filterStatus !== 'all' ? filterStatus : undefined,
+        departmentId: filterDepartment !== 'all' ? filterDepartment : undefined,
+        locationId: currentLocation || undefined,
+        startDate: filterDateFrom || undefined,
+        endDate: filterDateTo || undefined,
+        search: searchTerm || undefined
+      };
+
+      const response = await api.get('/reports/template-reports/export', {
+        params,
+        responseType: 'blob'
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `reports-export-${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("CSV export started");
+    } catch (error) {
+      console.error("Export failed:", error);
+      toast.error("Failed to export CSV");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const { data: reportsData, isLoading: reportsLoading } = useReports({
     status: filterStatus !== 'all' ? filterStatus : undefined,
     departmentId: filterDepartment !== 'all' ? filterDepartment : undefined,
     locationId: currentLocation || undefined,
-    from: filterDateFrom || undefined,
-    to: filterDateTo || undefined,
+    startDate: filterDateFrom || undefined,
+    endDate: filterDateTo || undefined,
+    search: searchTerm || undefined,
   });
   const { data: templatesData, isLoading: templatesLoading } = useReportTemplates({
     locationId: currentLocation || undefined,
@@ -183,6 +221,7 @@ export default function ReportsPage() {
   const createTemplateMutation = useCreateReportTemplate();
   const deleteTemplateMutation = useDeleteReportTemplate();
   const updateTemplateMutation = useUpdateReportTemplate();
+  const deleteReportMutation = useDeleteReport();
 
   const reports = reportsData?.data || [];
   const templates = (templatesData?.data || []) as ReportTemplate[];
@@ -499,12 +538,17 @@ export default function ReportsPage() {
       instanceCount: 1,
       affectedItems: [],
       onConfirm: () => {
-        // Implement delete report mutation if available, 
-        // for now we just handle local state if it's mock or needs implementation
-        handleDeleteReport(report.id);
-        setDeleteModal(prev => ({ ...prev, isOpen: false }));
-        toast.success("Report deleted successfully");
-        setActiveDropdown(null);
+        deleteReportMutation.mutate(report.id, {
+          onSuccess: () => {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            toast.success("Report deleted successfully");
+            setActiveDropdown(null);
+            if (selectedReport?.id === report.id) setSelectedReport(null);
+          },
+          onError: () => {
+            toast.error("Failed to delete report");
+          }
+        });
       }
     });
   };
@@ -567,18 +611,7 @@ export default function ReportsPage() {
     }
   };
 
-  const filteredReports = reports.filter(report => {
-    const r = report as InternalReport;
-    if (searchTerm && !r.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    if (filterStatus !== 'all' && r.status.toLowerCase() !== filterStatus.toLowerCase()) return false;
-    if (currentRole === 'LOCATION_ADMIN') {
-      const deptId = typeof r.department === 'object' ? (r.department as any)?.id : r.department;
-      if (filterDepartment !== 'all' && deptId !== filterDepartment) return false;
-      if (filterDateFrom && new Date(r.date || (r as any).createdAt) < new Date(filterDateFrom)) return false;
-      if (filterDateTo && new Date(r.date || (r as any).createdAt) > new Date(filterDateTo)) return false;
-    }
-    return true;
-  });
+  const filteredReports = reports;
 
 
 
@@ -621,7 +654,7 @@ export default function ReportsPage() {
             <div className={styles.deptHeroText}>
               <h2 className={styles.deptHeroTitle}>Internal Reports</h2>
               <p className={styles.deptHeroSubtitle}>
-                Create structured report templates and submit departmental reports for management review and compliance tracking.
+                Official documentation and shift reports generated from structured templates. This view strictly excludes manual issues.
               </p>
             </div>
           </div>
@@ -637,17 +670,34 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className={styles.deptHeroActions}>
-          <button
-            className={styles.createButton}
-            onClick={() => activeView === 'templates' ? openCreateTemplate() : openSubmitWizard()}
-          >
-            <Plus size={18} />
-            <span>{activeView === 'templates' ? 'Create Template' : 'Submit Report'}</span>
-          </button>
-          <p className={styles.deptHeroHint}>
-            {activeView === 'templates' ? 'Design reusable report forms.' : 'Submit reports from templates.'}
-          </p>
+        <div className={styles.deptHeroActions} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <button
+              className={styles.createButton}
+              onClick={() => activeView === 'templates' ? openCreateTemplate() : openSubmitWizard()}
+            >
+              <Plus size={18} />
+              <span>{activeView === 'templates' ? 'Create Template' : 'Submit Report'}</span>
+            </button>
+            <p className={styles.deptHeroHint}>
+              {activeView === 'templates' ? 'Design reusable report forms.' : 'Submit reports from templates.'}
+            </p>
+          </div>
+
+          {activeView === 'reports' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                className={styles.cancelBtn}
+                onClick={handleExportCSV}
+                disabled={isExporting}
+                style={{ height: '42px', display: 'flex', alignItems: 'center', gap: '8px', background: 'white', border: '1px solid #e2e8f0', color: '#1e293b' }}
+              >
+                {isExporting ? <Download size={18} className={styles.rotating} /> : <Download size={18} />}
+                <span>Export CSV</span>
+              </button>
+              <p className={styles.deptHeroHint}>Download all reports as CSV.</p>
+            </div>
+          )}
         </div>
       </div>
 

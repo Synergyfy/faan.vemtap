@@ -822,6 +822,10 @@
   border-radius: 20px;
   font-size: 12px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .open { background-color: #fef3c7; color: #92400e; }
@@ -931,6 +935,16 @@
 .airportIcon { color: var(--brand-green); }
 .terminalIcon { color: #3b82f6; }
 .zoneIcon { color: #64748b; }
+
+.airportCodeTag {
+  color: #64748b;
+  background-color: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  margin-left: auto;
+  font-weight: 700;
+}
 
 .zoneItem {
   margin-top: 2px;
