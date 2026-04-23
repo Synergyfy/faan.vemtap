@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
   ChevronDown,
@@ -39,6 +40,7 @@ import { Location, Department, Role } from "@/types/api";
 import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
 export default function LocationsPage() {
+  const queryClient = useQueryClient();
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const [selectedZone, setSelectedZone] = useState<Department | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
@@ -195,10 +197,12 @@ export default function LocationsPage() {
       email: newAdmin.email,
       password: newAdmin.password,
       role: Role.LOCATION_ADMIN,
+      locationId: selectedLocation.id,
       departmentId,
     }, {
       onSuccess: () => {
         toast.success(`Admin assigned to ${selectedLocation.name} successfully`);
+        queryClient.invalidateQueries({ queryKey: ['locations'] });
         setIsAdminModalOpen(false);
         setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
       },
