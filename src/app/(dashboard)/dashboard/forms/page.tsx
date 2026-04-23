@@ -160,6 +160,8 @@ export default function FormsPage() {
     fields: [] as Partial<FeedbackFormField>[],
   });
 
+  const [optionsInputs, setOptionsInputs] = useState<Record<number, string>>({});
+
   const filteredGroupedForms = Object.values(groupedForms).sort((a: any, b: any) => 
     (b.totalInteractions || 0) - (a.totalInteractions || 0)
   ).filter((f: any) => 
@@ -971,10 +973,27 @@ export default function FormsPage() {
                                   <input 
                                     type="text"
                                     placeholder="Options: Option 1, Option 2, Option 3"
-                                    value={field.options?.join(', ') || ''}
-                                    onChange={(e) => handleUpdateField(index, { 
-                                      options: e.target.value.split(',').map(o => o.trim()).filter(o => o) 
-                                    })}
+                                    value={optionsInputs[index] !== undefined ? optionsInputs[index] : (field.options?.join(', ') || '')}
+                                    onKeyDown={(e) => {
+                                      if (e.key === ' ') {
+                                        e.stopPropagation();
+                                      }
+                                    }}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setOptionsInputs(prev => ({ ...prev, [index]: val }));
+                                      
+                                      const finalOpts = val.split(',').map(o => o.trim()).filter(o => o !== "");
+                                      handleUpdateField(index, { options: finalOpts });
+                                    }}
+                                    onBlur={() => {
+                                      // Sync back on blur to ensure clean state
+                                      setOptionsInputs(prev => {
+                                        const next = { ...prev };
+                                        delete next[index];
+                                        return next;
+                                      });
+                                    }}
                                     style={{ flex: 1, fontSize: '12px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
                                   />
                                 )}
