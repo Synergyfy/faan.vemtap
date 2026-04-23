@@ -32,6 +32,7 @@ import { useRole } from "@/context/RoleContext";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
 import { useCreateUser } from "@/hooks/useUsers";
 import { Location, Department, Role } from "@/types/api";
 import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
@@ -42,6 +43,11 @@ export default function LocationsPage() {
   const { data: locationsData, isLoading } = useLocations();
   const [selectedZone, setSelectedZone] = useState<Department | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+
+  const { data: deptsData, isLoading: deptsLoading } = useDepartments(
+    { locationId: selectedLocation?.id || undefined },
+    { enabled: !!selectedLocation }
+  );
 
   // Sync selectedLocation with global currentLocation from header switcher
   useEffect(() => {
@@ -431,8 +437,13 @@ export default function LocationsPage() {
 
             <div className={styles.resourceItems} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', marginTop: '20px' }}>
               {selectedLocation ? (
-                selectedLocation.departments?.length ? (
-                  selectedLocation.departments.map((dept) => (
+                deptsLoading ? (
+                  <div style={{ gridColumn: '1 / -1', padding: '60px', textAlign: 'center' }}>
+                    <div className={styles.deptSkeletonBtn} style={{ margin: '0 auto 16px' }} />
+                    <p style={{ color: '#94a3b8' }}>Loading departments...</p>
+                  </div>
+                ) : deptsData?.data?.length ? (
+                  deptsData.data.map((dept) => (
                     <div 
                       key={dept.id} 
                       className={`${styles.resourceItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
