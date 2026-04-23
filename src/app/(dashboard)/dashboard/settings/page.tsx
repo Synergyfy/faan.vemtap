@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import api from '@/lib/api';
 import { 
   Building2, 
   Upload, 
@@ -104,49 +105,40 @@ export default function SettingsPage() {
     }
   };
 
-  const handlePdfReport = () => {
+  const handlePdfReport = async () => {
     try {
-      toast.loading("Generating PDF Report...", { id: 'pdfExport' });
-      const doc = new jsPDF();
+      toast.loading("Fetching latest performance report...", { id: 'pdfExport' });
       
-      // Header
-      doc.setFontSize(20);
-      doc.setTextColor(30, 41, 59);
-      doc.text("VEMTAP Performance Report", 14, 22);
-      
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Generated on: ${format(new Date(), 'PPPP p')}`, 14, 30);
-      doc.text(`Organization: ${orgName || "FAAN"}`, 14, 35);
-      if (locationName) doc.text(`Location: ${locationName}`, 14, 40);
-      if (departmentName) doc.text(`Department: ${departmentName}`, 14, 45);
-
-      // Summary Table
-      const tableData = [
-        ["Metric", "Value"],
-        ["Total Submissions", (analytics?.totalSubmissions || 0).toString()],
-        ["Average Passenger Rating", (analytics?.averageRating?.toFixed(2) || "0.00").toString()],
-        ["Total Issues Flagged", (analytics?.totalIssues || 0).toString()],
-        ["Resolution Rate", `${analytics?.resolutionRate || 0}%`],
-        ["Avg. Response Time", `${analytics?.avgResponseTime || 0} minutes`],
-        ["Open (Pending) Issues", (analytics?.openSubmissions || 0).toString()],
-        ["Resolved Issues", (analytics?.resolvedSubmissions || 0).toString()]
-      ];
-
-      (doc as any).autoTable({
-        startY: 55,
-        head: [tableData[0]],
-        body: tableData.slice(1),
-        theme: 'grid',
-        headStyles: { fillStyle: [59, 130, 246], textColor: [255, 255, 255] },
-        alternateRowStyles: { fillStyle: [248, 250, 252] }
+      // Fetch the latest generated report for the current context
+      const res = await api.get(`/system-reports`, {
+        params: {
+          reportType: 'DAILY',
+          category: 'INTERNAL',
+          locationId: currentLocation
+        }
       });
-
-      doc.save(`vemtap_report_${format(new Date(), 'yyyyMMdd')}.pdf`);
-      toast.success("PDF generated successfully!", { id: 'pdfExport' });
+      
+      const reports = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      
+      if (reports.length > 0) {
+        const latestId = reports[0].id;
+        const pdfResponse = await api.get(`/system-reports/${latestId}/pdf`, { responseType: 'blob' });
+        const blob = new Blob([pdfResponse.data], { type: 'application/pdf' });
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `vemtap-performance-report-${format(new Date(), 'yyyyMMdd')}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
+        toast.success("PDF report exported successfully!", { id: 'pdfExport' });
+      } else {
+        toast.error("No recent reports available for this location. Please generate an AI report first.", { id: 'pdfExport' });
+      }
     } catch (error) {
-      console.error(error);
-      toast.error("Failed to generate PDF.", { id: 'pdfExport' });
+      console.error("PDF Export failed", error);
+      toast.error("Failed to generate PDF report. Please try again later.", { id: 'pdfExport' });
     }
   };
 

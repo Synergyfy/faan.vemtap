@@ -10,7 +10,9 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   MoreVertical,
-  ChevronDown
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -63,6 +65,8 @@ export default function DashboardPage() {
   const [isDateFilterOpen, setIsDateFilterOpen] = useState(false);
   const [selectedDateFilter, setSelectedDateFilter] = useState("Last 7 Days");
   const dateFilterRef = useRef<HTMLDivElement>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 5;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -182,6 +186,11 @@ export default function DashboardPage() {
   };
   
   const activities = activityData?.data || [];
+  const totalPages = Math.ceil(activities.length / ITEMS_PER_PAGE);
+  const paginatedActivities = activities.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   return (
     <div className={styles.dashboard}>
@@ -333,8 +342,8 @@ export default function DashboardPage() {
           <h3 className={styles.cardTitle}>Recent Activity Feed</h3>
         </div>
         <div className={styles.activityList}>
-          {activities.length > 0 ? (
-            activities.map((activity) => (
+          {paginatedActivities.length > 0 ? (
+            paginatedActivities.map((activity) => (
               <div key={activity.id} className={styles.activityItem}>
                 <div className={`${styles.activityBullet} ${styles[activity.type.toLowerCase()]}`} />
                 <div className={styles.activityContent}>
@@ -355,6 +364,38 @@ export default function DashboardPage() {
             <p className={styles.emptyList}>No recent activity</p>
           )}
         </div>
+
+        {totalPages > 1 && (
+          <div style={{ 
+            padding: '20px 24px', 
+            borderTop: '1px solid #f1f5f9', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between' 
+          }}>
+            <div style={{ fontSize: '13px', color: '#64748b', fontWeight: 500 }}>
+              Showing Page <span style={{ color: '#1e293b', fontWeight: 600 }}>{currentPage}</span> of <span style={{ color: '#1e293b', fontWeight: 600 }}>{totalPages}</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className={styles.iconButton}
+                style={{ opacity: currentPage === 1 ? 0.5 : 1, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button 
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className={styles.iconButton}
+                style={{ opacity: currentPage === totalPages ? 0.5 : 1, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

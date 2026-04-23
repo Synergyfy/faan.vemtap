@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { 
   Plus, 
   Search, 
@@ -87,9 +88,11 @@ function hashToIndex(input: string, modulo: number) {
 }
 
 export default function DepartmentsPage() {
+  const queryClient = useQueryClient();
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
+
   const [activeTab, setActiveTab] = useState("admins");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -155,6 +158,16 @@ export default function DepartmentsPage() {
   });
 
   const { data: locationsData } = useLocations();
+
+  // Sync selectedDept with deptsData when it changes (e.g. after mutation refetch)
+  useEffect(() => {
+    if (selectedDept && deptsData?.data) {
+      const updated = deptsData.data.find(d => d.id === selectedDept.id);
+      if (updated && JSON.stringify(updated) !== JSON.stringify(selectedDept)) {
+        setSelectedDept(updated);
+      }
+    }
+  }, [deptsData, selectedDept?.id]);
 
   // Mutations
   const createMutation = useCreateDepartment();
@@ -232,6 +245,7 @@ export default function DepartmentsPage() {
     }, {
       onSuccess: () => {
         toast.success("Report template linked successfully");
+        queryClient.invalidateQueries({ queryKey: ['departments'] });
         setIsAssigning(false);
         setFormLinkingStep(1);
         setLinkDeptId("");
@@ -262,6 +276,7 @@ export default function DepartmentsPage() {
     }, {
       onSuccess: () => {
         toast.success("Feedback form linked successfully");
+        queryClient.invalidateQueries({ queryKey: ['departments'] });
         setIsAssigning(false);
         setFormLinkingStep(1);
         setLinkDeptId("");
@@ -494,6 +509,7 @@ export default function DepartmentsPage() {
     }, {
       onSuccess: () => {
         toast.success(`Admin assigned to ${selectedDept.name} successfully`);
+        queryClient.invalidateQueries({ queryKey: ['departments'] });
         setIsAdminModalOpen(false);
         setNewAdmin({ name: "", email: "", password: "" });
       },
@@ -1506,6 +1522,7 @@ export default function DepartmentsPage() {
                                   }, {
                                     onSuccess: () => {
                                       toast.success("Touchpoint linked successfully");
+                                      queryClient.invalidateQueries({ queryKey: ['departments'] });
                                       setIsLinking(false);
                                       setTpLinkingStep(1);
                                       setSelectedTouchpointId("");
