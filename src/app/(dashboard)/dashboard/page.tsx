@@ -56,7 +56,7 @@ function formatTimeAgo(dateInput: string | Date) {
 }
 
 export default function DashboardPage() {
-  const { currentRole, locationName, departmentName, currentLocation, currentDepartment } = useRole();
+  const { currentRole, locationName, departmentName, currentLocation, currentDepartment, isLoading: roleLoading } = useRole();
   const params = {
     locationId: currentLocation,
     departmentId: currentDepartment
@@ -86,6 +86,7 @@ export default function DashboardPage() {
   const { data: activityData, isLoading: isActivityLoading } = useActivityFeed(params);
   const { data: distribution, isLoading: isDistributionLoading } = useAnalyticsDistribution(params);
   const { data: trendData, isLoading: isTrendLoading } = useSatisfactionTrend(params);
+
 
   const kpis = useMemo(() => {
     if (!summary) return [];
@@ -175,14 +176,19 @@ export default function DashboardPage() {
   
   const getPageTitle = () => {
     if (currentRole === UserRole.SUPER_ADMIN) return "HQ Dashboard Overview";
-    if (currentRole === UserRole.LOCATION_ADMIN) return `${locationName} Dashboard`;
-    return `${departmentName} Dashboard`;
+    if (currentRole === UserRole.LOCATION_ADMIN) return `${locationName || 'Location'} Dashboard`;
+    
+    // For Department Admins, ensure we don't show 'All Departments'
+    const name = departmentName !== 'All Departments' ? departmentName : 'Department';
+    return `${name} Dashboard`;
   };
   
   const getPageSubtitle = () => {
     if (currentRole === UserRole.SUPER_ADMIN) return "Real-time metrics across all FAAN airports.";
-    if (currentRole === UserRole.LOCATION_ADMIN) return `Real-time metrics for ${locationName}.`;
-    return `Real-time metrics for ${departmentName} department.`;
+    if (currentRole === UserRole.LOCATION_ADMIN) return `Real-time metrics for ${locationName || 'Location'}.`;
+    
+    const name = departmentName !== 'All Departments' ? departmentName : 'Department';
+    return `Real-time metrics for ${name} department.`;
   };
   
   const activities = activityData?.data || [];
@@ -191,6 +197,17 @@ export default function DashboardPage() {
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
+
+  if (roleLoading) {
+    return (
+      <div className={styles.dashboard}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: '16px' }}>
+          <div className={styles.spinner}></div>
+          <p style={{ color: '#64748b', fontSize: '14px' }}>Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.dashboard}>

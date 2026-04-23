@@ -508,7 +508,7 @@ export default function SettingsPage() {
                        <label className={styles.formLabel}>Department</label>
                        <input 
                          type="text" 
-                         value={departmentName || currentDepartment || "Security"}
+                         value={profile?.department?.name || departmentName || "Unknown Department"}
                          className={styles.modalInput}
                          disabled
                          style={{ background: '#f1f5f9', cursor: 'not-allowed' }}

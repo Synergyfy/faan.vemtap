@@ -1,21 +1,26 @@
-UpdateIssueDto{
-title	string
-example: Updated title
-content	string
-example: Updated content...
-status	string
-Enum:
-[ DRAFT, SUBMITTED, REVIEWED, PENDING, IN_PROGRESS, RESOLVED, CLOSED ]
-priority	string
-Enum:
-[ LOW, MEDIUM, HIGH, CRITICAL ]
-category	string
-Enum:
-[ FACILITIES, CLEANING, SECURITY, IT_INTERNET, POWER, HVAC, STAFF_CONDUCT, PASENGER_FLOW, LIGHTING, WATER_RESTROOMS, SIGNAGE, GENERAL ]
-assignedTo	string
-User ID to assign the issue to
-
-departmentId	string
-Department ID to assign the issue to
-
+{
+    "success": true,
+    "data": {
+        "id": "ea4cb088-3506-4ac7-b2e1-4904bd7d8b53",
+        "email": "admin.opera@faan.gov.ng",
+        "firstName": "frank",
+        "lastName": "Admin",
+        "phone": null,
+        "role": "DEPARTMENT_ADMIN",
+        "scanNotificationsEnabled": false,
+        "department": {
+            "id": "2278067f-f4e6-46aa-8201-69245b8dc0c7",
+            "name": "Operations Control",
+            "code": "OPERA_CONT",
+            "location": {
+                "id": "0a436558-f167-4320-88ee-e6a75ecd6356",
+                "name": "Nnamdi Azikiwe International Airport",
+                "airportCode": "ABV",
+                "city": "Abuja"
+            }
+        },
+        "createdAt": "2026-04-23T15:33:31.751Z"
+    },
+    "timestamp": "2026-04-23T16:25:16.894Z",
+    "path": "/api/v1/auth/profile"
 }

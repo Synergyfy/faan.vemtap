@@ -136,6 +136,16 @@ export interface UserProfile {
       } | null;
     } | null;
   } | null;
+  location?: {
+    id: string;
+    name: string;
+    airportCode: string;
+    city: string;
+    organization?: {
+      id: string;
+      name: string;
+    } | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
