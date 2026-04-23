@@ -64,6 +64,9 @@ export function RoleProvider({ children }: RoleProviderProps) {
       let initialLocation = null;
       if (profile.locationId) {
         initialLocation = profile.locationId;
+      } else if (profile.location?.id) {
+        // Fallback for Location Admins
+        initialLocation = profile.location.id;
       } else if (profile.department?.location?.id) {
         // Fallback for Department Admins
         initialLocation = profile.department.location.id;
@@ -127,6 +130,9 @@ export function RoleProvider({ children }: RoleProviderProps) {
     const loc = (locationsData?.data || []).find((l: Location) => l.id === currentLocation);
     if (loc) return loc.name;
     // Fallback: use the profile's nested location name if the locations list hasn't loaded yet
+    if (profile?.location?.id === currentLocation) {
+      return profile.location.name;
+    }
     if (profile?.department?.location?.id === currentLocation) {
       return profile.department.location.name;
     }
