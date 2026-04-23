@@ -57,20 +57,27 @@ export function RoleProvider({ children }: RoleProviderProps) {
   // Sync profile to current role/loc/dept on first load
   useEffect(() => {
     if (profile && !hasInitialized) {
-      setCurrentRole(profile.role as unknown as UserRole);
+      const userRole = profile.role as unknown as UserRole;
+      setCurrentRole(userRole);
       
       // Derive location prioritizing direct locationId (for Location Admins)
+      let initialLocation = null;
       if (profile.locationId) {
-        setCurrentLocation(profile.locationId);
+        initialLocation = profile.locationId;
       } else if (profile.department?.location?.id) {
         // Fallback for Department Admins
-        setCurrentLocation(profile.department.location.id);
-      } else if (profile.departmentId) {
-        // Fallback if department object isn't fully expanded
-        setCurrentLocation(null); 
+        initialLocation = profile.department.location.id;
       }
       
-      setCurrentDepartment(profile.departmentId);
+      if (initialLocation) {
+        setCurrentLocation(initialLocation);
+      }
+      
+      const initialDepartment = profile.departmentId || profile.department?.id || null;
+      if (initialDepartment) {
+        setCurrentDepartment(initialDepartment);
+      }
+      
       setHasInitialized(true);
     }
   }, [profile, hasInitialized]);
@@ -118,14 +125,24 @@ export function RoleProvider({ children }: RoleProviderProps) {
   const locationName = useMemo(() => {
     if (!currentLocation) return 'All Locations';
     const loc = (locationsData?.data || []).find((l: Location) => l.id === currentLocation);
-    return loc ? loc.name : 'Unknown Location';
-  }, [currentLocation, locationsData]);
+    if (loc) return loc.name;
+    // Fallback: use the profile's nested location name if the locations list hasn't loaded yet
+    if (profile?.department?.location?.id === currentLocation) {
+      return profile.department.location.name;
+    }
+    return 'Unknown Location';
+  }, [currentLocation, locationsData, profile]);
 
   const departmentName = useMemo(() => {
     if (!currentDepartment) return 'All Departments';
     const dept = (deptsData?.data || []).find((d: Department) => d.id === currentDepartment);
-    return dept ? dept.name : 'Unknown Department';
-  }, [currentDepartment, deptsData]);
+    if (dept) return dept.name;
+    // Fallback: use the profile's nested department name if the departments list hasn't loaded yet
+    if (profile?.department?.id === currentDepartment) {
+      return profile.department.name;
+    }
+    return 'Unknown Department';
+  }, [currentDepartment, deptsData, profile]);
 
   const currentUser = useMemo((): User | null => {
     if (!profile) return null;
