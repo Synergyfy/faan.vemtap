@@ -23,7 +23,8 @@ import {
   MousePointer2,
   CheckCircle,
   AlertTriangle,
-  Loader2
+  Loader2,
+  ChevronLeft
 } from "lucide-react";
 import Image from "next/image";
 import styles from "../../Dashboard.module.css";
@@ -63,12 +64,32 @@ function hashToIndex(input: string, modulo: number) {
   return Math.abs(hash) % modulo;
 }
 
+const formatSubmissionId = (sub: any, deptIndex: number) => {
+  if (!sub) return 'SUB-0000';
+  
+  // Try to get location and department names
+  const locName = sub.touchpoint?.location?.name || sub.location?.name || (typeof sub.location === 'string' ? sub.location : '') || 'UNK';
+  const deptName = sub.touchpoint?.department?.name || sub.department?.name || (typeof sub.department === 'string' ? sub.department : '') || 'UNK';
+  
+  const locPrefix = locName.substring(0, 3).toUpperCase();
+  const deptPrefix = deptName.trim().substring(0, 3).toUpperCase();
+  
+  // Use deptIndex + 1 for the order, padded to 4 digits
+  const order = (deptIndex + 1).toString().padStart(4, '0');
+  
+  return `${locPrefix}-${deptPrefix}-${order}`;
+};
+
 export default function SubmissionsPage() {
   const { currentRole, currentLocation, currentDepartment, locationName: roleLocationName } = useRole();
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  
+  // Drilldown states
+  const [viewingLocationId, setViewingLocationId] = useState<string | null>(null);
+  const [viewingDeptId, setViewingDeptId] = useState<string | null>(null);
 
   const { data: submissionsData, isLoading: listLoading } = useSubmissions({
     search: searchTerm || undefined,
@@ -100,11 +121,61 @@ export default function SubmissionsPage() {
 
   const submissions = (submissionsData?.data || []) as any[];
 
+  const submissionsWithIds = useMemo(() => {
+    const deptCounts: Record<string, number> = {};
+    const sortedSubmissions = [...submissions].reverse();
+    const idMap = new Map();
+    
+    sortedSubmissions.forEach(s => {
+      const deptId = s.touchpoint?.departmentId || s.departmentId || 'unknown';
+      deptCounts[deptId] = (deptCounts[deptId] || 0) + 1;
+      idMap.set(s.id, deptCounts[deptId] - 1);
+    });
+
+    return submissions.map(sub => ({
+      ...sub,
+      displayId: formatSubmissionId(sub, idMap.get(sub.id) || 0)
+    }));
+  }, [submissions]);
+
   const depts = (deptsData?.data || []) as any[];
 
   const openCount = submissions.filter((s: any) => s.status === 'OPEN').length;
   const inProgressCount = submissions.filter((s: any) => s.status === 'IN_PROGRESS').length;
   const resolvedCount = submissions.filter((s: any) => s.status === 'RESOLVED').length;
+
+  // Taxonomized Data Grouping
+  const taxonomizedData = useMemo(() => {
+    const locations: Record<string, { id: string; name: string; depts: Record<string, { id: string; name: string; submissions: any[] }> }> = {};
+    
+    submissionsWithIds.forEach(sub => {
+      const locId = sub.touchpoint?.location?.id || sub.location?.id || (typeof sub.location === 'object' ? sub.location?.id : null) || 'unknown-loc';
+      const locName = sub.touchpoint?.location?.name || sub.location?.name || (typeof sub.location === 'string' ? sub.location : null) || 'Unknown Location';
+      
+      const deptId = sub.touchpoint?.department?.id || sub.department?.id || (typeof sub.department === 'object' ? sub.department?.id : null) || 'unknown-dept';
+      const deptName = sub.touchpoint?.department?.name || sub.department?.name || (typeof sub.department === 'string' ? sub.department : null) || 'Unknown Department';
+      
+      if (!locations[locId]) {
+        locations[locId] = { id: locId, name: locName, depts: {} };
+      }
+      
+      if (!locations[locId].depts[deptId]) {
+        locations[locId].depts[deptId] = { id: deptId, name: deptName, submissions: [] };
+      }
+      
+      locations[locId].depts[deptId].submissions.push(sub);
+    });
+    
+    return Object.values(locations);
+  }, [submissionsWithIds]);
+
+  const currentViewingLocation = useMemo(() => 
+    taxonomizedData.find(l => l.id === viewingLocationId), 
+  [taxonomizedData, viewingLocationId]);
+
+  const currentViewingDept = useMemo(() => 
+    currentViewingLocation?.depts[viewingDeptId || ''], 
+  [currentViewingLocation, viewingDeptId]);
 
   const scopeLabel =
     currentRole === "DEPARTMENT_ADMIN"
@@ -213,155 +284,222 @@ export default function SubmissionsPage() {
         </div>
       </div>
 
-      {listLoading ? (
-        <div className={styles.deptGrid} aria-label="Loading submissions">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={`sub-skeleton-${i}`} className={`${styles.deptCard} ${styles.deptSkeletonCard}`}>
-              <div className={styles.deptCardHeader}>
-                <div className={styles.deptSkeletonIcon} />
-                <div className={styles.deptSkeletonMenu} />
-              </div>
-              <div className={styles.deptCardInfo}>
-                <div className={styles.deptSkeletonLine} style={{ width: "70%" }} />
-                <div className={styles.deptSkeletonLine} style={{ width: "95%" }} />
-                <div className={styles.deptSkeletonLine} style={{ width: "60%" }} />
-              </div>
-              <div className={styles.deptCardMetrics}>
-                <div className={styles.deptSkeletonPill} />
-                <div className={styles.deptSkeletonPill} />
-              </div>
-              <div className={styles.deptSkeletonBtn} />
-            </div>
-          ))}
-        </div>
-      ) : submissions.length === 0 ? (
-        <div className={styles.deptEmptyState} role="status">
-          <div className={styles.deptEmptyIcon} aria-hidden="true">
-            <Inbox size={22} />
-          </div>
-          <h3 className={styles.deptEmptyTitle}>
-            {searchTerm ? "No submissions match your search" : "No submissions yet"}
-          </h3>
-          <p className={styles.deptEmptyText}>
-            {searchTerm
-              ? "Try a different keyword or clear the search."
-              : "Submissions from passenger touchpoints will appear here."}
-          </p>
-          {searchTerm && (
-            <div className={styles.deptEmptyActions}>
-              <button className={styles.cancelBtn} onClick={() => setSearchTerm("")}>
-                Clear Search
+      {/* Taxonomized Drilldown View */}
+      {!listLoading && submissions.length > 0 && (
+        <div style={{ marginTop: '24px' }}>
+          {/* Breadcrumb / Navigation Header */}
+          {(viewingLocationId || viewingDeptId) && (
+            <div className={styles.drilldownHeader}>
+              <button 
+                className={styles.backButton}
+                onClick={() => {
+                  if (viewingDeptId) setViewingDeptId(null);
+                  else setViewingLocationId(null);
+                }}
+              >
+                <ChevronLeft size={20} />
               </button>
+              <div className={styles.drilldownInfo}>
+                <span className={styles.drilldownTitle}>Viewing</span>
+                <div className={styles.drilldownName}>
+                  <span onClick={() => { setViewingLocationId(null); setViewingDeptId(null); }} style={{ cursor: 'pointer' }}>All Locations</span>
+                  {currentViewingLocation && (
+                    <>
+                      <span style={{ margin: '0 8px', opacity: 0.5 }}>/</span>
+                      <span onClick={() => setViewingDeptId(null)} style={{ cursor: viewingDeptId ? 'pointer' : 'default' }}>
+                        {currentViewingLocation.name}
+                      </span>
+                    </>
+                  )}
+                  {currentViewingDept && (
+                    <>
+                      <span style={{ margin: '0 8px', opacity: 0.5 }}>/</span>
+                      <span>{currentViewingDept.name}</span>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           )}
-        </div>
-      ) : (
-        <div className={styles.deptGrid}>
-          {submissions.map((sub: any) => {
-            const accent = SUBMISSION_ACCENTS[hashToIndex(String(sub.id), SUBMISSION_ACCENTS.length)];
-            const accentStyle = {
-              "--accent-bg": accent.bg,
-              "--accent-fg": accent.fg,
-              "--accent-ring": accent.ring,
-            } as CSSProperties;
-            const statusConfig = STATUS_CONFIG[sub.status] || STATUS_CONFIG.OPEN;
-            const StatusIcon = statusConfig.icon;
-            const TypeIcon = getTypeIcon(sub.type);
 
-            return (
-              <div 
-                key={sub.id} 
-                className={styles.deptCard}
-                onClick={() => setSelectedUuid(sub.id)}
-                style={{ cursor: 'pointer' }}
-              >
-                <div className={styles.deptCardHeader}>
-                  <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
-                    <TypeIcon size={24} />
+          {/* Level 1: Locations */}
+          {!viewingLocationId && (
+            <div className={styles.deptGrid}>
+              {taxonomizedData.map(loc => (
+                <div 
+                  key={loc.id} 
+                  className={styles.deptCard}
+                  onClick={() => setViewingLocationId(loc.id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className={styles.deptCardHeader}>
+                    <div className={styles.deptIconBox} style={{ "--accent-bg": "rgba(21, 115, 71, 0.1)", "--accent-fg": "var(--brand-green)" } as any}>
+                      <MapPin size={24} />
+                    </div>
                   </div>
-                  <div className={styles.cardMenuWrapper}>
-                    <button
-                      className={styles.cardMore}
-                      aria-label={`Actions for ${sub.code || sub.id}`}
+                  <div className={styles.deptCardInfo}>
+                    <h3 className={styles.deptCardTitle}>{loc.name}</h3>
+                    <p className={styles.deptCardDesc}>Terminal and Facility Submissions</p>
+                  </div>
+                  <div className={styles.deptCardMetrics}>
+                    <div className={styles.deptMetric}>
+                      <Building2 size={14} />
+                      <span>{Object.keys(loc.depts).length} Departments</span>
+                    </div>
+                    <div className={styles.deptMetric}>
+                      <Inbox size={14} />
+                      <span>{Object.values(loc.depts).reduce((acc, d) => acc + d.submissions.length, 0)} Total</span>
+                    </div>
+                  </div>
+                  <button className={styles.deptManageBtn}>
+                    View Departments
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Level 2: Departments */}
+          {viewingLocationId && !viewingDeptId && currentViewingLocation && (
+            <div className={styles.deptGrid}>
+              {Object.values(currentViewingLocation.depts).map(dept => (
+                <div 
+                  key={dept.id} 
+                  className={styles.deptCard}
+                  onClick={() => setViewingDeptId(dept.id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className={styles.deptCardHeader}>
+                    <div className={styles.deptIconBox} style={{ "--accent-bg": "rgba(37, 99, 235, 0.1)", "--accent-fg": "#2563eb" } as any}>
+                      <Building2 size={24} />
+                    </div>
+                  </div>
+                  <div className={styles.deptCardInfo}>
+                    <h3 className={styles.deptCardTitle}>{dept.name}</h3>
+                    <p className={styles.deptCardDesc}>Departmental Operations</p>
+                  </div>
+                  <div className={styles.deptCardMetrics}>
+                    <div className={styles.deptMetric}>
+                      <Inbox size={14} />
+                      <span>{dept.submissions.length} Submissions</span>
+                    </div>
+                  </div>
+                  <button className={styles.deptManageBtn}>
+                    View Submissions
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Level 3: Submissions */}
+          {viewingLocationId && viewingDeptId && currentViewingDept && (
+            <div className={styles.deptGrid}>
+              {currentViewingDept.submissions.map((sub: any) => {
+                const displayId = sub.displayId;
+                const accent = SUBMISSION_ACCENTS[hashToIndex(String(sub.id), SUBMISSION_ACCENTS.length)];
+                const accentStyle = {
+                  "--accent-bg": accent.bg,
+                  "--accent-fg": accent.fg,
+                  "--accent-ring": accent.ring,
+                } as CSSProperties;
+                const statusConfig = STATUS_CONFIG[sub.status] || STATUS_CONFIG.OPEN;
+                const StatusIcon = statusConfig.icon;
+                const TypeIcon = getTypeIcon(sub.type);
+
+                return (
+                  <div 
+                    key={sub.id} 
+                    className={styles.deptCard}
+                    onClick={() => setSelectedUuid(sub.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className={styles.deptCardHeader}>
+                      <div className={styles.deptIconBox} style={accentStyle} aria-hidden="true">
+                        <TypeIcon size={24} />
+                      </div>
+                      <div className={styles.cardMenuWrapper}>
+                        <button
+                          className={styles.cardMore}
+                          aria-label={`Actions for ${displayId}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveDropdown(activeDropdown === sub.id ? null : sub.id);
+                          }}
+                        >
+                          <MoreVertical size={18} />
+                        </button>
+                        {activeDropdown === sub.id && (
+                          <div className={styles.cardDropdown}>
+                            <button
+                              className={styles.dropdownItem}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedUuid(sub.id);
+                                setActiveDropdown(null);
+                              }}
+                            >
+                              View Details
+                            </button>
+                            <div className={styles.dropdownSeparator} />
+                            <button
+                              className={`${styles.dropdownItem} ${styles.danger}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUpdateStatus(sub.id, 'ARCHIVED');
+                                setActiveDropdown(null);
+                              }}
+                            >
+                              <AlertCircle size={14} /> Archive
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className={styles.deptCardInfo}>
+                      <h3 className={styles.deptCardTitle}>{displayId}</h3>
+                      <p className={styles.deptCardDesc}>
+                        {sub.type === 'FEEDBACK' ? 'Passenger Feedback' : 
+                         sub.type === 'COMPLAINT' ? 'Complaint Report' :
+                         sub.type === 'INCIDENT' ? 'Incident Report' : sub.type}
+                      </p>
+                    </div>
+
+                    <div className={styles.deptCardMetrics}>
+                      <div 
+                        className={styles.deptMetric}
+                        style={{ 
+                          background: statusConfig.bg, 
+                          color: statusConfig.color 
+                        }}
+                      >
+                        <StatusIcon size={14} />
+                        <span>{(sub.status || 'OPEN').replace('_', ' ')}</span>
+                      </div>
+                      <div className={styles.deptMetric}>
+                        <Clock size={14} />
+                        <span>{new Date(sub.submittedAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+
+                    <button 
+                      className={styles.deptManageBtn}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActiveDropdown(activeDropdown === sub.id ? null : sub.id);
+                        setSelectedUuid(sub.id);
                       }}
                     >
-                      <MoreVertical size={18} />
+                      View Details
+                      <ChevronRight size={16} />
                     </button>
-                    {activeDropdown === sub.id && (
-                      <div className={styles.cardDropdown}>
-                        <button
-                          className={styles.dropdownItem}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedUuid(sub.id);
-                            setActiveDropdown(null);
-                          }}
-                        >
-                          View Details
-                        </button>
-                        <div className={styles.dropdownSeparator} />
-                        <button
-                          className={`${styles.dropdownItem} ${styles.danger}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleUpdateStatus(sub.id, 'ARCHIVED');
-                            setActiveDropdown(null);
-                          }}
-                        >
-                          <AlertCircle size={14} /> Archive
-                        </button>
-                      </div>
-                    )}
                   </div>
-                </div>
-
-                <div className={styles.deptCardInfo}>
-                  <h3 className={styles.deptCardTitle}>{sub.touchpoint?.title || sub.code || sub.id}</h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
-                      {sub.code || 'NO-CODE'}
-                    </span>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--brand-green)' }}>
-                      {sub.type === 'FEEDBACK' ? 'Passenger Feedback' : 
-                       sub.type === 'COMPLAINT' ? 'Complaint Report' :
-                       sub.type === 'INCIDENT' ? 'Incident Report' : sub.type}
-                    </span>
-                  </div>
-                </div>
-
-                <div className={styles.deptCardMetrics}>
-                  <div 
-                    className={styles.deptMetric}
-                    style={{ 
-                      background: statusConfig.bg, 
-                      color: statusConfig.color 
-                    }}
-                  >
-                    <StatusIcon size={14} />
-                    <span>{(sub.status || 'OPEN').replace('_', ' ')}</span>
-                  </div>
-                  <div className={styles.deptMetric}>
-                    <Clock size={14} />
-                    <span>{new Date(sub.submittedAt).toLocaleDateString()}</span>
-                  </div>
-                </div>
-
-                <button 
-                  className={styles.deptManageBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedUuid(sub.id);
-                  }}
-                >
-                  View Details
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -381,11 +519,10 @@ export default function SubmissionsPage() {
                 >
                   {detail.priority} Priority
                 </span>
-                <h3 className={styles.modalTitle}>{detail.touchpoint?.title || detail.code || detail.id}</h3>
-                <p className={styles.modalSubtitle}>
-                  {detail.code && <strong style={{ color: 'var(--brand-green)', marginRight: '8px' }}>{detail.code}</strong>}
-                  Submission details and resolution tracking
-                </p>
+                <h3 className={styles.modalTitle}>{
+                  submissionsWithIds.find(s => s.id === detail.id)?.displayId || detail.id
+                }</h3>
+                <p className={styles.modalSubtitle}>Submission details and resolution tracking</p>
               </div>
               <button className={styles.closeBtn} onClick={() => setSelectedUuid(null)}>
                 <X size={20} />
