@@ -18,6 +18,11 @@
   bottom: 0;
   height: 100vh;
   z-index: 50;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebarHidden {
+  width: 80px;
 }
 
 .logoContainer {
@@ -166,6 +171,11 @@
   flex-direction: column;
   min-width: 0;
   margin-left: 280px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mainExpanded {
+  margin-left: 80px;
 }
 
 /* Header */
@@ -188,6 +198,32 @@
   align-items: center;
   gap: 16px;
   flex: 1;
+}
+
+.sidebarToggle {
+  background: none;
+  border: none;
+  padding: 8px;
+  border-radius: 10px;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  margin-right: 8px;
+}
+
+.sidebarToggle:hover {
+  background-color: #f1f5f9;
+  color: var(--brand-green);
+}
+
+.logoMini {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
 }
 
 .searchBar {
@@ -866,11 +902,38 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.treePanel.collapsed {
+  width: 60px;
 }
 
 .panelHeader {
-  padding: 24px;
+  padding: 24px 16px;
   border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.collapseToggle {
+  background: none;
+  border: none;
+  padding: 8px;
+  border-radius: 8px;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.collapseToggle:hover {
+  background-color: #f1f5f9;
+  color: var(--brand-green);
 }
 
 .panelTitle {
@@ -973,6 +1036,11 @@
   display: flex;
   flex-direction: column;
   gap: 32px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.locationMain.expanded {
+  /* Flex 1 handles the expansion, but we keep the class for hook consistency */
 }
 
 .mainHeader {
