@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useState, use, useEffect } from "react";
 import { Star, Send, CheckCircle2, AlertCircle, Loader2, ChevronLeft, Layout, Lock } from "lucide-react";
 import styles from "./Passenger.module.css";
@@ -9,6 +8,7 @@ import { useCreateSubmission, useCreatePublicSubmission } from "@/hooks/useSubmi
 import { FormField, Submission, ReportTemplate, Touchpoint, FeedbackForm, FeedbackFormField } from "@/types/api";
 import { useAuthContext } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import { toast } from "react-hot-toast";
 
 // Normalized Backend Enum Mapping
 const TYPE_THEMES: Record<string, { title: string; subtitle: string; color: string }> = {
@@ -35,6 +35,8 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
   const [submitted, setSubmitted] = useState(false);
   const [submissionRef, setSubmissionRef] = useState("");
   const [formData, setFormData] = useState<Record<string, any>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Handle Draft Recovery and Step Determination
   useEffect(() => {
@@ -112,6 +114,12 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
 
   const handleInputChange = (fieldId: string | number, value: string | number) => {
     setFormData({ ...formData, [fieldId]: value });
+    // Clear error when user types
+    if (errors[fieldId]) {
+      const newErrors = { ...errors };
+      delete newErrors[fieldId];
+      setErrors(newErrors);
+    }
   };
 
   const handleSelectTemplate = (template: ReportTemplate | FeedbackForm | null) => {
@@ -121,6 +129,22 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate all required fields
+    const newErrors: Record<string, string> = {};
+    fields.forEach(field => {
+      if (field.required && !formData[field.id]) {
+        newErrors[field.id] = "This field is required";
+      } else if (field.type === 'email' && formData[field.id] && !/^\S+@\S+\.\S+$/.test(formData[field.id])) {
+        newErrors[field.id] = "Please enter a valid email address";
+      }
+    });
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      toast.error("Please fix the errors in the form before submitting.");
+      return;
+    }
 
     const mutation = isAuthenticated ? createSubMutation : createPublicSubMutation;
     
@@ -152,41 +176,75 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
           submittedAt: new Date().toISOString()
         };
 
+    const loadingToast = toast.loading("Submitting your report...");
+    console.log("Starting submission with payload:", payload);
+
     mutation.mutate(payload as any, {
-      onSuccess: (data: Submission) => {
-        setSubmissionRef(data.uuid || data.id);
-        setSubmitted(true);
-        // Clear draft
-        localStorage.removeItem(`draft_tp_${touchpoint.slug}`);
+      onSuccess: (data: any) => {
+        toast.dismiss(loadingToast);
+        console.log("Submission success handler triggered. Data:", data);
+        
+        try {
+          const result = data?.data || data;
+          const ref = result?.code || result?.uuid || result?.id || "PENDING";
+          
+          toast.success("Report submitted successfully!");
+          
+          setSubmissionRef(ref);
+          setSubmitted(true);
+          console.log("State updated: submitted = true, ref =", ref);
+          
+          // Clear draft
+          localStorage.removeItem(`draft_tp_${touchpoint.slug}`);
+        } catch (err) {
+          console.error("Error in onSuccess handler:", err);
+          setSubmitted(true); // Still try to show success state
+        }
+      },
+      onError: (err: any) => {
+        toast.dismiss(loadingToast);
+        console.error("Submission error handler triggered:", err);
+        const errorMessage = err.response?.data?.message || err.message || "An unexpected error occurred. Please try again.";
+        toast.error(errorMessage);
       }
     });
   };
 
-  if (submitted) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.successCard}>
-          <div className={styles.successIcon} style={{ color: theme.color }}>
-            <CheckCircle2 size={64} />
-          </div>
-          <h1 className={styles.successTitle}>Report Captured</h1>
-          <p className={styles.successText}>
-            Thank you for helping us improve. Your {(selectedTemplate as any)?.title || (selectedTemplate as any)?.name || touchpoint.type.toLowerCase().replace('_', ' ')} has been logged for FAAN review.
-          </p>
-          <div className={styles.refInfo}>
-            <span>REF: {submissionRef.substring(0, 8).toUpperCase()}</span>
-            <span>{new Date().toLocaleDateString()}</span>
-          </div>
-          <button className={styles.doneBtn} onClick={() => window.location.reload()}>
-            Finish
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={styles.container}>
+      {submitted && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.successModal}>
+            <div className={styles.successIcon} style={{ color: theme.color }}>
+              <CheckCircle2 size={80} />
+            </div>
+            <h1 className={styles.successTitle}>Report Captured</h1>
+            <p className={styles.successText}>
+              Thank you for helping us improve. Your {(selectedTemplate as any)?.title || (selectedTemplate as any)?.name || touchpoint.type.toLowerCase().replace('_', ' ')} has been logged successfully for FAAN review.
+            </p>
+            
+            <div className={styles.refInfo}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: '10px', color: '#94a3b8', marginBottom: '2px' }}>REFERENCE NUMBER</span>
+                <span style={{ fontSize: '16px', color: '#1e293b', fontWeight: 800 }}>{submissionRef.toUpperCase()}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                <span style={{ fontSize: '10px', color: '#94a3b8', marginBottom: '2px' }}>SUBMITTED ON</span>
+                <span style={{ fontSize: '14px', color: '#64748b', fontWeight: 600 }}>{new Date().toLocaleDateString()}</span>
+              </div>
+            </div>
+
+            <button 
+              className={styles.submitBtn} 
+              style={{ backgroundColor: '#1e293b', marginTop: '32px' }} 
+              onClick={() => window.location.reload()}
+            >
+              Finish & Close
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className={styles.brandHeader}>
         <div className={styles.logoWrapper}>
           <Image src="/Faan.logo_.png" alt="FAAN Logo" width={80} height={80} />
@@ -270,20 +328,18 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
                     </div>
                   )}
 
-                  {field.type === "textarea" && (
+                   {field.type === "textarea" && (
                     <textarea 
-                      className={styles.textarea}
+                      className={`${styles.textarea} ${errors[field.id] ? styles.inputError : ""}`}
                       placeholder="Provide more details..."
-                      required={field.required}
                       value={formData[field.id] || ""}
                       onChange={(e) => handleInputChange(field.id, e.target.value)}
                     />
                   )}
 
-                  {field.type === "dropdown" && (
+                  {(field.type === "dropdown" || field.type === "select") && (
                     <select 
-                      className={styles.input}
-                      required={field.required}
+                      className={`${styles.input} ${errors[field.id] ? styles.inputError : ""}`}
                       value={formData[field.id] || ""}
                       onChange={(e) => handleInputChange(field.id, e.target.value)}
                     >
@@ -297,12 +353,15 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
                   {(field.type === "text" || field.type === "email" || field.type === "number" || field.type === "date") && (
                     <input 
                       type={field.type} 
-                      className={styles.input}
+                      className={`${styles.input} ${errors[field.id] ? styles.inputError : ""}`}
                       placeholder={field.type === 'date' ? '' : "Type here..."}
-                      required={field.required}
                       value={formData[field.id] || ""}
                       onChange={(e) => handleInputChange(field.id, e.target.value)}
                     />
+                  )}
+
+                  {errors[field.id] && (
+                    <span className={styles.errorMsg}>{errors[field.id]}</span>
                   )}
                 </div>
               ))}

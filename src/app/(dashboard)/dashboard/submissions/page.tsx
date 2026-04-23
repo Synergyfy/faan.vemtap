@@ -282,7 +282,7 @@ export default function SubmissionsPage() {
                   <div className={styles.cardMenuWrapper}>
                     <button
                       className={styles.cardMore}
-                      aria-label={`Actions for ${sub.id}`}
+                      aria-label={`Actions for ${sub.code || sub.id}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         setActiveDropdown(activeDropdown === sub.id ? null : sub.id);
@@ -319,15 +319,16 @@ export default function SubmissionsPage() {
                 </div>
 
                 <div className={styles.deptCardInfo}>
-                  <h3 className={styles.deptCardTitle}>{sub.id}</h3>
-                  <p className={styles.deptCardDesc}>
-                    {sub.type === 'FEEDBACK' ? 'Passenger Feedback' : 
-                     sub.type === 'COMPLAINT' ? 'Complaint Report' :
-                     sub.type === 'INCIDENT' ? 'Incident Report' : sub.type}
-                  </p>
-                  <div className={styles.deptLocationRow}>
-                    <MapPin size={12} />
-                    <span>{typeof sub.location === 'string' ? sub.location : (sub.location as any)?.name || 'Unknown'}</span>
+                  <h3 className={styles.deptCardTitle}>{sub.touchpoint?.title || sub.code || sub.id}</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
+                      {sub.code || 'NO-CODE'}
+                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--brand-green)' }}>
+                      {sub.type === 'FEEDBACK' ? 'Passenger Feedback' : 
+                       sub.type === 'COMPLAINT' ? 'Complaint Report' :
+                       sub.type === 'INCIDENT' ? 'Incident Report' : sub.type}
+                    </span>
                   </div>
                 </div>
 
@@ -380,8 +381,11 @@ export default function SubmissionsPage() {
                 >
                   {detail.priority} Priority
                 </span>
-                <h3 className={styles.modalTitle}>{detail.id}</h3>
-                <p className={styles.modalSubtitle}>Submission details and resolution tracking</p>
+                <h3 className={styles.modalTitle}>{detail.touchpoint?.title || detail.code || detail.id}</h3>
+                <p className={styles.modalSubtitle}>
+                  {detail.code && <strong style={{ color: 'var(--brand-green)', marginRight: '8px' }}>{detail.code}</strong>}
+                  Submission details and resolution tracking
+                </p>
               </div>
               <button className={styles.closeBtn} onClick={() => setSelectedUuid(null)}>
                 <X size={20} />

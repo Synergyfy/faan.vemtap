@@ -48,6 +48,20 @@ export const useCreateReport = () => {
   });
 };
 
+export const useDeleteReport = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/reports/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+      queryClient.invalidateQueries({ queryKey: ['my-reports'] });
+    },
+  });
+};
+
 export const useCreateReportPublic = () => {
   return useMutation({
     mutationFn: async (reportData: Record<string, unknown>) => {
