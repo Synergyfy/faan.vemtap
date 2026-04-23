@@ -22,7 +22,8 @@ import {
   Eye,
   EyeOff,
   Shield,
-  QrCode
+  QrCode,
+  ChevronLeft
 } from "lucide-react";
 import Image from "next/image";
 import styles from "../../Dashboard.module.css";
@@ -33,7 +34,6 @@ import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
 import { useDepartments } from "@/hooks/useDepartments";
-import { useDepartments } from "@/hooks/useDepartments";
 import { useCreateUser } from "@/hooks/useUsers";
 import { Location, Department, Role } from "@/types/api";
 import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
@@ -43,6 +43,7 @@ export default function LocationsPage() {
   const [selectedZone, setSelectedZone] = useState<Department | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   const { data: locationsData, isLoading } = useLocations();
   const { data: departmentsData, isLoading: isDeptsLoading } = useDepartments(
@@ -264,9 +265,19 @@ export default function LocationsPage() {
     <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]}>
       <div className={styles.locationsLayout}>
         {/* SIDEBAR / TREE VIEW */}
-        <aside className={styles.treePanel}>
+        <aside className={`${styles.treePanel} ${isSidebarCollapsed ? styles.collapsed : ""}`}>
           <div className={styles.panelHeader}>
-            <h3 className={styles.panelTitle}>Locations Network</h3>
+            {!isSidebarCollapsed && <h3 className={styles.panelTitle}>Locations Network</h3>}
+            <button 
+              className={styles.collapseToggle} 
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {isSidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+            </button>
+          </div>
+
+          {!isSidebarCollapsed && (
             <div className={styles.panelSearch}>
               <Search size={16} />
               <input 
@@ -276,55 +287,57 @@ export default function LocationsPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-          </div>
+          )}
 
-          <div className={styles.treeView}>
-            {locations.filter(loc => 
-              loc.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-              loc.airportCode.toLowerCase().includes(searchTerm.toLowerCase())
-            ).map((loc) => (
-              <div key={loc.id} className={styles.treeItem}>
-                <div 
-                  className={`${styles.treeHeader} ${selectedLocation?.id === loc.id ? styles.selected : ""}`}
-                  onClick={() => {
-                    setSelectedLocation(loc);
-                    setSelectedZone(null);
-                  }}
-                >
-                  <Plane size={16} className={styles.airportIcon} />
-                  <span>{loc.name}</span>
-                  <span className={styles.airportCodeTag}>{loc.airportCode}</span>
-                </div>
-                
-                {selectedLocation?.id === loc.id && loc.departments && loc.departments.length > 0 && (
-                  <div className={styles.treeSubItems}>
-                    {loc.departments.map((dept) => (
-                      <div 
-                        key={dept.id} 
-                        className={`${styles.treeHeader} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
-                        onClick={() => setSelectedZone(dept as any)}
-                        style={{ fontSize: '13px', paddingLeft: '12px' }}
-                      >
-                        <Building2 size={14} className={styles.terminalIcon} />
-                        <span>{dept.name}</span>
-                      </div>
-                    ))}
+          {!isSidebarCollapsed && (
+            <div className={styles.treeView}>
+              {locations.filter(loc => 
+                loc.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                loc.airportCode.toLowerCase().includes(searchTerm.toLowerCase())
+              ).map((loc) => (
+                <div key={loc.id} className={styles.treeItem}>
+                  <div 
+                    className={`${styles.treeHeader} ${selectedLocation?.id === loc.id ? styles.selected : ""}`}
+                    onClick={() => {
+                      setSelectedLocation(loc);
+                      setSelectedZone(null);
+                    }}
+                  >
+                    <Plane size={16} className={styles.airportIcon} />
+                    <span>{loc.name}</span>
+                    <span className={styles.airportCodeTag}>{loc.airportCode}</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  
+                  {selectedLocation?.id === loc.id && loc.departments && loc.departments.length > 0 && (
+                    <div className={styles.treeSubItems}>
+                      {loc.departments.map((dept) => (
+                        <div 
+                          key={dept.id} 
+                          className={`${styles.treeHeader} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
+                          onClick={() => setSelectedZone(dept as any)}
+                          style={{ fontSize: '13px', paddingLeft: '12px' }}
+                        >
+                          <Building2 size={14} className={styles.terminalIcon} />
+                          <span>{dept.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
 
-            {locations.length === 0 && !isLoading && (
-              <div className={styles.emptyList}>No locations found</div>
-            )}
-            {isLoading && (
-              <div className={styles.emptyList}>Loading locations...</div>
-            )}
-          </div>
+              {locations.length === 0 && !isLoading && (
+                <div className={styles.emptyList}>No locations found</div>
+              )}
+              {isLoading && (
+                <div className={styles.emptyList}>Loading locations...</div>
+              )}
+            </div>
+          )}
         </aside>
 
         {/* MAIN VIEW */}
-        <main className={styles.locationMain} onClick={(e) => e.stopPropagation()}>
+        <main className={`${styles.locationMain} ${isSidebarCollapsed ? styles.expanded : ""}`} onClick={(e) => e.stopPropagation()}>
           {/* Hero Section */}
           <div className={styles.deptHero}>
             <div className={styles.deptHeroMain}>

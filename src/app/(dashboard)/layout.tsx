@@ -23,7 +23,9 @@ import {
   QrCode,
   FileBarChart,
   Menu,
-  X
+  X,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import styles from "./Dashboard.module.css";
@@ -68,6 +70,7 @@ function DashboardLayoutContent({
   const [globalSearch, setGlobalSearch] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchHighlight, setSearchHighlight] = useState(0);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
 
   useEffect(() => {
@@ -177,26 +180,34 @@ function DashboardLayoutContent({
   })).filter(group => group.items.length > 0);
 
   return (
-    <div className={styles.container}>
+    <div className={`${styles.container} ${isSidebarCollapsed ? styles.collapsedSidebar : ""}`}>
       {/* Sidebar */}
-      <aside className={styles.sidebar}>
+      <aside className={`${styles.sidebar} ${isSidebarCollapsed ? styles.sidebarHidden : ""}`}>
         <div className={styles.logoContainer}>
-          <Image 
-            src="/Faan.logo_.png" 
-            alt="FAAN Logo" 
-            width={140} 
-            height={50} 
-            className={styles.sidebarLogo}
-            priority
-          />
+          {!isSidebarCollapsed ? (
+            <Image 
+              src="/Faan.logo_.png" 
+              alt="FAAN Logo" 
+              width={140} 
+              height={50} 
+              className={styles.sidebarLogo}
+              priority
+            />
+          ) : (
+            <div className={styles.logoMini}>
+              <Image src="/Faan.logo_.png" alt="" width={32} height={32} />
+            </div>
+          )}
         </div>
 
         <nav className={styles.nav}>
           {filteredNav.map((group, groupIdx) => (
             <div key={group.group} className={styles.navGroup}>
-              <div style={{ padding: '24px 16px 8px', fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {group.group}
-              </div>
+              {!isSidebarCollapsed && (
+                <div style={{ padding: '24px 16px 8px', fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {group.group}
+                </div>
+              )}
               {group.items.map((item) => {
                 const isExpanded = expandedMenus.includes(item.name);
                 const hasSubItems = item.subItems && item.subItems.length > 0;
@@ -205,7 +216,7 @@ function DashboardLayoutContent({
                 
                 return (
                   <div key={item.name} className={styles.navGroupItem}>
-                    {hasSubItems ? (
+                    {hasSubItems && !isSidebarCollapsed ? (
                       <>
                         <button 
                           onClick={() => toggleMenu(item.name)}
@@ -252,10 +263,11 @@ function DashboardLayoutContent({
                       <Link 
                         href={item.href} 
                         className={`${styles.navItem} ${isActive ? styles.navItemActive : ""}`}
+                        title={isSidebarCollapsed ? item.name : ""}
                       >
                         <Icon size={20} />
-                        <span style={{ fontSize: '14px', fontWeight: 600 }}>{item.name}</span>
-                        {isActive && (
+                        {!isSidebarCollapsed && <span style={{ fontSize: '14px', fontWeight: 600 }}>{item.name}</span>}
+                        {isActive && !isSidebarCollapsed && (
                           <motion.div 
                             layoutId="navActive"
                             className={styles.activeIndicator}
@@ -271,17 +283,24 @@ function DashboardLayoutContent({
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <button onClick={handleLogout} className={styles.logoutButton}>
+          <button onClick={handleLogout} className={styles.logoutButton} title={isSidebarCollapsed ? "Logout" : ""}>
             <LogOut size={20} />
-            <span>Logout</span>
+            {!isSidebarCollapsed && <span>Logout</span>}
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className={styles.mainWrapper}>
+      <main className={`${styles.mainWrapper} ${isSidebarCollapsed ? styles.mainExpanded : ""}`}>
         <header className={`${styles.header} ${isScrolled ? styles.headerScrolled : ""}`}>
           <div className={styles.headerLeft}>
+            <button 
+              className={styles.sidebarToggle}
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {isSidebarCollapsed ? <Menu size={20} /> : <ChevronLeft size={20} />}
+            </button>
             <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }} ref={searchRef}>
               <div className={styles.searchBar}>
                 <Search size={18} className={styles.searchIcon} />

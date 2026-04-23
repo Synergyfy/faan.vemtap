@@ -169,11 +169,37 @@ function SummaryReportsContents() {
     }
   };
 
-  const handleWhatsAppShare = (id: string) => {
-    const url = `${API_URL}/system-reports/${id}/pdf`;
-    const message = `Here is the latest ${reportType} report from FAAN VEMTAP: ${url}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
-    toast.success("Prepared for WhatsApp sharing.");
+  const handleWhatsAppShare = async (id: string) => {
+    try {
+      toast.loading("Preparing PDF for sharing...", { id: 'waShare' });
+      const response = await api.get(`/system-reports/${id}/pdf`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const file = new File([blob], `FAAN-Report-${id}.pdf`, { type: 'application/pdf' });
+
+      // Check if Web Share API supports file sharing
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `FAAN ${reportType} Report`,
+          text: `Here is the latest ${reportType} report from FAAN VEMTAP.`,
+        });
+        toast.success("Ready for sharing!", { id: 'waShare' });
+      } else {
+        // Fallback for browsers that don't support file sharing (mostly Desktop browsers)
+        const url = `${API_URL}/system-reports/${id}/pdf`;
+        const message = `Here is the latest ${reportType} report from FAAN VEMTAP: ${url}`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+        toast.info("File sharing not supported on this browser. Opening WhatsApp with report link.", { id: 'waShare' });
+      }
+    } catch (err) {
+      console.error("WhatsApp share failed", err);
+      // If it's an AbortError (user cancelled), we don't need to show an error toast
+      if (err instanceof Error && err.name !== 'AbortError') {
+        toast.error("Failed to share via WhatsApp.", { id: 'waShare' });
+      } else {
+        toast.dismiss('waShare');
+      }
+    }
   };
 
   const renderDateControls = () => {
