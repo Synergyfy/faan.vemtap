@@ -9,6 +9,7 @@ export const useSubmissions = (params?: Record<string, unknown>) => {
       const { data } = await api.get<ApiResponse<PaginatedResponse<SubmissionListItem>>>('/submissions', { params });
       return data.data;
     },
+    refetchInterval: 5000, // Poll every 5 seconds
   });
 };
 
