@@ -328,8 +328,9 @@ export interface Touchpoint {
 // --- Module: Submissions ---
 
 export interface Submission {
-  id: string; // Submission Code e.g. "SUB-8812"
-  uuid: string; // The actual UUID
+  id: string; // The UUID
+  code: string; // Submission Code e.g. "SUB-8812"
+  uuid?: string; // Optional fallback
   touchpointId: string;
   locationId: string;
   departmentId: string | null;
@@ -339,10 +340,11 @@ export interface Submission {
   type: TouchpointType; // Derived from touchpoint
   /** @deprecated Use formResponses */
   formData: Record<string, any>;
-  formResponses?: any[]; // Keep as any[] for now to accommodate the backend's custom mapping
+  formResponses?: FeedbackResponse[]; 
   fieldResponses?: any[]; // To satisfy current frontend usage
   submittedAt: string;
   createdAt: string;
+  touchpoint?: Touchpoint;
   location?: string | { id: string; name: string; airportCode: string; city: string; };
   department?: string | { id: string; name: string; code: string; };
   internalNotes?: Array<{
