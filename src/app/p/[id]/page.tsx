@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, use, useEffect } from "react";
-import { Star, Send, CheckCircle2, AlertCircle, Loader2, ChevronLeft, Layout, Lock } from "lucide-react";
+import { Star, Send, CheckCircle2, AlertCircle, Loader2, ChevronLeft, Layout, Lock, MessageCircle, X } from "lucide-react";
 import styles from "./Passenger.module.css";
 import Image from "next/image";
 import { useTouchpointBySlug } from "@/hooks/useTouchpoints";
@@ -37,6 +37,66 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{sender: 'bot'|'user', text: string}[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [hasStartedChat, setHasStartedChat] = useState(false);
+
+  useEffect(() => {
+    if (isChatOpen && !hasStartedChat) {
+      setHasStartedChat(true);
+      setIsTyping(true);
+      setTimeout(() => {
+        setIsTyping(false);
+        const fullText = "How can I help you today?";
+        setChatMessages([{ sender: 'bot', text: "" }]);
+        let i = 0;
+        const interval = setInterval(() => {
+          setChatMessages((prev) => {
+            const newMessages = [...prev];
+            if (newMessages.length > 0) {
+              newMessages[0] = { sender: 'bot', text: fullText.substring(0, i + 1) };
+            }
+            return newMessages;
+          });
+          i++;
+          if (i === fullText.length) clearInterval(interval);
+        }, 30);
+      }, 500);
+    }
+  }, [isChatOpen, hasStartedChat]);
+
+  const handleSendMessage = () => {
+    if (!chatInput.trim()) return;
+    
+    const userText = chatInput;
+    setChatMessages((prev) => [...prev, { sender: 'user', text: userText }]);
+    setChatInput("");
+    setIsTyping(true);
+
+    setTimeout(() => {
+      setIsTyping(false);
+      const fullText = `We are still in demo mode, I will be brought to live when devs are done building me. (You said: "${userText}")`;
+      
+      setChatMessages((prev) => [...prev, { sender: 'bot', text: "" }]);
+      
+      let i = 0;
+      const interval = setInterval(() => {
+        setChatMessages((prev) => {
+          const newMessages = [...prev];
+          const lastIndex = newMessages.length - 1;
+          newMessages[lastIndex] = { 
+            ...newMessages[lastIndex], 
+            text: fullText.substring(0, i + 1)
+          };
+          return newMessages;
+        });
+        i++;
+        if (i === fullText.length) clearInterval(interval);
+      }, 30);
+    }, 1000);
+  };
 
   // Handle Draft Recovery and Step Determination
   useEffect(() => {
@@ -387,6 +447,89 @@ export default function PassengerFeedbackPage({ params }: { params: Promise<{ id
           <span>Terms</span> • <span>Privacy Policy</span> • <span>FAAN.gov.ng</span>
         </div>
       </footer>
+
+      {/* Floating Chat */}
+      <div style={{ position: 'fixed', bottom: '20px', right: '20px', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+        {isChatOpen && (
+          <div style={{ 
+            backgroundColor: '#fff', 
+            borderRadius: '12px', 
+            boxShadow: '0 10px 25px rgba(0,0,0,0.1)', 
+            padding: '20px', 
+            marginBottom: '16px', 
+            width: '300px',
+            border: '1px solid #e2e8f0'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '8px', height: '8px', backgroundColor: '#10b981', borderRadius: '50%' }}></div>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>Support Agent</span>
+              </div>
+              <button onClick={() => setIsChatOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ maxHeight: '250px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px' }}>
+              {chatMessages.map((msg, idx) => (
+                <div key={idx} style={{ 
+                  alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                  backgroundColor: msg.sender === 'user' ? theme.color : '#f1f5f9', 
+                  color: msg.sender === 'user' ? 'white' : '#334155',
+                  padding: '8px 12px', 
+                  borderRadius: '8px', 
+                  fontSize: '14px',
+                  maxWidth: '85%',
+                  lineHeight: '1.4'
+                }}>
+                  {msg.text}
+                </div>
+              ))}
+              {isTyping && (
+                <div style={{ alignSelf: 'flex-start', color: '#94a3b8', fontSize: '12px', fontStyle: 'italic', padding: '4px' }}>
+                  Agent is typing...
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+              <input 
+                type="text" 
+                placeholder="Type your message..." 
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px' }}
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+              />
+              <button 
+                onClick={handleSendMessage}
+                style={{ backgroundColor: theme.color, color: 'white', border: 'none', borderRadius: '6px', padding: '8px 12px', cursor: 'pointer' }}
+              >
+                <Send size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+        
+        <button 
+          onClick={() => setIsChatOpen(!isChatOpen)}
+          style={{
+            backgroundColor: theme.color,
+            color: 'white',
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            border: 'none',
+            cursor: 'pointer',
+            transition: 'transform 0.2s',
+            transform: isChatOpen ? 'scale(0.9)' : 'scale(1)'
+          }}
+        >
+          {isChatOpen ? <X size={28} /> : <MessageCircle size={28} />}
+        </button>
+      </div>
     </div>
   );
 }

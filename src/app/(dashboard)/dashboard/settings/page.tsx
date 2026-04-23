@@ -443,12 +443,13 @@ export default function SettingsPage() {
                    </div>
 
                    <div className={styles.formGroup}>
-                      <label className={styles.formLabel}>Contact Email</label>
+                      <label className={styles.formLabel}>Location Name</label>
                       <input 
-                        type="email" 
-                        value={locationInfo.email}
-                        onChange={e => setLocationInfo({...locationInfo, email: e.target.value})}
+                        type="text" 
+                        value={profile?.location?.name || ""}
                         className={styles.modalInput}
+                        disabled
+                        style={{ background: '#f1f5f9', cursor: 'not-allowed' }}
                       />
                    </div>
 
