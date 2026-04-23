@@ -32,16 +32,21 @@ import { useRole } from "@/context/RoleContext";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { useLocations, useCreateLocation, useDeleteLocation } from "@/hooks/useLocations";
+import { useDepartments } from "@/hooks/useDepartments";
 import { useCreateUser } from "@/hooks/useUsers";
 import { Location, Department, Role } from "@/types/api";
 import DeleteConfirmationModal from "@/components/displays/DeleteConfirmationModal";
 
-
 export default function LocationsPage() {
   const { currentRole, currentLocation, locationName: roleLocationName } = useRole();
-  const { data: locationsData, isLoading } = useLocations();
   const [selectedZone, setSelectedZone] = useState<Department | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const { data: locationsData, isLoading } = useLocations();
+  const { data: departmentsData, isLoading: isDeptsLoading } = useDepartments(
+    selectedLocation ? { locationId: selectedLocation.id } : undefined
+  );
 
   // Sync selectedLocation with global currentLocation from header switcher
   useEffect(() => {
@@ -63,10 +68,6 @@ export default function LocationsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [locationAdmins, setLocationAdmins] = useState([
-    { id: 1, name: "Engr. Jide Ojo", email: "jide.ojo@faan.gov.ng", status: "Accepted", phone: "+234 802 345 6789" },
-    { id: 2, name: "Mrs. Amina Bello", email: "amina.bello@faan.gov.ng", status: "Pending", phone: "+234 803 111 2222" },
-  ]);
   const [editingAdmin, setEditingAdmin] = useState<any>(null);
   const [deleteModal, setDeleteModal] = useState<{
     isOpen: boolean;
@@ -146,9 +147,8 @@ export default function LocationsPage() {
       instanceCount: 1,
       affectedItems: [],
       onConfirm: () => {
-        // Since we're using local state for now
-        setLocationAdmins(prev => prev.filter(a => a.id !== admin.id));
-        toast.success(`${admin.name} removed from ${selectedLocation?.name}`);
+        // Implement remove admin mutation if available
+        toast.info("Delete functionality for admins to be implemented via User Management");
         setDeleteModal(prev => ({ ...prev, isOpen: false }));
       }
     });
@@ -174,13 +174,7 @@ export default function LocationsPage() {
     }
 
     if (editingAdmin) {
-      // Mock update for local state
-      setLocationAdmins(prev => prev.map(a => 
-        a.id === editingAdmin.id 
-          ? { ...a, name: newAdmin.name, email: newAdmin.email } 
-          : a
-      ));
-      toast.success(`Admin updated successfully`);
+      toast.info("Update functionality for admins to be implemented via User Management module.");
       setIsAdminModalOpen(false);
       setEditingAdmin(null);
       setNewAdmin({ name: '', email: '', password: '', role: UserRole.LOCATION_ADMIN });
@@ -261,12 +255,72 @@ export default function LocationsPage() {
 
 
   const totalLocations = locations.length;
-  const totalDepartments = locations.reduce((sum, loc) => sum + (loc._count?.departments || loc.departments?.length || 0), 0);
+  const departments = departmentsData?.data || [];
+  const totalDepartments = departmentsData?.meta?.total || departments.length;
   const totalTouchpoints = locations.reduce((sum, loc) => sum + (loc._count?.touchpoints || 0), 0);
 
   return (
     <RoleGuard allowedRoles={[UserRole.SUPER_ADMIN, UserRole.LOCATION_ADMIN]}>
       <div className={styles.locationsLayout}>
+        {/* SIDEBAR / TREE VIEW */}
+        <aside className={styles.treePanel}>
+          <div className={styles.panelHeader}>
+            <h3 className={styles.panelTitle}>Locations Network</h3>
+            <div className={styles.panelSearch}>
+              <Search size={16} />
+              <input 
+                type="text" 
+                placeholder="Search locations..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className={styles.treeView}>
+            {locations.filter(loc => 
+              loc.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+              loc.airportCode.toLowerCase().includes(searchTerm.toLowerCase())
+            ).map((loc) => (
+              <div key={loc.id} className={styles.treeItem}>
+                <div 
+                  className={`${styles.treeHeader} ${selectedLocation?.id === loc.id ? styles.selected : ""}`}
+                  onClick={() => {
+                    setSelectedLocation(loc);
+                    setSelectedZone(null);
+                  }}
+                >
+                  <Plane size={16} className={styles.airportIcon} />
+                  <span>{loc.name}</span>
+                  <span className={styles.airportCodeTag}>{loc.airportCode}</span>
+                </div>
+                
+                {selectedLocation?.id === loc.id && loc.departments && loc.departments.length > 0 && (
+                  <div className={styles.treeSubItems}>
+                    {loc.departments.map((dept) => (
+                      <div 
+                        key={dept.id} 
+                        className={`${styles.treeHeader} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
+                        onClick={() => setSelectedZone(dept as any)}
+                        style={{ fontSize: '13px', paddingLeft: '12px' }}
+                      >
+                        <Building2 size={14} className={styles.terminalIcon} />
+                        <span>{dept.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {locations.length === 0 && !isLoading && (
+              <div className={styles.emptyList}>No locations found</div>
+            )}
+            {isLoading && (
+              <div className={styles.emptyList}>Loading locations...</div>
+            )}
+          </div>
+        </aside>
 
         {/* MAIN VIEW */}
         <main className={styles.locationMain} onClick={(e) => e.stopPropagation()}>
@@ -376,7 +430,7 @@ export default function LocationsPage() {
                 </div>
                 <div className={styles.statInfo}>
                   <span className={styles.statLabel}>Staff Count</span>
-                  <h3 className={styles.statValue}>{selectedZone?.staffCount || (selectedZone?._count as any)?.users || 0}</h3>
+                  <h3 className={styles.statValue}>{selectedZone?.staffCount || 0}</h3>
                 </div>
               </div>
 
@@ -386,7 +440,7 @@ export default function LocationsPage() {
                 </div>
                 <div className={styles.statInfo}>
                   <span className={styles.statLabel}>Touchpoints</span>
-                  <h3 className={styles.statValue}>{selectedZone?.touchpointCount || selectedZone?._count?.touchpoints || 0}</h3>
+                  <h3 className={styles.statValue}>{selectedZone?.touchpointCount || 0}</h3>
                 </div>
               </div>
 
@@ -430,93 +484,102 @@ export default function LocationsPage() {
             </div>
 
             <div className={styles.resourceItems} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', marginTop: '20px' }}>
-              {selectedLocation ? (
-                selectedLocation.departments?.length ? (
-                  selectedLocation.departments.map((dept) => (
-                    <div 
-                      key={dept.id} 
-                      className={`${styles.resourceItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
-                      style={{ 
-                        flexDirection: 'column', 
-                        alignItems: 'flex-start', 
-                        padding: '20px',
-                        cursor: 'pointer',
-                        transition: 'transform 0.2s, box-shadow 0.2s',
-                        background: selectedZone?.id === dept.id ? 'var(--brand-green-light)' : '#ffffff'
-                      }}
-                      onClick={() => setSelectedZone(dept as any)}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '16px' }}>
-                        <div className={styles.resourceIcon} style={{ background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb' }}>
-                          <Building2 size={20} />
-                        </div>
-                        <div className={`${styles.statusBadge} ${styles.neutral}`}>
-                          {dept.code}
-                        </div>
+              {departments.length ? (
+                departments.map((dept: any) => (
+                  <div 
+                    key={dept.id} 
+                    className={`${styles.resourceItem} ${selectedZone?.id === dept.id ? styles.selected : ""}`}
+                    style={{ 
+                      flexDirection: 'column', 
+                      alignItems: 'flex-start', 
+                      padding: '20px',
+                      cursor: 'pointer',
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      background: selectedZone?.id === dept.id ? 'var(--brand-green-light)' : '#ffffff'
+                    }}
+                    onClick={() => setSelectedZone(dept as any)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '16px' }}>
+                      <div className={styles.resourceIcon} style={{ background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb' }}>
+                        <Building2 size={20} />
                       </div>
-                      
-                      <h4 style={{ fontSize: '17px', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>{dept.name}</h4>
-                      <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>{(dept as any).responsibility || "Operational department"}</p>
-                      
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%' }}>
-                        <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
-                          <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Staff</div>
-                          <div style={{ fontSize: '16px', fontWeight: 700, color: '#334155' }}>{dept._count?.users || 0}</div>
-                        </div>
-                        <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
-                          <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Touchpoints</div>
-                          <div style={{ fontSize: '16px', fontWeight: 700, color: '#334155' }}>{dept._count?.touchpoints || 0}</div>
-                        </div>
+                      <div className={`${styles.statusBadge} ${styles.neutral}`}>
+                        {dept.code}
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div style={{ gridColumn: '1 / -1', padding: '60px 20px', textAlign: 'center', background: '#f8fafc', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
-                    <Building size={48} style={{ color: '#cbd5e1', marginBottom: '16px' }} />
-                    <h4 style={{ color: '#475569', fontWeight: 600 }}>No Departments Found</h4>
-                    <p style={{ color: '#94a3b8', fontSize: '14px', marginTop: '4px' }}>There are no departments registered for this location yet.</p>
+                    
+                    <h4 style={{ fontSize: '17px', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>{dept.name}</h4>
+                    {dept.location?.name && !selectedLocation && (
+                      <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--brand-green)', marginBottom: '4px' }}>{dept.location.name}</p>
+                    )}
+                    <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>{dept.responsibility || "Operational department"}</p>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%' }}>
+                      <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Staff</div>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: '#334155' }}>{dept.staffCount || 0}</div>
+                      </div>
+                      <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Touchpoints</div>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: '#334155' }}>{dept.touchpointCount || 0}</div>
+                      </div>
+                    </div>
                   </div>
-                )
+                ))
               ) : (
                 <div style={{ gridColumn: '1 / -1', padding: '60px 20px', textAlign: 'center', background: '#f8fafc', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
-                  <MapPin size={48} style={{ color: '#cbd5e1', marginBottom: '16px' }} />
-                  <h4 style={{ color: '#475569', fontWeight: 600 }}>Select a Location</h4>
-                  <p style={{ color: '#94a3b8', fontSize: '14px', marginTop: '4px' }}>Pick a location from the tree view to see its departmental breakdown.</p>
+                  <Building size={48} style={{ color: '#cbd5e1', marginBottom: '16px' }} />
+                  <h4 style={{ color: '#475569', fontWeight: 600 }}>No Departments Found</h4>
+                  <p style={{ color: '#94a3b8', fontSize: '14px', marginTop: '4px' }}>There are no departments registered yet.</p>
                 </div>
               )}
             </div>
           </section>
 
           {/* ADMINS SECTION */}
-          {selectedLocation && (
             <section className={styles.heatmapSection} style={{ marginTop: '32px', marginBottom: '40px' }}>
               <div className={styles.sectionHeader}>
                 <div>
-                  <h3 className={styles.sectionTitle}>Location Administrators</h3>
-                  <p className={styles.sectionSubtitle}>Accountable officials for {selectedLocation.name}.</p>
+                  <h3 className={styles.sectionTitle}>
+                    {selectedLocation ? "Location Administrators" : "Network Administrators Overview"}
+                  </h3>
+                  <p className={styles.sectionSubtitle}>
+                    {selectedLocation 
+                      ? `Accountable officials for ${selectedLocation.name}.`
+                      : "Aggregated list of administrators across the entire FAAN network."
+                    }
+                  </p>
                 </div>
-                <button 
-                  className={styles.createButton} 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsAdminModalOpen(true);
-                  }}
-                  style={{ padding: '8px 16px', height: 'auto' }}
-                >
-                  <Plus size={16} />
-                  <span>Assign Admin</span>
-                </button>
+                {selectedLocation && (
+                  <button 
+                    className={styles.createButton} 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsAdminModalOpen(true);
+                    }}
+                    style={{ padding: '8px 16px', height: 'auto' }}
+                  >
+                    <Plus size={16} />
+                    <span>Assign Admin</span>
+                  </button>
+                )}
               </div>
 
               <div className={styles.resourceItems} style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {locationAdmins.map((admin) => (
+                {(selectedLocation 
+                  ? (selectedLocation as any).admins || []
+                  : locations.flatMap(loc => (loc as any).admins?.map((a: any) => ({ ...a, locationName: loc.name })) || [])
+                ).map((admin: any) => (
                   <div key={admin.id} className={styles.resourceItem} style={{ padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
                     <div className={styles.resourceIcon} style={{ background: 'rgba(21, 115, 71, 0.08)', color: 'var(--brand-green)', width: '40px', height: '40px' }}>
                       <Shield size={20} />
                     </div>
                     <div className={styles.resourceInfo}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <strong style={{ fontSize: '15px', color: '#1e293b' }}>{admin.name}</strong>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <strong style={{ fontSize: '15px', color: '#1e293b' }}>{admin.firstName} {admin.lastName}</strong>
+                          {!selectedLocation && <span style={{ fontSize: '11px', color: 'var(--brand-green)', fontWeight: 600 }}>{admin.locationName}</span>}
+                        </div>
                         <span style={{ 
                           fontSize: '11px', 
                           padding: '2px 10px', 
@@ -524,48 +587,50 @@ export default function LocationsPage() {
                           fontWeight: 700,
                           textTransform: 'uppercase',
                           letterSpacing: '0.5px',
-                          background: admin.status === 'Accepted' ? '#dcfce7' : '#fff9c2',
-                          color: admin.status === 'Accepted' ? '#15803d' : '#854d0e',
-                          border: admin.status === 'Accepted' ? '1px solid #b7e4c7' : '1px solid #fde68a'
+                          background: admin.isActive ? '#dcfce7' : '#fee2e2',
+                          color: admin.isActive ? '#15803d' : '#b91c1c',
+                          border: admin.isActive ? '1px solid #b7e4c7' : '1px solid #fecaca',
+                          marginLeft: 'auto'
                         }}>
-                          {admin.status}
+                          {admin.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </div>
                       <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px', display: 'flex', gap: '12px' }}>
                         <span>{admin.email}</span>
-                        <span style={{ color: '#cbd5e1' }}>|</span>
-                        <span>{admin.phone}</span>
+                        {admin.phone && (
+                          <>
+                            <span style={{ color: '#cbd5e1' }}>|</span>
+                            <span>{admin.phone}</span>
+                          </>
+                        )}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button 
-                        className={styles.resourceRemove} 
-                        style={{ background: '#f8fafc' }}
-                        onClick={() => handleEditAdmin(admin)}
-                      >
-                        <Edit size={14} />
-                      </button>
-                      <button 
-                        className={styles.resourceRemove} 
-                        style={{ color: '#ef4444', background: '#fef2f2' }}
-                        onClick={() => handleDeleteAdmin(admin)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                    {selectedLocation && (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button 
+                          className={styles.resourceRemove} 
+                          style={{ background: '#f8fafc' }}
+                          onClick={() => handleEditAdmin(admin)}
+                        >
+                          <Edit size={14} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
 
-                {locationAdmins.length === 0 && (
+                {!(selectedLocation 
+                  ? (selectedLocation as any).admins?.length
+                  : locations.some(loc => (loc as any).admins?.length)
+                ) && (
                   <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '20px', border: '2px dashed #e2e8f0' }}>
                     <Users size={32} style={{ color: '#94a3b8', marginBottom: '12px' }} />
                     <p style={{ color: '#64748b', fontWeight: 500 }}>No administrators assigned yet</p>
-                    <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Assign an official to manage this location's operations.</p>
+                    <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Assign an official to manage operations.</p>
                   </div>
                 )}
               </div>
             </section>
-          )}
         </main>
       </div>
 
